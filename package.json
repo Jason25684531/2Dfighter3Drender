@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "npm run typecheck && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --exclude src/game/system/**/*.system.test.ts",
+    "test:system": "node scripts/test-system.mjs"
   },
   "dependencies": {
     "phaser": "^3.90.0"

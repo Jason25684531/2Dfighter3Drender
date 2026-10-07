@@ -3,8 +3,9 @@ import { AppScene } from '../scenes/AppScene'
 import { BootScene } from '../scenes/BootScene'
 import type { AppStateMachine } from '../state/AppStateMachine'
 import type { UIFramework } from '../ui/UIFramework'
+import type { ExperiencePersistence } from '../app/ExperiencePersistence'
 
-export const createGameConfig = (appStateMachine: AppStateMachine, ui: UIFramework): Phaser.Types.Core.GameConfig => ({
+export const createGameConfig = (appStateMachine: AppStateMachine, ui: UIFramework, persistence?: ExperiencePersistence): Phaser.Types.Core.GameConfig => ({
   type: Phaser.AUTO,
   parent: 'app',
   width: 1920,
@@ -14,5 +15,5 @@ export const createGameConfig = (appStateMachine: AppStateMachine, ui: UIFramewo
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [BootScene, new AppScene(appStateMachine, ui)],
+  scene: [BootScene, new AppScene(appStateMachine, ui, persistence)],
 })
