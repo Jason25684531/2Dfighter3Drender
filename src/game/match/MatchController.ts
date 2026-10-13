@@ -14,7 +14,7 @@ const neutral: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: fa
 
 export class MatchController {
   readonly world: CombatWorld
-  readonly ai = new EnemyAI()
+  readonly ai: EnemyAI
   private matchState: MatchState = 'READY'
   private roundNumber = 1
   private playerRoundWins = 0
@@ -29,7 +29,7 @@ export class MatchController {
   private readonly roundSummaries: RoundSummary[] = []
   private roundStartTick = 0
 
-  constructor(config: CombatConfig = DEFAULT_COMBAT_CONFIG) { this.world = new CombatWorld(config) }
+  constructor(config: CombatConfig = DEFAULT_COMBAT_CONFIG) { this.world = new CombatWorld(config); this.ai = new EnemyAI(config) }
 
   start(): void { this.resetMatch(); this.startRound() }
   resetMatch(): void { this.world.reset(); this.ai.reset(); this.matchState = 'READY'; this.roundNumber = 1; this.playerRoundWins = 0; this.enemyRoundWins = 0; this.remainingTicks = ROUND_TICKS; this.winner = undefined; this.finishReason = undefined; this.drawRetries = 0; this.maxPlayerCombo = 0; this.roundMaxCombo = 0; this.roundWinner = undefined; this.roundSummaries.length = 0; this.roundStartTick = 0 }

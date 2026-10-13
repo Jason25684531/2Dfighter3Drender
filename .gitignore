@@ -11,6 +11,9 @@ doc/
 .cursor/
 .codex/
 openspec/*
+!openspec/changes/
+openspec/changes/*
+!openspec/changes/fix-match-persistence-lifecycle/
 
 # Python
 venv/
@@ -85,3 +88,8 @@ reports/*
 outputs/*
 docs/research-publication/*
 docs/handoff/*
+
+Char_Aassest/*
+public/*
+sample_UIUX/*
+openspec/*

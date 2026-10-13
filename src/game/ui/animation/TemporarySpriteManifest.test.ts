@@ -1,0 +1,27 @@
+import { describe, expect, it } from 'vitest'
+import { CombatWorld } from '../../combat/CombatWorld'
+import { characterChoices } from '../ViewModels'
+import { spriteActionFor, spriteActions, spriteFrameCount, spriteFrameFor, spriteFrameUrl, spriteIds } from './TemporarySpriteManifest'
+
+describe('temporary sprite presentation', () => {
+  it('maps exactly three presets to complete local frame sets and keeps CUSTOM as fallback', () => {
+    expect(characterChoices().map((choice) => choice.spriteId)).toEqual(['aria', 'kael', 'riven', undefined])
+    const urls = spriteIds.flatMap((id) => spriteActions.flatMap((action) => Array.from({ length: spriteFrameCount(action) }, (_, frame) => spriteFrameUrl(id, action, frame))))
+    expect(urls).toHaveLength(72)
+    expect(new Set(urls).size).toBe(urls.length)
+    const files = Object.keys(import.meta.glob('../../../../public/test-assets/characters/{aria,kael,riven}/**/*.png'))
+    expect(files.map((path) => path.slice(path.indexOf('/test-assets/'))).sort()).toEqual(urls.sort())
+  })
+
+  it('projects existing combat states and attack phases to frames without mutating combat', () => {
+    const world = new CombatWorld(); const fighter = world.getFighter('PLAYER')
+    expect(spriteActionFor(fighter)).toBe('idle')
+    const walk = { ...fighter, state: 'WALK' as const }; expect(spriteActionFor(walk)).toBe('walk')
+    const jump = { ...fighter, grounded: false }; expect(spriteActionFor(jump)).toBe('jump')
+    const hurt = { ...fighter, state: 'HIT_STUN' as const }; expect(spriteActionFor(hurt)).toBe('hurt')
+    expect(spriteFrameFor({ ...fighter, attackPhase: 'STARTUP', attackTicks: 1 }, 'attack', 0)).toBe(0)
+    expect(spriteFrameFor({ ...fighter, attackPhase: 'ACTIVE', attackTicks: 1 }, 'attack', 0)).toBe(2)
+    expect(spriteFrameFor({ ...fighter, attackPhase: 'RECOVERY', attackTicks: 5 }, 'attack', 0)).toBe(5)
+    expect(world.getFighter('PLAYER')).toEqual(fighter)
+  })
+})

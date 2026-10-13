@@ -17,6 +17,17 @@ describe('EnemyAI and MatchController', () => {
     const ai2 = new EnemyAI(); const a = Array.from({ length: 10 }, () => ai2.getIntent(close.getSnapshot())); const ai3 = new EnemyAI(); const b = Array.from({ length: 10 }, () => ai3.getIntent(close.getSnapshot())); expect(a).toEqual(b)
   })
 
+  it('closes into actual hit range and damages a neutral player from either side', () => {
+    for (const positions of [{ PLAYER: 560, ENEMY: 1360 }, { PLAYER: 1360, ENEMY: 560 }]) {
+      const configured = new MatchController({ ...closeConfig(10), initialPositions: positions })
+      configured.start()
+      for (let tick = 0; tick < 120 && configured.getSnapshot().world.fighters.PLAYER.currentHP === 100; tick += 1) configured.tick()
+      const snapshot = configured.getSnapshot()
+      expect(snapshot.world.fighters.PLAYER.currentHP).toBeLessThan(100)
+      expect(snapshot.world.fighters.ENEMY.facing).toBe(positions.ENEMY > positions.PLAYER ? 'LEFT' : 'RIGHT')
+    }
+  })
+
   it('starts with 1440 ticks and decrements only on fighting ticks', () => {
     const match = new MatchController(closeConfig()); expect(match.getSnapshot().remainingTicks).toBe(ROUND_TICKS); match.start(); expect(match.getSnapshot().matchState).toBe('FIGHTING'); match.tick(); expect(match.getSnapshot().remainingTicks).toBe(ROUND_TICKS - 1); expect(match.getSnapshot().world.tick).toBe(1)
   })

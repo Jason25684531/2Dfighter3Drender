@@ -2,7 +2,7 @@ import type { SessionStatus } from '../api/ApiTypes'
 
 export type PersistenceState = 'IDLE' | 'SAVING' | 'SAVED' | 'ERROR'
 export type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
-export type ExperienceContextData = { playerId?: number; sessionId?: number; sessionStatus?: SessionStatus; matchId?: number; persistence: PersistenceState; backendRank?: number | null }
+export type ExperienceContextData = { playerId?: number; sessionId?: number; sessionStatus?: SessionStatus; matchId?: number; persistence: PersistenceState; backendRank?: number | null; selectedCharacterId?: string; selectedStageId?: string }
 
 export class ExperienceContext {
   static readonly key = 'exp2.session'
