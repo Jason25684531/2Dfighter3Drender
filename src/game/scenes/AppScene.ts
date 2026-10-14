@@ -97,7 +97,8 @@ export class AppScene extends Phaser.Scene {
     void this.persistence?.leaderboard().then((entries) => { this.leaderboardEntries = entries; if (!this.showcaseState) this.ui.substates.set(AppState.IDLE, p0Variant(entries.length)); if (this.appStateMachine.getCurrentState() === AppState.IDLE && !this.showcaseState) this.render(AppState.IDLE) })
     this.unsubscribe = this.appStateMachine.subscribe(({ previousState, nextState }) => {
       if (nextState === AppState.READY) void this.persistence?.ensureSession().catch(() => this.ui.substates.set(AppState.READY, 'FALLBACK'))
-      if (previousState === AppState.END && nextState === AppState.IDLE) void this.persistence?.finishSession().catch(() => undefined)
+      // P4 暫停離開與 P7 Finish 都結束 session；後端會把未完成的對戰標為 ABANDONED。
+      if ((previousState === AppState.END || previousState === AppState.BATTLE) && nextState === AppState.IDLE) void this.persistence?.finishSession().catch(() => undefined)
       if (nextState === AppState.BATTLE) { this.match.start(); this.tickEvents = []; this.firstHit = undefined; this.combatUnsubscribe?.(); this.combatUnsubscribe = this.match.world.subscribe((event) => { this.tickEvents.push(event) }); void this.persistence?.beginMatch().catch(() => undefined) }
       if (nextState === AppState.SETUP || nextState === AppState.IDLE) { this.match.resetMatch(); this.persistence?.resetMatch(); this.resolvedResult = undefined; this.nextPlayerName = undefined }
       this.render(nextState)
@@ -117,7 +118,14 @@ export class AppScene extends Phaser.Scene {
     if (!this.load.isLoading()) { this.assetsLoaded = true; this.render(this.appStateMachine.getCurrentState()) }
   }
 
-  update(_time: number, delta: number): void { const gamepads = typeof navigator !== 'undefined' && navigator.getGamepads ? Array.from(navigator.getGamepads()).filter((pad): pad is Gamepad => pad !== null) : []; this.inputManager.update(gamepads); this.inputManager.consumeUiActions().filter((action) => !(action === 'OPEN_MENU' && (this.showcaseLab || (this.showcaseState !== undefined && this.showcaseState !== AppState.BATTLE)))).forEach((action) => this.ui.navigation.dispatch(action)); this.clock.advance(delta); if (this.appStateMachine.getCurrentState() === AppState.LOADING && this.assetsLoaded && !this.load.isLoading()) this.appStateMachine.transitionTo(AppState.BATTLE) }
+  update(_time: number, delta: number): void { const gamepads = typeof navigator !== 'undefined' && navigator.getGamepads ? Array.from(navigator.getGamepads()).filter((pad): pad is Gamepad => pad !== null) : []; this.inputManager.update(gamepads)
+    const battling = this.appStateMachine.getCurrentState() === AppState.BATTLE
+    const menuScreen = !this.showcaseLab && (this.showcaseState ?? this.appStateMachine.getCurrentState()) === AppState.BATTLE
+    // 暫停選單只屬於 P4；其他畫面的 Escape／M 不開啟選單。
+    this.inputManager.consumeUiActions().filter((action) => this.ui.navigation.isOverlayOpen() || menuScreen || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => this.ui.navigation.dispatch(action))
+    // 選單或暫停中的跳躍／攻擊按下不留到戰鬥（手把 A 同時是 CONFIRM 與 JUMP）。
+    if (!battling || this.clock.isPaused()) this.inputManager.consumeGameplaySnapshot()
+    this.clock.advance(delta); if (this.appStateMachine.getCurrentState() === AppState.LOADING && this.assetsLoaded && !this.load.isLoading()) this.appStateMachine.transitionTo(AppState.BATTLE) }
 
   private render(state: AppStateValue, override?: AppStateValue): void {
     if (!this.assetsLoaded && !this.showcaseLab) return
@@ -163,9 +171,7 @@ export class AppScene extends Phaser.Scene {
     if (vm.variant === 'EMPTY') {
       addFocalGlow(this, this.screen as Phaser.GameObjects.Container, 960, 520, 920, 400, uiTokens.colors.systemBlue, uiTokens.glowAlpha.subtle)
       this.screen?.add(this.add.text(960, 445, 'STEP INTO THE ARENA', { ...typography.title, fontSize: '84px', shadow: { color: colorHex('systemBlue'), blur: uiTokens.shadowBlur.focal, fill: true } }).setOrigin(0.5))
-      const start = new ActionButton(this, 'START', 420, 82).setPosition(960, 650)
-      start.setInteractive({ useHandCursor: true }).on('pointerup', () => this.appStateMachine.transitionTo(AppState.READY))
-      this.screen?.add(start); this.register('p0', 'p0-start', start, () => this.appStateMachine.transitionTo(AppState.READY)); this.ui.focus.activate('p0')
+      this.addP0Start(650)
       return
     }
     const rows = vm.rows.map(({ name, score }) => [name, score] as const)
@@ -187,6 +193,13 @@ export class AppScene extends Phaser.Scene {
       this.screen?.add(panel)
     })
     if (vm.variant === 'RECORDS_5_PLUS') this.renderTop20(rows)
+    this.addP0Start(1005, 70)
+  }
+
+  private addP0Start(y: number, height = 82): void {
+    const start = new ActionButton(this, 'START', 420, height).setPosition(960, y)
+    start.setInteractive({ useHandCursor: true }).on('pointerup', () => this.appStateMachine.transitionTo(AppState.READY))
+    this.screen?.add(start); this.register('p0', 'p0-start', start, () => this.appStateMachine.transitionTo(AppState.READY)); this.ui.focus.activate('p0')
   }
 
   private renderTop20(rows: ReadonlyArray<readonly [string, number]>): void {
@@ -207,8 +220,10 @@ export class AppScene extends Phaser.Scene {
     this.screen?.add(this.heading(vm.heading)); this.screen?.add(this.label('3 PRESETS  /  1 CUSTOM', 545, 166, 22, colorHex('systemBlue')))
     vm.choices.forEach((choice, index) => {
       const card = new CharacterCard(this, choice.label, choice.nickname, choice.custom, choice.spriteId && spriteTextureKey(choice.spriteId, 'idle')).setPosition(210 + index * 260, 505)
-      card.setInteractive({ useHandCursor: true }).on('pointerup', () => this.selectCharacter(choice.id, true))
-      this.screen?.add(card); this.register('character', 'character-' + choice.id, card, () => this.selectCharacter(choice.id, true))
+      // 選定後焦點移到 CONFIRM；否則鍵盤／手把往 CONFIRM 移動時會經過 CUSTOM 而改掉選擇。
+      const pick = (): void => { this.selectCharacter(choice.id, true); this.ui.focus.activate('character', 'character-confirm') }
+      card.setInteractive({ useHandCursor: true }).on('pointerup', pick)
+      this.screen?.add(card); this.register('character', 'character-' + choice.id, card, pick)
       if (choice.id === vm.selectedId) card.setFocused(true)
     })
     addFocalGlow(this, this.screen as Phaser.GameObjects.Container, 1500, 520, 700, 740, uiTokens.colors.playerPrimary, uiTokens.glowAlpha.subtle)
@@ -284,10 +299,8 @@ export class AppScene extends Phaser.Scene {
     this.screen?.add(this.battleRoot)
     this.addArenaBackdrop(this.battleRoot, uiTokens.backdrop.battle)
     this.battleRoot.add(this.add.rectangle(960, 850, 1920, 460, uiTokens.colors.background0, 0.2))
-    this.battleRoot.add(this.add.ellipse(560, 825, 280, 42, uiTokens.colors.shadow, 0.48))
-    this.battleRoot.add(this.add.ellipse(1360, 825, 280, 42, uiTokens.colors.shadow, 0.48))
-    this.battlePlayer = new TemporarySpriteRenderer(this, this.playerSpriteId(), uiTokens.colors.playerPrimary)
-    this.battleEnemy = new TemporarySpriteRenderer(this, this.enemySpriteId(), uiTokens.colors.enemyPrimary)
+    this.battlePlayer = new TemporarySpriteRenderer(this, this.playerSpriteId(), uiTokens.colors.playerPrimary, this.match.world.getConfig().floorY)
+    this.battleEnemy = new TemporarySpriteRenderer(this, this.enemySpriteId(), uiTokens.colors.enemyPrimary, this.match.world.getConfig().floorY)
     this.battleRoot.add([this.battlePlayer, this.battleEnemy])
     this.battleRoot.add(new AngularPanel(this, 1740, 130, uiTokens.colors.background0, 0.82).setPosition(960, 80))
     this.battlePlayerBar = new HealthBar(this, 610, uiTokens.colors.playerPrimary).setPosition(180, 82)
@@ -327,11 +340,10 @@ export class AppScene extends Phaser.Scene {
   private renderP5(): void {
     const vm = presentationViewModel(this.resolvedResult, this.showcaseState === AppState.PRESENTATION ? this.showcaseP5Variant : undefined)
     this.battleRoot = this.add.container(0, 0); this.screen?.add(this.battleRoot); this.addArenaBackdrop(this.battleRoot, uiTokens.backdrop.presentation)
-    this.battleRoot.add(this.add.ellipse(560, 825, 280, 42, uiTokens.colors.shadow, 0.48)); this.battleRoot.add(this.add.ellipse(1360, 825, 280, 42, uiTokens.colors.shadow, 0.48))
     const snapshot = this.match.getSnapshot()
-    this.battlePlayer = new TemporarySpriteRenderer(this, this.playerSpriteId(), uiTokens.colors.playerPrimary)
+    this.battlePlayer = new TemporarySpriteRenderer(this, this.playerSpriteId(), uiTokens.colors.playerPrimary, this.match.world.getConfig().floorY)
     this.battlePlayer.update(snapshot.world.fighters.PLAYER, snapshot.world.tick)
-    this.battleEnemy = new TemporarySpriteRenderer(this, this.enemySpriteId(), uiTokens.colors.enemyPrimary)
+    this.battleEnemy = new TemporarySpriteRenderer(this, this.enemySpriteId(), uiTokens.colors.enemyPrimary, this.match.world.getConfig().floorY)
     this.battleEnemy.update(snapshot.world.fighters.ENEMY, snapshot.world.tick)
     this.battleRoot.add([this.battlePlayer, this.battleEnemy])
     this.battleRoot.add(this.add.rectangle(960, 540, 1920, 1080, uiTokens.colors.background0, uiTokens.backdrop.impact))
@@ -522,7 +534,8 @@ export class AppScene extends Phaser.Scene {
   private overlayAction(action: string): void {
     if (action === 'CONTINUE' || action === 'CANCEL') this.ui.navigation.dispatch('CLOSE_MENU')
     else if (action === 'EXIT') this.ui.navigation.openExitConfirmation()
-    else if (action === 'CONFIRM' && this.ui.navigation.dispatch('FINISH')) this.ui.navigation.dispatch('CLOSE_MENU')
+    // 先關選單讓時鐘恢復，再離開戰鬥；反過來時鐘會停在暫停狀態到下一場。
+    else if (action === 'CONFIRM') { this.ui.navigation.dispatch('CLOSE_MENU'); this.ui.navigation.dispatch('FINISH') }
   }
 
   private playerSpriteId(): SpriteId | undefined { return characterChoices().find((choice) => choice.id === this.selectedCharacterId)?.spriteId }

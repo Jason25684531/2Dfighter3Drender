@@ -23,4 +23,9 @@ describe('ApiClient', () => {
     const conflict = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'IDEMPOTENCY_CONFLICT', message: 'conflict' } }), { status: 409 }))
     await expect(new ApiClient({ fetchImpl: conflict, maxRetries: 2 }).health()).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' }); expect(conflict).toHaveBeenCalledTimes(1)
   })
+  it('calls the default global fetch with its own receiver', async () => {
+    const original = globalThis.fetch
+    globalThis.fetch = vi.fn(function (this: unknown) { if (this !== globalThis) throw new TypeError('Illegal invocation'); return Promise.resolve(new Response('[]')) }) as unknown as typeof fetch
+    try { await expect(new ApiClient({ baseUrl: 'http://api', maxRetries: 0 }).leaderboard()).resolves.toEqual([]) } finally { globalThis.fetch = original }
+  })
 })

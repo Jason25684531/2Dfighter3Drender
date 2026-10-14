@@ -42,6 +42,14 @@ describe('AppStateMachine', () => {
     expect(machine.transitionTo(AppState.IDLE)).toBe(true)
   })
 
+  it('allows leaving P4 for P0 but not other mid-flow exits', () => {
+    const machine = new AppStateMachine()
+    ;[AppState.READY, AppState.SETUP, AppState.LOADING].forEach((state) => machine.transitionTo(state))
+    expect(machine.transitionTo(AppState.IDLE)).toBe(false)
+    expect(machine.transitionTo(AppState.BATTLE)).toBe(true)
+    expect(machine.transitionTo(AppState.IDLE)).toBe(true)
+  })
+
   it('notifies subscribers with previous and next state', () => {
     const listener = vi.fn()
     const machine = new AppStateMachine()

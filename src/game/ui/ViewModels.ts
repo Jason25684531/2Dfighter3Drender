@@ -38,7 +38,7 @@ export const p0Variant = (recordCount: number): 'EMPTY' | 'RECORDS_1_TO_4' | 'RE
 
 export const recordWallViewModel = (rows: readonly RecordWallRow[], variant = p0Variant(rows.length)): P0RecordWallViewModel => ({ variant, rows: [...rows] })
 
-export const loadingViewModel = (selectedId = characterChoices()[0].id, stage = 'LABORATORY', progress = 1): P3LoadingViewModel => ({ character: characterChoices().find((choice) => choice.id === selectedId) ?? characterChoices()[0], enemyName: 'ROG_SAGA', stage, progress: Math.max(0, Math.min(1, progress)), controls: ['MOVE', 'ATTACK', 'JUMP', 'BACKWARD = GUARD'] })
+export const loadingViewModel = (selectedId = characterChoices()[0].id, stage = 'LABORATORY', progress = 1): P3LoadingViewModel => ({ character: characterChoices().find((choice) => choice.id === selectedId) ?? characterChoices()[0], enemyName: 'ROG_SAGA', stage, progress: Math.max(0, Math.min(1, progress)), controls: ['MOVE', 'ATTACK', 'JUMP', 'K / LB = GUARD'] })
 
 export const battleViewModel = (snapshot: MatchSnapshot, stageId: StageId, playerName = 'ROG_Player', enemyName = 'ROG_SAGA'): BattleViewModel => {
   const player = snapshot.world.fighters.PLAYER; const enemy = snapshot.world.fighters.ENEMY; const maxHp = 100

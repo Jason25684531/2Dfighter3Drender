@@ -32,9 +32,10 @@ describe('CombatWorld', () => {
     mirrored.reset(); mirrored.tick(neutral, { ...neutral, attackPressed: true }); for (let i = 0; i < 3; i += 1) tick(mirrored); const left = mirrored.getActiveHitbox('ENEMY')!; expect(right.x + right.width).toBeCloseTo(695); expect(left.x).toBeCloseTo(505)
   })
 
-  it('blocks only with backward guard and applies damage/hit stun otherwise', () => {
+  it('blocks whenever guard is held, in any direction, and applies damage/hit stun otherwise', () => {
     const blocked = new CombatWorld(closeConfig()); tick(blocked, { ...neutral, attackPressed: true }); tick(blocked); tick(blocked); tick(blocked, neutral, { ...neutral, moveX: 1, guardHeld: true }); expect(blocked.getFighter('ENEMY').currentHP).toBe(100); expect(blocked.getFighter('ENEMY').hitStunTicks).toBe(0)
-    const hit = new CombatWorld(closeConfig()); tick(hit, { ...neutral, attackPressed: true }); tick(hit); tick(hit); tick(hit, neutral, { ...neutral, moveX: -1, guardHeld: true }); expect(hit.getFighter('ENEMY').currentHP).toBe(90); expect(hit.getFighter('ENEMY').state).toBe('HIT_STUN'); tick(hit, neutral, { ...neutral, attackPressed: true }); expect(hit.getFighter('ENEMY').attackPhase).toBe('NONE')
+    for (const moveX of [0, -1]) { const guarded = new CombatWorld(closeConfig()); tick(guarded, { ...neutral, attackPressed: true }); tick(guarded); tick(guarded); tick(guarded, neutral, { ...neutral, moveX, guardHeld: true }); expect(guarded.getFighter('ENEMY').currentHP).toBe(100) }
+    const hit = new CombatWorld(closeConfig()); tick(hit, { ...neutral, attackPressed: true }); tick(hit); tick(hit); tick(hit, neutral, { ...neutral, moveX: -1 }); expect(hit.getFighter('ENEMY').currentHP).toBe(90); expect(hit.getFighter('ENEMY').state).toBe('HIT_STUN'); tick(hit, neutral, { ...neutral, attackPressed: true }); expect(hit.getFighter('ENEMY').attackPhase).toBe('NONE')
   })
 
   it('resets and produces identical snapshots for identical inputs', () => {

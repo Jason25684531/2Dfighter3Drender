@@ -87,8 +87,8 @@ export class CombatWorld {
     if (fighter.hitStunTicks > 0) { fighter.state = 'HIT_STUN'; return }
     if (fighter.attackPhase !== 'NONE') return
     if (fighter.x < opponent.x) fighter.facing = 'RIGHT'; else if (fighter.x > opponent.x) fighter.facing = 'LEFT'
-    const backward = opponent.x > fighter.x ? intent.moveX < 0 : intent.moveX > 0
-    if (intent.guardHeld && backward) { fighter.vx = 0; fighter.state = 'GUARD'; return }
+    // 按住防禦即成立，不限方向。
+    if (intent.guardHeld) { fighter.vx = 0; fighter.state = 'GUARD'; return }
     if (intent.attackPressed) { this.startAttack(fighter); return }
     if (intent.jumpPressed && fighter.grounded) { fighter.vy = this.config.jumpVelocity; fighter.grounded = false; fighter.state = 'JUMP' }
     fighter.vx = clamp(intent.moveX, -1, 1) * this.config.walkSpeed
@@ -118,8 +118,7 @@ export class CombatWorld {
       const attacker = this.fighters[attackerId]; const defenderId = attackerId === 'PLAYER' ? 'ENEMY' : 'PLAYER'; const defender = this.fighters[defenderId]; const hitbox = this.getActiveHitbox(attackerId)
       if (!hitbox || attacker.hitTargets.has(defenderId) || !overlaps(hitbox, this.getHurtbox(defenderId))) return
       attacker.hitTargets.add(defenderId); this.emit({ type: 'HIT', attacker: attackerId, defender: defenderId, attackId: attacker.attackId })
-      const intent = this.intents[defenderId]; const backward = attacker.x > defender.x ? intent.moveX < 0 : intent.moveX > 0
-      if (intent.guardHeld && backward && defender.hitStunTicks === 0) { this.emit({ type: 'BLOCK', attacker: attackerId, defender: defenderId, attackId: attacker.attackId }); return }
+      if (this.intents[defenderId].guardHeld && defender.hitStunTicks === 0) { this.emit({ type: 'BLOCK', attacker: attackerId, defender: defenderId, attackId: attacker.attackId }); return }
       const previousHP = defender.currentHP; defender.currentHP = Math.max(0, defender.currentHP - this.config.attack.damage); defender.hitStunTicks = this.config.attack.hitStunTicks; defender.state = 'HIT_STUN'; defender.attackPhase = 'NONE'; defender.attackTicks = 0; this.setCombo(attacker, attacker.comboWindowTicks > 0 ? attacker.combo + 1 : 1); attacker.comboWindowTicks = this.config.attack.hitStunTicks; this.setCombo(defender, 0)
       this.emit({ type: 'DAMAGE', attacker: attackerId, defender: defenderId, amount: previousHP - defender.currentHP, attackId: attacker.attackId }); this.emit({ type: 'HP_CHANGED', fighter: defenderId, currentHP: defender.currentHP, previousHP })
     })

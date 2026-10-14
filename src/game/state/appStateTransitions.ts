@@ -5,7 +5,7 @@ export const appStateTransitions: Readonly<Record<AppStateValue, readonly AppSta
   [AppState.READY]: [AppState.SETUP],
   [AppState.SETUP]: [AppState.LOADING],
   [AppState.LOADING]: [AppState.BATTLE],
-  [AppState.BATTLE]: [AppState.PRESENTATION],
+  [AppState.BATTLE]: [AppState.PRESENTATION, AppState.IDLE],
   [AppState.PRESENTATION]: [AppState.RESULT],
   [AppState.RESULT]: [AppState.END],
   [AppState.END]: [AppState.SETUP, AppState.IDLE],

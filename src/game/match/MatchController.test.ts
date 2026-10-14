@@ -13,6 +13,7 @@ describe('EnemyAI and MatchController', () => {
     const distant = new CombatWorld(); const ai = new EnemyAI(); expect(ai.getIntent(distant.getSnapshot()).moveX).toBe(-1)
     const close = new CombatWorld(closeConfig()); ai.reset(); expect(ai.getIntent(close.getSnapshot()).attackPressed).toBe(true)
     for (let i = 0; i < 70; i += 1) ai.getIntent(close.getSnapshot()); expect(ai.getIntent(close.getSnapshot()).guardHeld).toBe(true)
+    const paced = new EnemyAI(closeConfig(), 3); expect([0, 1, 2, 3, 4].map(() => paced.getIntent(close.getSnapshot()).attackPressed)).toEqual([true, false, false, false, true])
     const restricted = close.getSnapshot(); restricted.fighters.ENEMY.state = 'HIT_STUN'; expect(ai.getIntent(restricted)).toEqual(neutral)
     const ai2 = new EnemyAI(); const a = Array.from({ length: 10 }, () => ai2.getIntent(close.getSnapshot())); const ai3 = new EnemyAI(); const b = Array.from({ length: 10 }, () => ai3.getIntent(close.getSnapshot())); expect(a).toEqual(b)
   })

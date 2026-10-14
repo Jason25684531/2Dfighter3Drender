@@ -13,7 +13,8 @@ export class ApiClient {
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1').replace(/\/$/, '')
     this.timeoutMs = options.timeoutMs ?? 3000
-    this.fetchImpl = options.fetchImpl ?? fetch
+    // 瀏覽器的 fetch 必須以 window 為 this 呼叫，否則丟出 Illegal invocation。
+    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis)
     this.maxRetries = options.maxRetries ?? 2
     this.retryDelayMs = options.retryDelayMs ?? 0
   }
