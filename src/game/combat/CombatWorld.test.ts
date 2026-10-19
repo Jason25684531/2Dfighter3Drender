@@ -9,6 +9,73 @@ const closeConfig = (positions = { PLAYER: 560, ENEMY: 640 }): CombatConfig => (
 const tick = (world: CombatWorld, player = neutral, enemy = neutral): void => world.tick(player, enemy)
 
 describe('CombatWorld', () => {
+  it.each([0, 1, 3])('retains a recovery press for exactly %i following ticks and consumes it once', (inputBufferTicks) => {
+    for (const delay of [1, 2, 3, 4]) {
+      const world = new CombatWorld({ ...closeConfig({ PLAYER: 560, ENEMY: 1360 }), inputBufferTicks })
+      const started: number[] = []
+      world.subscribe((event) => { if (event.type === 'ATTACK_STARTED') started.push(event.attackId) })
+      tick(world, { ...neutral, attackPressed: true })
+      while (world.getFighter('PLAYER').attackPhase !== 'RECOVERY' || world.getFighter('PLAYER').attackTicks < 6 - delay) tick(world)
+      tick(world, { ...neutral, attackPressed: true })
+      for (let i = 0; i < 20; i++) tick(world)
+      expect(started.length, `delay ${delay}`).toBe(delay <= inputBufferTicks ? 2 : 1)
+    }
+  })
+
+  it('buffers a jump until the first grounded tick and never jumps in midair', () => {
+    const world = new CombatWorld()
+    tick(world, { ...neutral, jumpPressed: true })
+    while (world.getFighter('PLAYER').y + 2 * world.getFighter('PLAYER').vy + 3 * world.getConfig().gravity < world.getConfig().floorY) tick(world)
+    tick(world, { ...neutral, jumpPressed: true })
+    while (!world.getFighter('PLAYER').grounded) {
+      const before = world.getFighter('PLAYER')
+      tick(world)
+      expect(world.getFighter('PLAYER').vy).toBe(world.getFighter('PLAYER').grounded ? 0 : before.vy + world.getConfig().gravity)
+    }
+    tick(world)
+    expect(world.getFighter('PLAYER')).toMatchObject({ grounded: false, vy: -31 })
+    for (let i = 0; i < 25; i++) tick(world)
+    expect(world.getFighter('PLAYER').grounded).toBe(true)
+  })
+
+  it('drops an airborne jump that expires before landing', () => {
+    const world = new CombatWorld()
+    tick(world, { ...neutral, jumpPressed: true }); tick(world, { ...neutral, jumpPressed: true })
+    for (let i = 0; i < 30; i++) tick(world)
+    expect(world.getFighter('PLAYER')).toMatchObject({ grounded: true, vy: 0 })
+  })
+
+  it('keeps hit-stun and guard restrictions ahead of buffered actions', () => {
+    const world = new CombatWorld({ ...closeConfig(), inputBufferTicks: 3 })
+    tick(world, neutral, { ...neutral, attackPressed: true }); tick(world); tick(world); tick(world)
+    while (world.getFighter('PLAYER').hitStunTicks > 3) tick(world)
+    tick(world, { ...neutral, attackPressed: true })
+    expect(world.getFighter('PLAYER')).toMatchObject({ hitStunTicks: 2, attackPhase: 'NONE' })
+    tick(world); expect(world.getFighter('PLAYER').attackPhase).toBe('NONE')
+    tick(world); expect(world.getFighter('PLAYER').attackPhase).toBe('STARTUP')
+    for (const action of ['jumpPressed', 'attackPressed'] as const) {
+      const guarded = new CombatWorld()
+      tick(guarded, { ...neutral, [action]: true, guardHeld: true })
+      tick(guarded, { ...neutral, guardHeld: true })
+      expect(guarded.getFighter('PLAYER')).toMatchObject({ state: 'GUARD', grounded: true, attackPhase: 'NONE' })
+      tick(guarded)
+      expect(guarded.getFighter('PLAYER')[action === 'jumpPressed' ? 'grounded' : 'attackPhase']).toBe(action === 'jumpPressed' ? false : 'STARTUP')
+    }
+  })
+
+  it('expires a hit-stun press and clears both buffers on reset without exposing them', () => {
+    const world = new CombatWorld({ ...closeConfig(), inputBufferTicks: 3 })
+    tick(world, neutral, { ...neutral, attackPressed: true }); tick(world); tick(world); tick(world)
+    tick(world, { ...neutral, attackPressed: true })
+    for (let i = 0; i < 6; i++) tick(world)
+    expect(world.getFighter('PLAYER').attackPhase).toBe('NONE')
+    tick(world, { ...neutral, attackPressed: true, jumpPressed: true, guardHeld: true })
+    expect(world.getFighter('PLAYER')).not.toHaveProperty('jumpBuffer')
+    expect(world.getFighter('PLAYER')).not.toHaveProperty('attackBuffer')
+    world.reset(); tick(world)
+    expect(world.getFighter('PLAYER')).toMatchObject({ grounded: true, attackPhase: 'NONE' })
+  })
+
   it('moves, clamps, faces, and jumps deterministically', () => {
     const world = new CombatWorld(); tick(world, { ...neutral, moveX: -1 }); expect(world.getFighter('PLAYER').x).toBe(542); expect(world.getFighter('PLAYER').facing).toBe('RIGHT')
     for (let i = 0; i < 100; i += 1) tick(world, { ...neutral, moveX: -1 }); expect(world.getFighter('PLAYER').x).toBe(60)

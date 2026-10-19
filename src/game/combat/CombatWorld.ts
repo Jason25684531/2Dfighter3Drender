@@ -8,12 +8,14 @@ export type Aabb = { x: number; y: number; width: number; height: number }
 export type FighterIntent = { moveX: number; jumpPressed: boolean; attackPressed: boolean; guardHeld: boolean }
 
 export type CombatConfig = {
+  inputBufferTicks?: number
   arenaWidth: number; floorY: number; fighterWidth: number; fighterHeight: number; walkSpeed: number; jumpVelocity: number; gravity: number; maxHp: number
   attack: { startupTicks: number; activeTicks: number; recoveryTicks: number; damage: number; hitStunTicks: number; hitboxOffset: number; hitboxWidth: number; hitboxHeight: number }
   initialPositions: Record<FighterId, number>
 }
 
 export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
+  inputBufferTicks: 3,
   arenaWidth: 1920, floorY: 820, fighterWidth: 120, fighterHeight: 220, walkSpeed: 18, jumpVelocity: -34, gravity: 3, maxHp: 100,
   attack: { startupTicks: 3, activeTicks: 2, recoveryTicks: 5, damage: 10, hitStunTicks: 6, hitboxOffset: 90, hitboxWidth: 90, hitboxHeight: 80 },
   initialPositions: { PLAYER: 560, ENEMY: 1360 },
@@ -28,11 +30,12 @@ export type CombatEvent =
   | { type: 'COMBO_CHANGED'; fighter: FighterId; combo: number }
 
 type Fighter = {
+  jumpBuffer: number; attackBuffer: number
   id: FighterId; x: number; y: number; vx: number; vy: number; facing: Facing; currentHP: number; grounded: boolean; state: FighterState
   hitStunTicks: number; attackPhase: AttackPhase; attackTicks: number; attackId: number; hitTargets: Set<FighterId>; combo: number; comboWindowTicks: number
 }
 
-export type FighterSnapshot = Omit<Fighter, 'hitTargets'>
+export type FighterSnapshot = Omit<Fighter, 'hitTargets' | 'jumpBuffer' | 'attackBuffer'>
 export type CombatSnapshot = { tick: number; fighters: Record<FighterId, FighterSnapshot> }
 export const intentFromInput = (input: InputSnapshot): FighterIntent => ({ moveX: input.moveX, jumpPressed: input.jumpPressed, attackPressed: input.attackPressed, guardHeld: input.guardHeld })
 
@@ -53,7 +56,7 @@ export class CombatWorld {
   }
 
   private createFighter(id: FighterId): Fighter {
-    return { id, x: this.config.initialPositions[id], y: this.config.floorY, vx: 0, vy: 0, facing: id === 'PLAYER' ? 'RIGHT' : 'LEFT', currentHP: this.config.maxHp, grounded: true, state: 'IDLE', hitStunTicks: 0, attackPhase: 'NONE', attackTicks: 0, attackId: 0, hitTargets: new Set(), combo: 0, comboWindowTicks: 0 }
+    return { id, x: this.config.initialPositions[id], y: this.config.floorY, vx: 0, vy: 0, facing: id === 'PLAYER' ? 'RIGHT' : 'LEFT', currentHP: this.config.maxHp, grounded: true, state: 'IDLE', hitStunTicks: 0, attackPhase: 'NONE', attackTicks: 0, attackId: 0, hitTargets: new Set(), combo: 0, comboWindowTicks: 0, jumpBuffer: 0, attackBuffer: 0 }
   }
 
   subscribe(listener: (event: CombatEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener) }
@@ -77,20 +80,25 @@ export class CombatWorld {
   }
 
   private beginTick(fighter: Fighter): void {
+    fighter.jumpBuffer = Math.max(0, fighter.jumpBuffer - 1)
+    fighter.attackBuffer = Math.max(0, fighter.attackBuffer - 1)
     if (fighter.comboWindowTicks > 0) fighter.comboWindowTicks -= 1
     if (fighter.comboWindowTicks === 0 && fighter.combo > 0) this.setCombo(fighter, 0)
     if (fighter.hitStunTicks > 0) { fighter.hitStunTicks -= 1; if (fighter.hitStunTicks === 0) fighter.state = 'IDLE' }
   }
 
   private applyIntent(fighter: Fighter, intent: FighterIntent, opponentId: FighterId): void {
+    // Include the press tick as well as the configured number of following ticks.
+    if (intent.jumpPressed) fighter.jumpBuffer = (this.config.inputBufferTicks ?? 0) + 1
+    if (intent.attackPressed) fighter.attackBuffer = (this.config.inputBufferTicks ?? 0) + 1
     const opponent = this.fighters[opponentId]
     if (fighter.hitStunTicks > 0) { fighter.state = 'HIT_STUN'; return }
     if (fighter.attackPhase !== 'NONE') return
     if (fighter.x < opponent.x) fighter.facing = 'RIGHT'; else if (fighter.x > opponent.x) fighter.facing = 'LEFT'
     // 按住防禦即成立，不限方向。
     if (intent.guardHeld) { fighter.vx = 0; fighter.state = 'GUARD'; return }
-    if (intent.attackPressed) { this.startAttack(fighter); return }
-    if (intent.jumpPressed && fighter.grounded) { fighter.vy = this.config.jumpVelocity; fighter.grounded = false; fighter.state = 'JUMP' }
+    if (fighter.attackBuffer > 0) { fighter.attackBuffer = 0; this.startAttack(fighter); return }
+    if (fighter.jumpBuffer > 0 && fighter.grounded) { fighter.jumpBuffer = 0; fighter.vy = this.config.jumpVelocity; fighter.grounded = false; fighter.state = 'JUMP' }
     fighter.vx = clamp(intent.moveX, -1, 1) * this.config.walkSpeed
     if (fighter.vx !== 0) fighter.state = 'WALK'; else if (fighter.grounded) fighter.state = 'IDLE'
   }
@@ -126,7 +134,7 @@ export class CombatWorld {
 
   private setCombo(fighter: Fighter, combo: number): void { if (fighter.combo === combo) return; fighter.combo = combo; this.emit({ type: 'COMBO_CHANGED', fighter: fighter.id, combo }) }
   private emit(event: CombatEvent): void { this.listeners.forEach((listener) => listener(event)) }
-  private snapshotFighter(fighter: Fighter): FighterSnapshot { const { hitTargets: _hitTargets, ...snapshot } = fighter; return { ...snapshot } }
+  private snapshotFighter(fighter: Fighter): FighterSnapshot { const { hitTargets: _hitTargets, jumpBuffer: _jumpBuffer, attackBuffer: _attackBuffer, ...snapshot } = fighter; return { ...snapshot } }
 
   reset(): void { this.tickNumber = 0; this.nextAttackId = 1; (['PLAYER', 'ENEMY'] as FighterId[]).forEach((id) => { const fresh = this.createFighter(id); this.fighters[id] = fresh }) }
 }

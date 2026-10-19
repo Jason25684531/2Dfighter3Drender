@@ -16,7 +16,7 @@ export type InputSnapshot = {
 export type InputState = { pressed: boolean; held: boolean; released: boolean }
 export type GamepadButtonLike = { pressed?: boolean; value?: number }
 export type GamepadLike = { buttons?: readonly GamepadButtonLike[]; axes?: readonly number[]; connected?: boolean }
-export type KeyboardTarget = { addEventListener: (type: 'keydown' | 'keyup', listener: (event: KeyboardEvent) => void) => void; removeEventListener: (type: 'keydown' | 'keyup', listener: (event: KeyboardEvent) => void) => void }
+export type KeyboardTarget = Pick<Window, 'addEventListener' | 'removeEventListener'>
 
 export type InputConfig = {
   keyboard?: Partial<Record<InputAction, readonly string[]>>
@@ -48,6 +48,10 @@ export class InputManager {
   private keyboardTarget?: KeyboardTarget
   private readonly onKeyDown = (event: KeyboardEvent): void => this.handleKeyDown(event.code)
   private readonly onKeyUp = (event: KeyboardEvent): void => this.handleKeyUp(event.code)
+  private readonly onBlur = (): void => {
+    this.keys.forEach((code) => this.keyReleased.add(code))
+    this.keys.clear(); this.keyPressed.clear(); this.pendingUi.clear(); this.pendingGameplay.clear()
+  }
 
   constructor(config: InputConfig = {}) {
     this.config = {
@@ -61,10 +65,12 @@ export class InputManager {
   attachKeyboard(target: KeyboardTarget): void {
     this.detachKeyboard(); this.keyboardTarget = target
     target.addEventListener('keydown', this.onKeyDown); target.addEventListener('keyup', this.onKeyUp)
+    target.addEventListener('blur', this.onBlur)
   }
 
   detachKeyboard(): void {
     if (!this.keyboardTarget) return
+    this.keyboardTarget.removeEventListener('blur', this.onBlur)
     this.keyboardTarget.removeEventListener('keydown', this.onKeyDown); this.keyboardTarget.removeEventListener('keyup', this.onKeyUp); this.keyboardTarget = undefined
   }
 

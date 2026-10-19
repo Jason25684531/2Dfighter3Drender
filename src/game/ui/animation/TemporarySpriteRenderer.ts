@@ -11,6 +11,9 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private action?: SpriteAction
   private actionStartTick = 0
   private attackId = 0
+  private lastTick?: number
+  private previousPosition = { x: 0, y: 0 }
+  private currentPosition = { x: 0, y: 0 }
 
   constructor(scene: Phaser.Scene, private readonly spriteId: SpriteId | undefined, fallbackColor: number, private readonly floorY: number) {
     super(scene, 0, 0)
@@ -28,8 +31,9 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   }
 
   update(fighter: FighterSnapshot, tick: number): void {
-    this.setPosition(fighter.x, fighter.y)
-    this.shadow.setY(this.floorY - fighter.y + 5)
+    this.previousPosition = tick === (this.lastTick ?? -2) + 1 ? this.currentPosition : { x: fighter.x, y: fighter.y }
+    this.currentPosition = { x: fighter.x, y: fighter.y }; this.lastTick = tick
+    this.renderAt(1)
     this.setScale(fighter.facing === 'LEFT' ? -1 : 1, 1)
     if (!this.image || !this.spriteId) return
     const action = spriteActionFor(fighter)
@@ -38,5 +42,10 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     }
     const key = spriteTextureKey(this.spriteId, action, spriteFrameFor(fighter, action, tick - this.actionStartTick))
     if (this.scene.textures.exists(key) && this.image.texture.key !== key) this.image.setTexture(key).setScale(spriteDisplayHeight(this.spriteId) / this.image.height)
+  }
+
+  renderAt(alpha: number): void {
+    this.setPosition(this.previousPosition.x + (this.currentPosition.x - this.previousPosition.x) * alpha, this.previousPosition.y + (this.currentPosition.y - this.previousPosition.y) * alpha)
+    this.shadow.setY(this.floorY - this.y + 5)
   }
 }

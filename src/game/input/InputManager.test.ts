@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { AppState } from '../state/AppState'
 import { AppStateMachine } from '../state/AppStateMachine'
 import { FocusManager } from '../ui/FocusManager'
@@ -7,6 +7,35 @@ import { UIEventBus } from '../ui/UIEventBus'
 import { InputManager, type GamepadLike } from './InputManager'
 
 describe('InputManager', () => {
+  it('releases held keys and pending edges on blur, then accepts a fresh press and detaches', () => {
+    const input = new InputManager()
+    const target = { addEventListener: vi.fn(), removeEventListener: vi.fn() }
+    input.attachKeyboard(target)
+    const blur = target.addEventListener.mock.calls.find(([type]) => type === 'blur')![1]
+    input.handleKeyDown('KeyD'); input.handleKeyDown('KeyJ'); input.handleKeyDown('Enter'); input.update()
+    blur(); input.update()
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ moveX: 0, attackPressed: false, attackHeld: false })
+    expect(input.getActionState('ATTACK')).toEqual({ pressed: false, held: false, released: true })
+    expect(input.consumeUiActions()).toEqual([])
+    input.handleKeyDown('KeyJ'); input.update()
+    expect(input.consumeGameplaySnapshot().attackPressed).toBe(true)
+    input.detachKeyboard()
+    expect(target.removeEventListener.mock.calls).toHaveLength(3)
+    target.addEventListener.mock.calls.forEach((call) => expect(target.removeEventListener.mock.calls).toContainEqual(call))
+  })
+
+  it('does not synthesize a fresh gamepad edge when keyboard focus is lost', () => {
+    const input = new InputManager()
+    const target = { addEventListener: vi.fn(), removeEventListener: vi.fn() }
+    input.attachKeyboard(target)
+    const pad = { buttons: [{ pressed: true }] }
+    input.update([pad]); input.consumeGameplaySnapshot(); input.consumeUiActions()
+    target.addEventListener.mock.calls.find(([type]) => type === 'blur')![1]()
+    input.update([pad])
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ jumpPressed: false, jumpHeld: true })
+    expect(input.consumeUiActions()).toEqual([])
+  })
+
   it('maps keyboard states and exposes one-shot edges', () => {
     const input = new InputManager()
     input.handleKeyDown('Enter'); input.update()

@@ -8,22 +8,21 @@ import { uiTokens, colorHex } from '../ui/tokens/uiTokens'
 import { aspectCover } from '../ui/tokens/layout'
 import { typography } from '../ui/tokens/typography'
 import { InputManager } from '../input/InputManager'
-import { GameClock } from '../time/GameClock'
+import { FIXED_STEP_MS, GameClock } from '../time/GameClock'
 import { intentFromInput, type CombatEvent } from '../combat/CombatWorld'
 import { MatchController, type MatchSnapshot } from '../match/MatchController'
 import { p6SubStateForRank, resolveMatchResult, type MatchResult, type P6SubState } from '../match/ResultResolver'
 import type { ExperiencePersistence } from '../app/ExperiencePersistence'
 import type { LeaderboardEntry } from '../api/ApiTypes'
 import { characterChoices, characterSelectViewModel, battleViewModel, endViewModel, loadingViewModel, mockResultViewModel, p0Variant, presentationViewModel, recordWallViewModel, resultViewModel, stageSelectViewModel, type P5ShowcaseVariant, type ResultViewModel } from '../ui/ViewModels'
-import { resolveStageAsset, testStageManifest, type StageId } from '../ui/assets/TestAssetManifest'
+import { resolveStageAsset, stageTextureKey, type StageId } from '../ui/assets/TestAssetManifest'
 import { animationCategories, existingAnimationEntries, sampleCharacterAnimationManifest } from '../ui/animation/FighterAnimationManifest'
 import { FighterVideoRenderer } from '../ui/animation/FighterVideoRenderer'
 import { TemporarySpriteRenderer } from '../ui/animation/TemporarySpriteRenderer'
-import { spriteActions, spriteFrameCount, spriteFrameUrl, spriteIds, spriteTextureKey, type SpriteId } from '../ui/animation/TemporarySpriteManifest'
+import { spriteTextureKey, type SpriteId } from '../ui/animation/TemporarySpriteManifest'
 import { sampleWebmValidation } from '../ui/assets/sampleWebmValidation'
 
 type Focusable = { setFocused: (focused: boolean) => unknown }
-const stageTextureKey = (id: StageId): string => `stage-${id}`
 
 export class AppScene extends Phaser.Scene {
   private readonly appStateMachine: AppStateMachine
@@ -60,7 +59,7 @@ export class AppScene extends Phaser.Scene {
   private selectedCharacterId = 'preset-a'
   private selectedStageId: StageId = 'laboratory'
   private showcaseEnabled = false
-  private assetsLoaded = false
+  private overlay?: Phaser.GameObjects.Container
   private showcaseState?: AppStateValue
   private showcaseLab = false
   private labIndex = 0
@@ -89,11 +88,7 @@ export class AppScene extends Phaser.Scene {
     this.selectedCharacterId = context?.selectedCharacterId ?? 'preset-a'; this.selectedStageId = resolveStageAsset(context?.selectedStageId).id
     if (typeof window !== 'undefined') this.inputManager.attachKeyboard(window)
     if (import.meta.env.DEV && typeof window !== 'undefined') { const params = new URLSearchParams(window.location.search); this.showcaseEnabled = params.get('uiShowcase') === '1'; if (this.showcaseEnabled) this.showcaseState = AppState.IDLE }
-    this.load.image(stageTextureKey('laboratory'), testStageManifest.laboratory.url)
-    this.load.image(stageTextureKey('company-building'), testStageManifest['company-building'].url)
-    spriteIds.forEach((id) => spriteActions.forEach((action) => { for (let frame = 0; frame < spriteFrameCount(action); frame += 1) this.load.image(spriteTextureKey(id, action, frame), spriteFrameUrl(id, action, frame)) }))
-    this.load.once('complete', () => { this.assetsLoaded = true; this.render(this.appStateMachine.getCurrentState()) })
-    this.load.start(); this.clock.start()
+    this.clock.start()
     void this.persistence?.leaderboard().then((entries) => { this.leaderboardEntries = entries; if (!this.showcaseState) this.ui.substates.set(AppState.IDLE, p0Variant(entries.length)); if (this.appStateMachine.getCurrentState() === AppState.IDLE && !this.showcaseState) this.render(AppState.IDLE) })
     this.unsubscribe = this.appStateMachine.subscribe(({ previousState, nextState }) => {
       if (nextState === AppState.READY) void this.persistence?.ensureSession().catch(() => this.ui.substates.set(AppState.READY, 'FALLBACK'))
@@ -111,11 +106,18 @@ export class AppScene extends Phaser.Scene {
       if (completed && !this.resolvedResult) { this.resolvedResult = resolveMatchResult(completed); void this.persistence?.finishMatch(this.resolvedResult).then(async (stored) => { this.ui.substates.set(AppState.RESULT, p6SubStateForRank(stored?.rank ?? this.persistence?.context.snapshot.backendRank)); this.leaderboardEntries = await this.persistence?.leaderboard() ?? []; this.nextPlayerName = await this.persistence?.nextQueuedPlayer(); this.render(this.appStateMachine.getCurrentState()) }).catch(() => undefined); this.appStateMachine.transitionTo(AppState.PRESENTATION) }
     })
     this.uiUnsubscribers.push(this.ui.events.on('SUBSTATE_CHANGED', ({ screen }) => { if (screen === AppState.BATTLE && this.battleRoot && !this.showcaseState) return; this.render(this.appStateMachine.getCurrentState()) }))
-    this.uiUnsubscribers.push(this.ui.events.on('OVERLAY_CHANGED', ({ open }) => { if (this.appStateMachine.getCurrentState() === AppState.BATTLE) { if (open) this.clock.pause(); else this.clock.resume() }; this.render(this.appStateMachine.getCurrentState()) }))
+    this.uiUnsubscribers.push(this.ui.events.on('OVERLAY_CHANGED', ({ open }) => {
+      if (this.appStateMachine.getCurrentState() !== AppState.BATTLE) { this.render(this.appStateMachine.getCurrentState()); return }
+      if (open) this.clock.pause(); else this.clock.resume()
+      // Keep fighter interpolation history intact while opening or closing the menu.
+      this.ui.focus.clearGroup('overlay'); this.ui.focus.clearGroup('overlay-confirm')
+      this.overlay?.destroy(true); this.overlay = undefined
+      if (open) this.renderOverlay()
+    }))
     this.uiUnsubscribers.push(this.ui.events.on('FOCUS_CHANGED', ({ group, previous, next }) => { this.buttons.get(previous ?? '')?.setFocused(false); this.buttons.get(next ?? '')?.setFocused(true); if (group === 'character' && next?.startsWith('character-') && next !== 'character-confirm') this.updateCharacterPreview(next.slice('character-'.length)) }))
     if (import.meta.env.DEV && this.showcaseEnabled) { this.installShowcaseKeys(); this.installShowcaseP5Keys(); this.installShowcaseRankKeys() }
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroyScene())
-    if (!this.load.isLoading()) { this.assetsLoaded = true; this.render(this.appStateMachine.getCurrentState()) }
+    this.render(this.appStateMachine.getCurrentState())
   }
 
   update(_time: number, delta: number): void { const gamepads = typeof navigator !== 'undefined' && navigator.getGamepads ? Array.from(navigator.getGamepads()).filter((pad): pad is Gamepad => pad !== null) : []; this.inputManager.update(gamepads)
@@ -125,10 +127,14 @@ export class AppScene extends Phaser.Scene {
     this.inputManager.consumeUiActions().filter((action) => this.ui.navigation.isOverlayOpen() || menuScreen || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => this.ui.navigation.dispatch(action))
     // 選單或暫停中的跳躍／攻擊按下不留到戰鬥（手把 A 同時是 CONFIRM 與 JUMP）。
     if (!battling || this.clock.isPaused()) this.inputManager.consumeGameplaySnapshot()
-    this.clock.advance(delta); if (this.appStateMachine.getCurrentState() === AppState.LOADING && this.assetsLoaded && !this.load.isLoading()) this.appStateMachine.transitionTo(AppState.BATTLE) }
+    this.clock.advance(delta)
+    if (this.appStateMachine.getCurrentState() === AppState.BATTLE) {
+      const alpha = Phaser.Math.Clamp(this.clock.getRemainderMs() / FIXED_STEP_MS, 0, 1)
+      this.battlePlayer?.renderAt(alpha); this.battleEnemy?.renderAt(alpha)
+    }
+    if (this.appStateMachine.getCurrentState() === AppState.LOADING) this.appStateMachine.transitionTo(AppState.BATTLE) }
 
   private render(state: AppStateValue, override?: AppStateValue): void {
-    if (!this.assetsLoaded && !this.showcaseLab) return
     const visualState = override ?? this.showcaseState ?? state
     this.destroyScreen(); this.screen = this.add.container(0, 0).setAlpha(0); this.addBackground(this.screen, visualState)
     if (this.showcaseLab) { this.renderAnimationLab(); this.addScreenTween({ targets: this.screen, alpha: 1, duration: uiTokens.motionMs.enter, ease: 'Cubic.Out' }); return }
@@ -257,7 +263,7 @@ export class AppScene extends Phaser.Scene {
   private confirmStage(): void { this.selectStage(this.selectedStageId); this.appStateMachine.transitionTo(AppState.LOADING) }
 
   private renderP3(): void {
-    const vm = loadingViewModel(this.selectedCharacterId, resolveStageAsset(this.selectedStageId).label, this.load.progress)
+    const vm = loadingViewModel(this.selectedCharacterId, resolveStageAsset(this.selectedStageId).label, 1)
     const root = this.screen as Phaser.GameObjects.Container
     addFocalGlow(this, root, 460, 430, 650, 760, uiTokens.colors.playerPrimary, uiTokens.glowAlpha.player)
     addFocalGlow(this, root, 1460, 430, 620, 760, uiTokens.colors.enemyPrimary, uiTokens.glowAlpha.enemy)
@@ -512,7 +518,7 @@ export class AppScene extends Phaser.Scene {
   }
 
   private renderOverlay(): void {
-    const overlay = this.add.container(0, 0)
+    const overlay = this.overlay = this.add.container(0, 0)
     overlay.add(this.add.rectangle(960, 540, 1920, 1080, uiTokens.colors.background0, uiTokens.opacity.overlay))
     const confirmMode = this.ui.navigation.isExitConfirmationOpen()
     const panel = new AngularPanel(this, 650, confirmMode ? 440 : 520, uiTokens.colors.panelRaised).setPosition(960, 540)
@@ -575,7 +581,7 @@ export class AppScene extends Phaser.Scene {
     this.ui.focus.clearGroup('p0'); this.ui.focus.clearGroup('character'); this.ui.focus.clearGroup('stage'); this.ui.focus.clearGroup('presentation'); this.ui.focus.clearGroup('result'); this.ui.focus.clearGroup('end'); this.ui.focus.clearGroup('dev'); this.ui.focus.clearGroup('overlay'); this.ui.focus.clearGroup('overlay-confirm')
     this.buttons.clear(); this.battlePlayer?.destroy(); this.labRenderer?.destroy()
     this.battlePlayer = undefined; this.battleEnemy = undefined; this.labRenderer = undefined; this.battleRoot = undefined; this.battlePlayerRoundMarkers = []; this.battleEnemyRoundMarkers = []; this.characterHero = undefined; this.characterHeroTitle = undefined; this.characterPreview = undefined; this.characterHeroFallback = undefined; this.characterNickname = undefined
-    this.screen?.destroy(true); this.screen = undefined
+    this.screen?.destroy(true); this.screen = undefined; this.overlay = undefined
   }
   private destroyScene(): void { this.destroyScreen(); this.showcaseListeners.forEach(({ event, listener }) => this.input.keyboard?.off(event, listener)); this.combatUnsubscribe?.(); this.unsubscribe?.(); this.clockUnsubscribe?.(); this.uiUnsubscribers.forEach((unsubscribe) => unsubscribe()); this.inputManager.detachKeyboard(); this.clock.stop() }
 }

@@ -1,4 +1,5 @@
 export type StageId = 'laboratory' | 'company-building'
+export const stageTextureKey = (id: StageId): string => `stage-${id}`
 
 export const testStageManifest: Record<StageId, { id: StageId; label: string; url: string }> = {
   laboratory: { id: 'laboratory', label: 'LABORATORY', url: '/test-assets/stages/laboratory.png' },
