@@ -8,7 +8,7 @@ Browser-based 2D fighting game framework using Vite, TypeScript, Phaser 3, FastA
 - Semantic keyboard/gamepad input, a 24Hz fixed-step clock, combat, rounds, enemy AI, and local result resolution are implemented.
 - FastAPI/SQLite player, session, queue, match, round, score, and leaderboard paths are implemented.
 - Current UI uses supplied stage media, sample WebM, and temporary fighter sprites. Final art, VFX, audio, and ComfyUI result integration remain future work.
-- The current OpenSpec change `fix-match-persistence-lifecycle` hardens one-match-per-attempt persistence and save failure reporting.
+- Concept A Cyber Arena presentation covers P0–P7 and ESC, with bundled OFL fonts, Canvas fallbacks, reduced-motion support, and an ultrawide stage backdrop.
 
 ## System ownership
 
@@ -28,6 +28,8 @@ UIFramework (substate, focus, navigation)          snapshots / result
 `AppStateMachine` is the top-level flow authority. Combat and match rules live outside Phaser. `AppScene` renders state, routes input, and initiates persistence calls; it does not own backend rank or scoring rules. Persistence state (`IDLE`, `SAVING`, `SAVED`, `ERROR`) is separate from P0–P7.
 
 The normal flow is P0 Idle → P1 Ready → P2 Setup → P3 Loading → P4 Battle → P5 Presentation → P6 Result → P7 End. Replay returns to P2; Finish returns to P0. P1 establishes a session; each P4 play attempt creates its own match. Backend writes are ordered and use stable request IDs for retry.
+
+BACK returns P2 to P1 and P1 to P0 (finishing the unused session). P3 waits for explicit FIGHT! confirmation after asset loading. During battle, ESC offers Continue and Exit; exit confirmation defaults to Cancel. Other screens ignore BACK.
 
 ## Development
 

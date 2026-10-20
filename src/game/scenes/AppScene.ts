@@ -2,9 +2,10 @@ import Phaser from 'phaser'
 import { AppState, type AppState as AppStateValue } from '../state/AppState'
 import type { AppStateMachine } from '../state/AppStateMachine'
 import type { UIFramework } from '../ui/UIFramework'
-import { ActionButton, addFocalGlow, AngularPanel, AnnouncerText, CharacterCard, fighterSilhouette, HealthBar, StageCard } from '../ui/VisualComponents'
+import { ActionButton, addFocalGlow, AngularPanel, CharacterCard, fighterSilhouette, HealthBar, StageCard, RoundDiamonds, HexTimer, KeyCap, RoundBanner } from '../ui/VisualComponents'
 import { stopOwnedTweens } from '../ui/tweens'
-import { uiTokens, colorHex } from '../ui/tokens/uiTokens'
+import { roundBannerSequence } from '../ui/presentationMath'
+import { uiTokens, colorHex, reducedMotion } from '../ui/tokens/uiTokens'
 import { aspectCover } from '../ui/tokens/layout'
 import { typography } from '../ui/tokens/typography'
 import { InputManager } from '../input/InputManager'
@@ -22,7 +23,7 @@ import { TemporarySpriteRenderer } from '../ui/animation/TemporarySpriteRenderer
 import { spriteTextureKey, type SpriteId } from '../ui/animation/TemporarySpriteManifest'
 import { sampleWebmValidation } from '../ui/assets/sampleWebmValidation'
 
-type Focusable = { setFocused: (focused: boolean) => unknown }
+type Focusable = Phaser.GameObjects.Container & { setFocused: (focused: boolean) => unknown }
 
 export class AppScene extends Phaser.Scene {
   private readonly appStateMachine: AppStateMachine
@@ -45,16 +46,26 @@ export class AppScene extends Phaser.Scene {
   private firstHit?: { round: number; tick: number; byPlayer: boolean }
   private battlePlayer?: TemporarySpriteRenderer
   private battleEnemy?: TemporarySpriteRenderer
-  private battleInfo?: Phaser.GameObjects.Text
-  private battleTimer?: Phaser.GameObjects.Text
+  private battleTimer?: HexTimer
   private battleCombo?: Phaser.GameObjects.Text
   private battleDanger?: Phaser.GameObjects.Text
   private battleFirstAttack?: Phaser.GameObjects.Text
-  private battleAnnouncer?: AnnouncerText
+  private battleBanner?: RoundBanner
+  private previousBattle?: MatchSnapshot
+  private battleLastTen?: Phaser.GameObjects.Text
+  private readonly characterCards = new Map<string, CharacterCard>()
+  private previewCharacterId?: string
+  private keyCaps: KeyCap[] = []
+  private promptDevice?: string
+  private loadingButton?: ActionButton
+  private loadingBar?: Phaser.GameObjects.Rectangle
+  private loadingPercent?: Phaser.GameObjects.Text
+  private loadingReady?: boolean
+  private loadingPulse?: Phaser.Tweens.Tween
   private battlePlayerBar?: HealthBar
   private battleEnemyBar?: HealthBar
-  private battlePlayerRoundMarkers: Phaser.GameObjects.Arc[] = []
-  private battleEnemyRoundMarkers: Phaser.GameObjects.Arc[] = []
+  private battlePlayerRounds?: RoundDiamonds
+  private battleEnemyRounds?: RoundDiamonds
   private battleRoot?: Phaser.GameObjects.Container
   private selectedCharacterId = 'preset-a'
   private selectedStageId: StageId = 'laboratory'
@@ -91,10 +102,10 @@ export class AppScene extends Phaser.Scene {
     this.clock.start()
     void this.persistence?.leaderboard().then((entries) => { this.leaderboardEntries = entries; if (!this.showcaseState) this.ui.substates.set(AppState.IDLE, p0Variant(entries.length)); if (this.appStateMachine.getCurrentState() === AppState.IDLE && !this.showcaseState) this.render(AppState.IDLE) })
     this.unsubscribe = this.appStateMachine.subscribe(({ previousState, nextState }) => {
-      if (nextState === AppState.READY) void this.persistence?.ensureSession().catch(() => this.ui.substates.set(AppState.READY, 'FALLBACK'))
+      if (nextState === AppState.READY) void this.persistence?.ensureSession().then(() => { if (this.appStateMachine.getCurrentState() === AppState.IDLE) return this.persistence?.finishSession() }).catch(() => { if (this.appStateMachine.getCurrentState() === AppState.READY) this.ui.substates.set(AppState.READY, 'FALLBACK') })
       // P4 暫停離開與 P7 Finish 都結束 session；後端會把未完成的對戰標為 ABANDONED。
-      if ((previousState === AppState.END || previousState === AppState.BATTLE) && nextState === AppState.IDLE) void this.persistence?.finishSession().catch(() => undefined)
-      if (nextState === AppState.BATTLE) { this.match.start(); this.tickEvents = []; this.firstHit = undefined; this.combatUnsubscribe?.(); this.combatUnsubscribe = this.match.world.subscribe((event) => { this.tickEvents.push(event) }); void this.persistence?.beginMatch().catch(() => undefined) }
+      if ((previousState === AppState.END || previousState === AppState.BATTLE || previousState === AppState.READY) && nextState === AppState.IDLE) void this.persistence?.finishSession().catch(() => undefined)
+      if (nextState === AppState.BATTLE) { this.previousBattle = undefined; this.match.start(); this.tickEvents = []; this.firstHit = undefined; this.combatUnsubscribe?.(); this.combatUnsubscribe = this.match.world.subscribe((event) => { this.tickEvents.push(event) }); void this.persistence?.beginMatch().catch(() => undefined) }
       if (nextState === AppState.SETUP || nextState === AppState.IDLE) { this.match.resetMatch(); this.persistence?.resetMatch(); this.resolvedResult = undefined; this.nextPlayerName = undefined }
       this.render(nextState)
     })
@@ -114,7 +125,7 @@ export class AppScene extends Phaser.Scene {
       this.overlay?.destroy(true); this.overlay = undefined
       if (open) this.renderOverlay()
     }))
-    this.uiUnsubscribers.push(this.ui.events.on('FOCUS_CHANGED', ({ group, previous, next }) => { this.buttons.get(previous ?? '')?.setFocused(false); this.buttons.get(next ?? '')?.setFocused(true); if (group === 'character' && next?.startsWith('character-') && next !== 'character-confirm') this.updateCharacterPreview(next.slice('character-'.length)) }))
+    this.uiUnsubscribers.push(this.ui.events.on('FOCUS_CHANGED', ({ group, previous, next }) => { this.buttons.get(previous ?? '')?.setFocused(false); this.buttons.get(next ?? '')?.setFocused(true); if (group === 'character' && next?.startsWith('character-') && next !== 'character-confirm' && next !== 'character-back') this.updateCharacterPreview(next.slice('character-'.length)) }))
     if (import.meta.env.DEV && this.showcaseEnabled) { this.installShowcaseKeys(); this.installShowcaseP5Keys(); this.installShowcaseRankKeys() }
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroyScene())
     this.render(this.appStateMachine.getCurrentState())
@@ -122,9 +133,11 @@ export class AppScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void { const gamepads = typeof navigator !== 'undefined' && navigator.getGamepads ? Array.from(navigator.getGamepads()).filter((pad): pad is Gamepad => pad !== null) : []; this.inputManager.update(gamepads)
     const battling = this.appStateMachine.getCurrentState() === AppState.BATTLE
-    const menuScreen = !this.showcaseLab && (this.showcaseState ?? this.appStateMachine.getCurrentState()) === AppState.BATTLE
+    const visualState = this.showcaseState ?? this.appStateMachine.getCurrentState()
+    const menuScreen = !this.showcaseLab && visualState === AppState.BATTLE
+    const backScreen = visualState === AppState.READY || visualState === AppState.SETUP
     // 暫停選單只屬於 P4；其他畫面的 Escape／M 不開啟選單。
-    this.inputManager.consumeUiActions().filter((action) => this.ui.navigation.isOverlayOpen() || menuScreen || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => this.ui.navigation.dispatch(action))
+    this.inputManager.consumeUiActions().filter((action) => this.ui.navigation.isOverlayOpen() || menuScreen || (action === 'BACK' && backScreen) || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => this.ui.navigation.dispatch(action))
     // 選單或暫停中的跳躍／攻擊按下不留到戰鬥（手把 A 同時是 CONFIRM 與 JUMP）。
     if (!battling || this.clock.isPaused()) this.inputManager.consumeGameplaySnapshot()
     this.clock.advance(delta)
@@ -132,11 +145,11 @@ export class AppScene extends Phaser.Scene {
       const alpha = Phaser.Math.Clamp(this.clock.getRemainderMs() / FIXED_STEP_MS, 0, 1)
       this.battlePlayer?.renderAt(alpha); this.battleEnemy?.renderAt(alpha)
     }
-    if (this.appStateMachine.getCurrentState() === AppState.LOADING) this.appStateMachine.transitionTo(AppState.BATTLE) }
+    if (visualState === AppState.LOADING) this.updateLoading() }
 
   private render(state: AppStateValue, override?: AppStateValue): void {
     const visualState = override ?? this.showcaseState ?? state
-    this.destroyScreen(); this.screen = this.add.container(0, 0).setAlpha(0); this.addBackground(this.screen, visualState)
+    this.destroyScreen(); document.body.style.setProperty('--backdrop', `url("${resolveStageAsset(this.selectedStageId).url}")`); this.screen = this.add.container(0, 0).setAlpha(reducedMotion ? 1 : 0); this.addBackground(this.screen, visualState)
     if (this.showcaseLab) { this.renderAnimationLab(); this.addScreenTween({ targets: this.screen, alpha: 1, duration: uiTokens.motionMs.enter, ease: 'Cubic.Out' }); return }
     if (visualState === AppState.IDLE) this.renderP0(); if (visualState === AppState.READY) this.renderP1(); if (visualState === AppState.SETUP) this.renderP2(); if (visualState === AppState.LOADING) this.renderP3(); if (visualState === AppState.BATTLE) { this.renderP4(); this.updateBattle(this.match.getSnapshot()) }; if (visualState === AppState.PRESENTATION) this.renderP5(); if (visualState === AppState.RESULT) this.renderP6(); if (visualState === AppState.END) this.renderP7()
     if (this.ui.navigation.isOverlayOpen()) this.renderOverlay()
@@ -162,9 +175,12 @@ export class AppScene extends Phaser.Scene {
     container.add(atmosphere)
   }
   private heading(text: string, x = 110, y = 112): Phaser.GameObjects.Text { return this.add.text(x, y, text, typography.heading).setOrigin(0, 0.5) }
-  private label(text: string, x: number, y: number, size = 24, color = colorHex('textSecondary')): Phaser.GameObjects.Text { return this.add.text(x, y, text, { ...typography.note, fontSize: `${size}px`, color }).setOrigin(0.5) }
-  private register(group: string, id: string, object: Focusable, activate: () => void, enabled = true): void { this.buttons.set(id, object); this.ui.focus.register(group, id, enabled, activate) }
-  private addScreenTween(config: Phaser.Types.Tweens.TweenBuilderConfig): void { const tween = this.tweens.add(config); this.screenTweens.push(tween); tween.once('complete', () => { const index = this.screenTweens.indexOf(tween); if (index >= 0) this.screenTweens.splice(index, 1) }) }
+  private label(text: string, x: number, y: number, size: number = uiTokens.type.body, color = colorHex('textSecondary')): Phaser.GameObjects.Text { return this.add.text(x, y, text, { ...typography.note, fontSize: size, color }).setOrigin(0.5) }
+  private register(group: string, id: string, object: Focusable, activate: () => void, enabled = true): void {
+    this.buttons.set(id, object); this.ui.focus.register(group, id, enabled, activate)
+    object.on('pointerover', () => { if (object.input?.enabled && this.ui.focus.current() !== id) this.ui.focus.activate(group, id) })
+  }
+  private addScreenTween(config: Phaser.Types.Tweens.TweenBuilderConfig): Phaser.Tweens.Tween | undefined { if (reducedMotion && config.repeat === -1) return; const tween = this.tweens.add(reducedMotion ? { ...config, duration: 0, delay: 0 } : config); this.screenTweens.push(tween); tween.once('complete', () => { const index = this.screenTweens.indexOf(tween); if (index >= 0) this.screenTweens.splice(index, 1) }); return tween }
 
   private renderP0(): void {
     const requestedVariant = this.showcaseState === AppState.IDLE ? this.showcaseP0Variant : this.ui.substates.get(AppState.IDLE)
@@ -172,92 +188,103 @@ export class AppScene extends Phaser.Scene {
     const sourceRows = this.leaderboardEntries.map((entry) => ({ name: entry.nickname, score: entry.score, maxCombo: entry.max_combo, title: entry.title }))
     const devRows = import.meta.env.DEV && this.showcaseState ? showcaseRows : []
     const vm = recordWallViewModel(sourceRows.length ? sourceRows : devRows, requestedVariant)
-    this.screen?.add(this.heading('FUTURE GAMER 2026'))
-    this.screen?.add(this.label(vm.variant === 'EMPTY' ? 'EXPERIENCE 2' : 'PLAYER ACHIEVEMENTS', 960, 166, 25, colorHex('systemBlue')))
+    this.screen?.add(this.heading('FUTURE GAMER 2026', 96, 112))
+    this.screen?.add(this.add.text(96, 168, 'EXPERIENCE 2 ・ 格鬥體驗', typography.instruction))
+    const online = this.persistence?.lastLeaderboardOk
+    const status = online === undefined ? 'CONNECTING' : online ? 'ONLINE' : 'OFFLINE'
+    this.screen?.add(this.add.text(1824, 90, '● ' + status, { ...typography.note, color: colorHex(online ? 'statusLime' : online === false ? 'danger' : 'textSecondary') }).setOrigin(1, 0.5))
     if (vm.variant === 'EMPTY') {
-      addFocalGlow(this, this.screen as Phaser.GameObjects.Container, 960, 520, 920, 400, uiTokens.colors.systemBlue, uiTokens.glowAlpha.subtle)
-      this.screen?.add(this.add.text(960, 445, 'STEP INTO THE ARENA', { ...typography.title, fontSize: '84px', shadow: { color: colorHex('systemBlue'), blur: uiTokens.shadowBlur.focal, fill: true } }).setOrigin(0.5))
-      this.addP0Start(650)
+      addFocalGlow(this, this.screen as Phaser.GameObjects.Container, 960, 520, 1100, 500, uiTokens.colors.playerPrimary, uiTokens.glowAlpha.player)
+      this.screen?.add(this.add.text(960, 450, 'STEP INTO THE ARENA', { ...typography.title, fontSize: uiTokens.type.display }).setOrigin(0.5))
+      this.screen?.add(this.label(online === false ? '離線模式・排行榜暫不可用' : online === undefined ? '連線中' : '尚無紀錄・成為第一位挑戰者', 960, 570, uiTokens.type.body))
+      this.addP0Start(740)
       return
     }
-    const rows = vm.rows.map(({ name, score }) => [name, score] as const)
     vm.rows.slice(0, 4).forEach((row, i) => {
-      const panel = new AngularPanel(this, 292, 720, uiTokens.colors.panelRaised).setPosition(244 + i * 304, 580)
-      const portrait = this.add.graphics().setPosition(0, -112)
-      portrait.fillStyle(uiTokens.colors.background1, 0.94).fillRect(-130, -236, 260, 472)
-      panel.add(portrait)
-      panel.add(fighterSilhouette(this, 0, -110, 220, 320, uiTokens.colors.textPrimary, 0.38))
-      const portraitShade = this.add.graphics()
-      portraitShade.fillGradientStyle(uiTokens.colors.background0, uiTokens.colors.background0, uiTokens.colors.background0, uiTokens.colors.background0, 0, 0, 0.78, 0.78).fillRect(-130, 20, 260, 104)
-      panel.add(portraitShade)
-      panel.add(this.add.rectangle(0, 246, 260, 222, uiTokens.colors.background0, 0.92).setStrokeStyle(uiTokens.borderWidth.quiet, uiTokens.colors.lineBright, 0.55))
-      panel.add(this.label(String(i + 1).padStart(2, '0'), 112, 159, 17, colorHex('playerGlow')))
-      panel.add(this.add.text(0, 162, row.name, { ...typography.secondaryAction, fontSize: '20px', color: colorHex('textPrimary') }).setOrigin(0.5))
-      if (row.title) panel.add(this.add.text(0, 196, row.title, { ...typography.note, fontSize: '15px', color: colorHex('resultGold'), fontStyle: 'bold' }).setOrigin(0.5))
-      panel.add(this.add.text(0, 238, String(row.score), { ...typography.number, fontSize: '32px' }).setOrigin(0.5))
-      if (row.maxCombo !== undefined) panel.add(this.add.text(0, 280, 'MAX COMBO  ' + row.maxCombo, { ...typography.note, fontSize: '14px' }).setOrigin(0.5))
+      const panel = new AngularPanel(this, 270, 600, uiTokens.colors.panelRaised).setPosition(245 + i * 286, 550)
+      panel.add(this.add.text(0, -110, String(i + 1).padStart(2, '0'), { ...typography.number, fontSize: uiTokens.type.hero, color: colorHex('panelRaised'), stroke: colorHex(i === 0 ? 'playerGlow' : 'lineBright'), strokeThickness: 3 }).setOrigin(0.5).setScale(0.8))
+      if (row.title) panel.add(this.add.text(0, 82, row.title, { ...typography.note, color: colorHex('resultGold') }).setOrigin(0.5))
+      panel.add(this.add.text(0, 130, row.name, typography.secondaryAction).setOrigin(0.5))
+      panel.add(this.add.text(0, 195, String(row.score), { ...typography.number, fontSize: uiTokens.type.h1 }).setOrigin(0.5))
+      if (row.maxCombo !== undefined) panel.add(this.label('MAX COMBO  ' + row.maxCombo, 0, 260, uiTokens.type.label))
       this.screen?.add(panel)
     })
-    if (vm.variant === 'RECORDS_5_PLUS') this.renderTop20(rows)
-    this.addP0Start(1005, 70)
+    if (vm.variant === 'RECORDS_5_PLUS') this.renderTop20(vm.rows.map(row => [row.name, row.score]))
+    this.addP0Start(952)
   }
 
-  private addP0Start(y: number, height = 82): void {
-    const start = new ActionButton(this, 'START', 420, height).setPosition(960, y)
-    start.setInteractive({ useHandCursor: true }).on('pointerup', () => this.appStateMachine.transitionTo(AppState.READY))
+  private addP0Start(y: number): void {
+    const start = new ActionButton(this, 'START', 420, 100, uiTokens.colors.playerPrimary, '開始遊戲').setPosition(960, y)
+    start.on('pointerup', () => this.appStateMachine.transitionTo(AppState.READY))
     this.screen?.add(start); this.register('p0', 'p0-start', start, () => this.appStateMachine.transitionTo(AppState.READY)); this.ui.focus.activate('p0')
   }
 
   private renderTop20(rows: ReadonlyArray<readonly [string, number]>): void {
-    if (!rows.length) return
-    const panel = new AngularPanel(this, 430, 760, uiTokens.colors.panelRaised).setPosition(1570, 570)
-    panel.add(this.add.text(-174, -326, 'TOP 20', typography.secondaryAction).setOrigin(0, 0.5))
+    const panel = new AngularPanel(this, 440, 640, uiTokens.colors.panelRaised).setPosition(1580, 550)
+    panel.add(this.add.text(-170, -280, 'TOP 20   排行榜', typography.secondaryAction))
     rows.slice(0, 20).forEach(([name, score], index) => {
-      const y = -278 + index * 30
-      panel.add(this.add.rectangle(0, y + 15, 370, 1, uiTokens.colors.lineDim, 0.72))
-      panel.add(this.add.text(-174, y, String(index + 1).padStart(2, '0') + '  ' + name, { ...typography.note, color: index === 0 ? colorHex('playerGlow') : colorHex('textPrimary'), fontSize: '17px' }).setOrigin(0, 0.5))
-      panel.add(this.add.text(176, y, String(score), { ...typography.number, color: index === 0 ? colorHex('textPrimary') : colorHex('textSecondary'), fontSize: '18px' }).setOrigin(1, 0.5))
+      const y = -208 + index * 24
+      panel.add(this.add.text(-170, y, String(index + 1).padStart(2, '0') + '  ' + name, { ...typography.note, color: colorHex('textPrimary') }).setOrigin(0, 0.5))
+      panel.add(this.add.text(172, y, String(score), typography.note).setOrigin(1, 0.5))
     })
     this.screen?.add(panel)
   }
 
+  private addBackButton(group: string): void {
+    const back = new ActionButton(this, 'BACK', 270, 88, uiTokens.colors.panelRaised, '返回').setPosition(245, 952)
+    back.on('pointerup', () => this.ui.navigation.dispatch('BACK'))
+    this.screen?.add(back); this.register(group, group + '-back', back, () => this.ui.navigation.dispatch('BACK'))
+  }
+
   private renderP1(): void {
     const vm = characterSelectViewModel(this.selectedCharacterId)
-    this.screen?.add(this.heading(vm.heading)); this.screen?.add(this.label('3 PRESETS  /  1 CUSTOM', 545, 166, 22, colorHex('systemBlue')))
+    this.screen?.add(this.heading(vm.heading)); this.screen?.add(this.add.text(110, 174, '01 / 03 ・ 選擇你的角色', typography.instruction))
     vm.choices.forEach((choice, index) => {
-      const card = new CharacterCard(this, choice.label, choice.nickname, choice.custom, choice.spriteId && spriteTextureKey(choice.spriteId, 'idle')).setPosition(210 + index * 260, 505)
-      // 選定後焦點移到 CONFIRM；否則鍵盤／手把往 CONFIRM 移動時會經過 CUSTOM 而改掉選擇。
-      const pick = (): void => { this.selectCharacter(choice.id, true); this.ui.focus.activate('character', 'character-confirm') }
-      card.setInteractive({ useHandCursor: true }).on('pointerup', pick)
-      this.screen?.add(card); this.register('character', 'character-' + choice.id, card, pick)
-      if (choice.id === vm.selectedId) card.setFocused(true)
+      const card = new CharacterCard(this, choice.label, choice.nickname, choice.custom, choice.spriteId && spriteTextureKey(choice.spriteId, 'idle')).setPosition(225 + index * 250, 510)
+      const pick = (): void => { this.selectCharacter(choice.id); this.ui.focus.activate('character', 'character-confirm') }
+      card.setInteractive({ useHandCursor: true }).on('pointerup', pick).setSelected(choice.id === vm.selectedId)
+      this.characterCards.set(choice.id, card); this.screen?.add(card); this.register('character', 'character-' + choice.id, card, pick)
     })
-    addFocalGlow(this, this.screen as Phaser.GameObjects.Container, 1500, 520, 700, 740, uiTokens.colors.playerPrimary, uiTokens.glowAlpha.subtle)
-    const hero = this.add.container(1500, 520); this.characterHero = hero
-    const selected = vm.choices.find((choice) => choice.id === vm.selectedId)
-    this.characterHeroTitle = this.add.text(0, -276, selected?.nickname ?? 'FIGHTER', { ...typography.secondaryAction, color: colorHex('playerGlow') }).setOrigin(0.5)
-    hero.add(this.characterHeroTitle)
-    this.characterHeroFallback = fighterSilhouette(this, 0, 50, 480, uiTokens.fighter.heroHeight, uiTokens.colors.playerPrimary, selected?.custom ? 0.24 : 0.42)
-    hero.add(this.characterHeroFallback)
-    this.characterPreview = this.addCharacterPreview(hero, selected?.spriteId, selected?.previewUrl, 0, 50, 500, uiTokens.fighter.heroHeight, this.characterHeroFallback)
-    this.screen?.add(hero)
-    const nickname = new AngularPanel(this, 940, 86, uiTokens.colors.panelRaised).setPosition(550, 875)
+    addFocalGlow(this, this.screen as Phaser.GameObjects.Container, 1500, 500, 700, 800, uiTokens.colors.playerPrimary, uiTokens.glowAlpha.player)
+    this.characterHero = this.add.container(1500, 500); this.screen?.add(this.characterHero)
+    this.characterHeroTitle = this.add.text(0, 310, '', { ...typography.title, color: colorHex('playerGlow') }).setOrigin(0.5)
+    const nickname = new AngularPanel(this, 980, 86, uiTokens.colors.panelRaised).setPosition(600, 816)
     this.characterNickname = this.add.text(-420, 0, 'NICKNAME  ' + vm.nickname, typography.nickname).setOrigin(0, 0.5)
     nickname.add(this.characterNickname); this.screen?.add(nickname)
-    const confirm = new ActionButton(this, 'CONFIRM', 350, 80).setPosition(1510, 910)
-    confirm.setInteractive({ useHandCursor: true }).on('pointerup', () => this.confirmCharacter())
-    this.screen?.add(confirm); this.register('character', 'character-confirm', confirm, () => this.confirmCharacter())
+    this.addBackButton('character')
+    const confirm = new ActionButton(this, 'CONFIRM', 350, 88, uiTokens.colors.playerPrimary, '確認').setPosition(1610, 952)
+    confirm.on('pointerup', () => this.confirmCharacter()); this.screen?.add(confirm)
+    this.register('character', 'character-confirm', confirm, () => this.confirmCharacter())
     this.ui.focus.activate('character', 'character-' + vm.selectedId)
   }
-  private updateCharacterPreview(id: string): void { const choice = characterChoices().find((item) => item.id === id); if (!choice || !this.characterHero || (id === this.selectedCharacterId && this.characterHeroFallback)) return; this.selectedCharacterId = id; this.characterHeroTitle?.setText(choice.nickname); this.characterNickname?.setText(`NICKNAME  ${choice.nickname}`); this.characterPreview?.destroy(); this.characterHeroFallback?.destroy(); this.characterHeroFallback = fighterSilhouette(this, 0, 50, 480, uiTokens.fighter.heroHeight, uiTokens.colors.playerPrimary, choice.custom ? 0.24 : 0.42); this.characterHero.add(this.characterHeroFallback); this.characterPreview = this.addCharacterPreview(this.characterHero, choice.spriteId, choice.previewUrl, 0, 50, 500, uiTokens.fighter.heroHeight, this.characterHeroFallback) }
-  private selectCharacter(id: string, render = false): void { this.selectedCharacterId = id; this.persistence?.context.set({ selectedCharacterId: id }); if (render) this.render(AppState.READY) }
+  private updateCharacterPreview(id: string): void {
+    const choice = characterChoices().find(item => item.id === id)
+    if (!choice || !this.characterHero || this.previewCharacterId === id) return
+    this.previewCharacterId = id; this.characterPreview?.destroy(); this.characterHeroFallback?.destroy()
+    this.characterHeroFallback = fighterSilhouette(this, 0, 0, 480, 700, uiTokens.colors.playerPrimary, 0.3)
+    this.characterHero.add(this.characterHeroFallback)
+    this.characterPreview = this.addCharacterPreview(this.characterHero, choice.spriteId, choice.previewUrl, 0, 0, 600, 740, this.characterHeroFallback)
+    this.characterHeroTitle?.setText(choice.nickname); if (this.characterHeroTitle) this.characterHero.add(this.characterHeroTitle)
+  }
+  private selectCharacter(id: string): void {
+    this.selectedCharacterId = id; this.persistence?.context.set({ selectedCharacterId: id })
+    this.characterCards.forEach((card, key) => card.setSelected(key === id))
+    this.characterNickname?.setText('NICKNAME  ' + characterSelectViewModel(id).nickname); this.updateCharacterPreview(id)
+  }
+
   private confirmCharacter(): void { this.selectCharacter(this.selectedCharacterId); void this.persistence?.updateSession(this.selectedCharacterId).catch(() => undefined); this.appStateMachine.transitionTo(AppState.SETUP) }
 
   private renderP2(): void {
     const vm = stageSelectViewModel(this.selectedStageId)
-    this.screen?.add(this.heading(vm.heading))
-    vm.stages.forEach((stage, index) => { const card = new StageCard(this, stage.label, stageTextureKey(stage.id)).setPosition(520 + index * 880, 520); card.setInteractive({ useHandCursor: true }).on('pointerup', () => this.selectStage(stage.id, true)); this.screen?.add(card); this.register('stage', `stage-${stage.id}`, card, () => this.selectStage(stage.id, true)); if (stage.id === vm.selectedStageId) card.setFocused(true) })
-    const confirm = new ActionButton(this, 'CONFIRM', 380, 76).setPosition(960, 925); confirm.setInteractive({ useHandCursor: true }).on('pointerup', () => this.confirmStage()); this.screen?.add(confirm); this.register('stage', 'stage-confirm', confirm, () => this.confirmStage()); this.ui.focus.activate('stage', `stage-${vm.selectedStageId}`)
+    this.screen?.add(this.heading(vm.heading)); this.screen?.add(this.add.text(110, 174, '02 / 03 ・ 選擇對戰場景', typography.instruction))
+    vm.stages.forEach((stage, index) => {
+      const card = new StageCard(this, stage.label, stageTextureKey(stage.id), 780, 500, stage.id === 'laboratory' ? '實驗室' : '企業總部').setPosition(530 + index * 860, 550).setSelected(stage.id === vm.selectedStageId)
+      const pick = (): void => { this.selectStage(stage.id, true); this.ui.focus.activate('stage', 'stage-confirm') }
+      card.setInteractive({ useHandCursor: true }).on('pointerup', pick); this.screen?.add(card); this.register('stage', `stage-${stage.id}`, card, pick)
+    })
+    this.addBackButton('stage')
+    const confirm = new ActionButton(this, 'CONFIRM', 350, 88, uiTokens.colors.playerPrimary, '確認').setPosition(1610, 952)
+    confirm.on('pointerup', () => this.confirmStage()); this.screen?.add(confirm); this.register('stage', 'stage-confirm', confirm, () => this.confirmStage()); this.ui.focus.activate('stage', `stage-${vm.selectedStageId}`)
   }
   private selectStage(id: StageId, render = false): void { this.selectedStageId = id; this.persistence?.context.set({ selectedStageId: id }); if (render) this.render(AppState.SETUP) }
   private confirmStage(): void { this.selectStage(this.selectedStageId); this.appStateMachine.transitionTo(AppState.LOADING) }
@@ -265,83 +292,99 @@ export class AppScene extends Phaser.Scene {
   private renderP3(): void {
     const vm = loadingViewModel(this.selectedCharacterId, resolveStageAsset(this.selectedStageId).label, 1)
     const root = this.screen as Phaser.GameObjects.Container
-    addFocalGlow(this, root, 460, 430, 650, 760, uiTokens.colors.playerPrimary, uiTokens.glowAlpha.player)
-    addFocalGlow(this, root, 1460, 430, 620, 760, uiTokens.colors.enemyPrimary, uiTokens.glowAlpha.enemy)
-    addFocalGlow(this, root, 960, 420, 520, 420, uiTokens.colors.systemBlue, uiTokens.glowAlpha.system)
-    const energy = this.add.graphics()
-    energy.lineStyle(uiTokens.glowWidth.energy, uiTokens.colors.playerGlow, 0.3).lineBetween(50, 710, 810, 120)
-    energy.lineStyle(uiTokens.glowWidth.energy, uiTokens.colors.enemyGlow, 0.3).lineBetween(1870, 710, 1110, 120)
-    energy.lineStyle(2, uiTokens.colors.systemBlue, 0.38).lineBetween(300, 720, 900, 130).lineBetween(1620, 720, 1020, 130)
-    root.add(energy)
-    this.screen?.add(this.label('PLAYER', 220, 126, 26, colorHex('playerGlow')))
-    this.screen?.add(this.label(vm.character.nickname, 220, 170, 34, colorHex('textPrimary')))
-    const playerFallback = fighterSilhouette(this, 430, 463, 500, 540, uiTokens.colors.playerPrimary, 0.42)
-    root.add(playerFallback)
-    this.addCharacterPreview(root, vm.character.spriteId, vm.character.previewUrl, 430, 500, 500, 700, playerFallback)
-    const enemyFallback = fighterSilhouette(this, 1480, 452, 460, 590, uiTokens.colors.enemyPrimary, 0.42)
-    root.add(enemyFallback)
-    this.addCharacterPreview(root, this.enemySpriteId(), undefined, 1480, 500, 500, 700, enemyFallback)
-    this.screen?.add(this.label('ENEMY', 1520, 126, 26, colorHex('enemyGlow')))
-    this.screen?.add(this.label(vm.enemyName, 1520, 170, 34, colorHex('textPrimary')))
-    const vs = this.add.text(960, 412, 'VS', { ...typography.title, fontSize: '170px', color: colorHex('textPrimary'), stroke: colorHex('systemBlue'), strokeThickness: uiTokens.textStroke.standard, shadow: { color: colorHex('systemBlue'), blur: uiTokens.shadowBlur.system, fill: true } }).setOrigin(0.5).setAlpha(0).setScale(0.82)
-    this.screen?.add(vs)
-    this.addScreenTween({ targets: vs, alpha: 1, scale: 1, duration: uiTokens.motionMs.focalReveal, ease: 'Cubic.Out' })
-    this.screen?.add(this.label(vm.stage, 960, 690, 25, colorHex('textSecondary')))
-    const controls = new AngularPanel(this, 1050, 340, uiTokens.colors.panelRaised).setPosition(550, 890)
-    controls.add(this.add.text(-475, -133, 'CONTROLS', typography.secondaryAction).setOrigin(0, 0.5))
-    vm.controls.forEach((control, index) => controls.add(this.add.text(-465 + (index % 2) * 470, -68 + Math.floor(index / 2) * 74, control, { ...typography.instruction, fontSize: '23px', color: colorHex('textPrimary') }).setOrigin(0, 0.5)))
-    this.screen?.add(controls)
-    const loading = new AngularPanel(this, 670, 340, uiTokens.colors.panelRaised).setPosition(1430, 890)
-    loading.add(this.add.text(-286, -133, 'LOADING', typography.secondaryAction).setOrigin(0, 0.5))
-    loading.add(this.add.text(-286, -66, vm.progress >= 1 ? 'ASSETS READY' : 'PREPARING', { ...typography.note, fontSize: '20px', color: colorHex('systemBlue') }).setOrigin(0, 0.5))
-    loading.add(this.add.rectangle(0, 12, 530, 16, uiTokens.colors.background0, 0.96).setOrigin(0.5).setStrokeStyle(1, uiTokens.colors.lineBright))
-    loading.add(this.add.rectangle(-265, 12, 522 * Math.max(0, Math.min(1, vm.progress)), 8, uiTokens.colors.systemBlue, 1).setOrigin(0, 0.5))
-    loading.add(this.add.text(265, 72, Math.round(vm.progress * 100) + '%', { ...typography.number, fontSize: '24px', color: colorHex('textPrimary') }).setOrigin(1, 0.5))
-    this.screen?.add(loading)
+    addFocalGlow(this, root, 430, 370, 850, 780, uiTokens.colors.playerPrimary, uiTokens.glowAlpha.player)
+    addFocalGlow(this, root, 1480, 370, 850, 780, uiTokens.colors.enemyPrimary, uiTokens.glowAlpha.enemy)
+    root.add(this.add.graphics().lineStyle(8, uiTokens.colors.systemBlue, 0.4).lineBetween(1100, 0, 820, 710))
+    const playerFallback = fighterSilhouette(this, 430, 340, 480, 600, uiTokens.colors.playerPrimary, 0.4)
+    const enemyFallback = fighterSilhouette(this, 1480, 340, 480, 600, uiTokens.colors.enemyPrimary, 0.4)
+    root.add([playerFallback, enemyFallback])
+    this.addCharacterPreview(root, vm.character.spriteId, vm.character.previewUrl, 430, 360, 560, 700, playerFallback)
+    this.addCharacterPreview(root, this.enemySpriteId(), undefined, 1480, 360, 560, 700, enemyFallback)?.setFlipX(true)
+    root.add(this.add.text(130, 565, 'PLAYER', { ...typography.note, color: colorHex('playerGlow') }))
+    root.add(this.add.text(130, 600, vm.character.nickname, typography.title))
+    root.add(this.add.text(1780, 565, 'ENEMY', { ...typography.note, color: colorHex('enemyGlow') }).setOrigin(1, 0))
+    root.add(this.add.text(1780, 600, vm.enemyName, typography.title).setOrigin(1, 0))
+    root.add(this.add.text(960, 330, 'VS', { ...typography.title, fontSize: uiTokens.type.hero, stroke: colorHex('systemBlue'), strokeThickness: 8 }).setOrigin(0.5).setRotation(-0.08))
+    root.add(this.label(vm.stage, 960, 670, uiTokens.type.body))
+    const controls = new AngularPanel(this, 1030, 294, uiTokens.colors.panelRaised).setPosition(620, 865)
+    controls.add(this.add.text(-465, -120, 'CONTROLS ・ 操作說明', typography.secondaryAction))
+    const bindings = [['MOVE', 'A D / ← →', 'D-PAD / L-STICK'], ['JUMP', 'SPACE', 'A'], ['ATTACK', 'J', 'X'], ['GUARD', 'K', 'LB']]
+    bindings.forEach(([action, keyboard, pad], i) => {
+      const x = -455 + (i % 2) * 500, y = -25 + Math.floor(i / 2) * 104
+      controls.add(this.add.text(x, y - 35, action, typography.note))
+      const keyboardCap = new KeyCap(this, keyboard, 'keyboard').setPosition(x + 90, y + 15)
+      const padCap = new KeyCap(this, pad, 'gamepad').setPosition(x + 320, y + 15)
+      controls.add([keyboardCap, padCap]); this.keyCaps.push(keyboardCap, padCap)
+    })
+    root.add(controls)
+    const loading = new AngularPanel(this, 640, 294, uiTokens.colors.panelRaised).setPosition(1495, 865)
+    loading.add(this.add.text(-260, -120, 'LOADING ・ 載入中', typography.secondaryAction))
+    loading.add(this.add.rectangle(0, -40, 520, 14, uiTokens.colors.background0))
+    this.loadingBar = this.add.rectangle(-260, -40, 520, 14, uiTokens.colors.systemBlue).setOrigin(0, 0.5)
+    this.loadingPercent = this.add.text(260, -82, '', typography.note).setOrigin(1, 0.5)
+    this.loadingButton = new ActionButton(this, 'FIGHT!', 440, 92, uiTokens.colors.playerPrimary, 'ENTER / A ・ 開始').setPosition(0, 55).setEnabled(false)
+    const fight = (): void => { if (this.loadingReady) this.appStateMachine.transitionTo(AppState.BATTLE) }
+    this.loadingButton.on('pointerup', fight); loading.add([this.loadingBar, this.loadingPercent, this.loadingButton]); root.add(loading)
+    this.register('loading', 'loading-fight', this.loadingButton, fight, false); this.updateLoading()
+  }
+  private updateLoading(): void {
+    if (!this.loadingButton) return
+    const boot = this.scene.get('BootScene').load
+    const busy = boot.isLoading() || this.load.isLoading()
+    const progress = busy ? (this.load.isLoading() ? this.load.progress : boot.progress) : 1
+    this.loadingBar?.setScale(progress, 1); this.loadingPercent?.setText(Math.round(progress * 100) + '%')
+    if (this.loadingReady !== !busy) {
+      this.loadingReady = !busy; this.loadingButton.setEnabled(!busy); this.ui.focus.setEnabled('loading', 'loading-fight', !busy)
+      this.loadingPulse?.stop(); this.loadingButton.label.setAlpha(1)
+      if (!busy) { this.ui.focus.activate('loading', 'loading-fight'); this.loadingPulse = this.addScreenTween({ targets: this.loadingButton.label, alpha: 0.7, duration: 700, yoyo: true, repeat: -1 }) }
+    }
+    const device = this.inputManager.lastDevice()
+    if (device !== this.promptDevice) { this.promptDevice = device; this.keyCaps.forEach(cap => cap.setEmphasis(cap.device === device)) }
   }
 
   private renderP4(): void {
-    this.battleRoot = this.add.container(0, 0)
-    this.screen?.add(this.battleRoot)
-    this.addArenaBackdrop(this.battleRoot, uiTokens.backdrop.battle)
-    this.battleRoot.add(this.add.rectangle(960, 850, 1920, 460, uiTokens.colors.background0, 0.2))
+    const root = this.battleRoot = this.add.container(0, 0); this.screen?.add(root)
+    this.addArenaBackdrop(root, uiTokens.backdrop.battle)
     this.battlePlayer = new TemporarySpriteRenderer(this, this.playerSpriteId(), uiTokens.colors.playerPrimary, this.match.world.getConfig().floorY)
     this.battleEnemy = new TemporarySpriteRenderer(this, this.enemySpriteId(), uiTokens.colors.enemyPrimary, this.match.world.getConfig().floorY)
-    this.battleRoot.add([this.battlePlayer, this.battleEnemy])
-    this.battleRoot.add(new AngularPanel(this, 1740, 130, uiTokens.colors.background0, 0.82).setPosition(960, 80))
-    this.battlePlayerBar = new HealthBar(this, 610, uiTokens.colors.playerPrimary).setPosition(180, 82)
-    this.battleEnemyBar = new HealthBar(this, 610, uiTokens.colors.enemyPrimary, true).setPosition(1130, 82)
-    this.battleRoot.add([this.battlePlayerBar, this.battleEnemyBar])
-    this.battlePlayerRoundMarkers = [0, 1].map((index) => this.add.circle(238 + index * 22, 116, 5, uiTokens.colors.playerGlow, 0.24))
-    this.battleEnemyRoundMarkers = [0, 1].map((index) => this.add.circle(1682 - index * 22, 116, 5, uiTokens.colors.enemyGlow, 0.24))
-    this.battleRoot.add([...this.battlePlayerRoundMarkers, ...this.battleEnemyRoundMarkers])
-    const playerPortrait = new AngularPanel(this, 72, 72, uiTokens.colors.panelRaised).setPosition(118, 82)
-    playerPortrait.add(fighterSilhouette(this, 0, 0, 54, 58, uiTokens.colors.playerGlow, 0.68))
-    const enemyPortrait = new AngularPanel(this, 72, 72, uiTokens.colors.panelRaised).setPosition(1802, 82)
-    enemyPortrait.add(fighterSilhouette(this, 0, 0, 54, 58, uiTokens.colors.enemyGlow, 0.68))
-    this.battleRoot.add([playerPortrait, enemyPortrait])
-    this.battleRoot.add(this.label('ROG_Player', 230, 34, 26, colorHex('textPrimary')))
-    this.battleRoot.add(this.label('ROG_SAGA', 1690, 34, 26, colorHex('textPrimary')))
-    addFocalGlow(this, this.battleRoot, 960, 80, 280, 110, uiTokens.colors.enemyPrimary, uiTokens.glowAlpha.enemy)
-    this.battleTimer = this.add.text(960, 76, '60', { ...typography.timer, fontSize: '72px', color: colorHex('textPrimary'), stroke: colorHex('enemyPrimary'), strokeThickness: uiTokens.textStroke.timer }).setOrigin(0.5)
-    this.battleRoot.add(this.battleTimer)
-    this.battleRoot.add(this.label('ROUND  /  PLAYER - ENEMY', 960, 130, 16, colorHex('textSecondary')))
-    this.battleInfo = this.add.text(960, 153, '', { ...typography.note, fontSize: '18px', color: colorHex('textPrimary') }).setOrigin(0.5)
-    this.battleRoot.add(this.battleInfo)
-    this.battleCombo = this.add.text(280, 350, '', typography.combo).setOrigin(0.5)
-    this.battleRoot.add(this.battleCombo)
-    this.battleDanger = this.add.text(1640, 350, '', typography.danger).setOrigin(0.5)
-    this.battleRoot.add(this.battleDanger)
-    this.battleFirstAttack = this.add.text(960, 315, 'FIRST ATTACK!', { ...typography.note, color: colorHex('statusLime'), fontStyle: 'bold' }).setOrigin(0.5).setVisible(false)
-    this.battleRoot.add(this.battleFirstAttack)
-    this.battleAnnouncer = new AnnouncerText(this)
-    this.battleAnnouncer.setPosition(960, 410)
-    this.battleRoot.add(this.battleAnnouncer)
+    root.add([this.battlePlayer, this.battleEnemy])
+    this.battlePlayerBar = new HealthBar(this, 560, uiTokens.colors.playerPrimary).setPosition(230, 112)
+    this.battleEnemyBar = new HealthBar(this, 560, uiTokens.colors.enemyPrimary, true).setPosition(1130, 112)
+    this.battlePlayerRounds = new RoundDiamonds(this).setPosition(250, 156)
+    this.battleEnemyRounds = new RoundDiamonds(this, true).setPosition(1670, 156)
+    root.add([this.battlePlayerBar, this.battleEnemyBar, this.battlePlayerRounds, this.battleEnemyRounds])
+    ;[[150, this.playerSpriteId(), uiTokens.colors.playerPrimary], [1770, this.enemySpriteId(), uiTokens.colors.enemyPrimary]].forEach(([x, sprite, color]) => {
+      const portrait = new AngularPanel(this, 100, 100, Number(color)).setPosition(Number(x), 108)
+      const key = sprite && spriteTextureKey(sprite as SpriteId, 'idle')
+      portrait.add(key && this.textures.exists(key) ? this.add.image(0, 0, key).setDisplaySize(96, 96) : fighterSilhouette(this, 0, 0, 65, 75, Number(color), 0.7)); root.add(portrait)
+    })
+    root.add(this.add.text(230, 62, characterSelectViewModel(this.selectedCharacterId).nickname, typography.secondaryAction))
+    root.add(this.add.text(1690, 62, 'ROG_SAGA', typography.secondaryAction).setOrigin(1, 0))
+    this.battleTimer = new HexTimer(this).setPosition(960, 110); root.add(this.battleTimer)
+    this.battleCombo = this.add.text(380, 166, '', typography.combo).setOrigin(0, 0.5)
+    this.battleDanger = this.add.text(1550, 166, '', typography.danger).setOrigin(1, 0.5)
+    this.battleLastTen = this.add.text(1130, 166, '', { ...typography.note, color: colorHex('danger') }).setOrigin(0, 0.5)
+    this.battleFirstAttack = this.add.text(710, 166, 'FIRST ATTACK!', { ...typography.note, color: colorHex('statusLime') }).setOrigin(0.5).setVisible(false)
+    this.battleBanner = new RoundBanner(this)
+    root.add([this.battleCombo, this.battleDanger, this.battleLastTen, this.battleFirstAttack, this.battleBanner])
   }
-  private updateBattle(snapshot: MatchSnapshot): void { if (!this.battleRoot || !this.battlePlayer || !this.battleEnemy || !this.battleTimer || !this.battleInfo || !this.battlePlayerBar || !this.battleEnemyBar) return; const sourceVm = battleViewModel(snapshot, this.selectedStageId); const vm = this.showcaseState === AppState.BATTLE && this.showcaseBattleVariant !== 'NORMAL' ? { ...sourceVm, combo: this.showcaseBattleVariant === 'COMBO' ? 4 : sourceVm.combo, danger: this.showcaseBattleVariant === 'DANGER' || sourceVm.danger, lastTenSeconds: this.showcaseBattleVariant === 'LAST_10_SECONDS' || sourceVm.lastTenSeconds, timerSeconds: this.showcaseBattleVariant === 'LAST_10_SECONDS' ? 10 : sourceVm.timerSeconds } : sourceVm; const tick = snapshot.world.tick; const events = this.tickEvents.splice(0); const hit = events.find((e) => e.type === 'HIT'); if (hit?.type === 'HIT' && this.firstHit?.round !== vm.round) this.firstHit = { round: vm.round, tick, byPlayer: hit.attacker === 'PLAYER' }
-    // ponytail: reaction hold is four 24Hz ticks; retune if tick rate or blockstun timing changes
-    const held = (from: number, ticks: number): boolean => tick >= from && tick < from + ticks
-    this.battlePlayer.update(vm.player, tick); this.battleEnemy.update(vm.enemy, tick); this.battlePlayerBar.setRatio(vm.playerHp / vm.maxHp); this.battleEnemyBar.setRatio(vm.enemyHp / vm.maxHp); this.battlePlayerRoundMarkers.forEach((marker, index) => marker.setAlpha(index < vm.playerWins ? 1 : 0.24)); this.battleEnemyRoundMarkers.forEach((marker, index) => marker.setAlpha(index < vm.enemyWins ? 1 : 0.24)); this.battleTimer.setText(String(vm.timerSeconds).padStart(2, '0')); this.battleInfo.setText(`R${vm.round}   ${vm.playerWins} — ${vm.enemyWins}`); this.battleCombo?.setText(vm.combo >= 2 ? `${vm.combo} HIT COMBO` : '').setVisible(vm.combo >= 2); this.battleDanger?.setText(vm.danger ? 'DANGER' : '').setVisible(vm.danger); this.battleFirstAttack?.setVisible(Boolean(this.firstHit?.byPlayer && this.firstHit.round === vm.round && held(this.firstHit.tick, 24))); const showcaseMessage = this.showcaseAnnouncer ? 'FIGHT!' : ''; const message = vm.lastTenSeconds ? '10 SECONDS!' : vm.danger ? 'DANGER!' : vm.combo >= 2 ? 'NICE COMBO!' : (snapshot.world.tick === 0 && !this.showcaseState ? 'FIGHT!' : showcaseMessage); this.battleAnnouncer?.showMessage(message) }
+  private updateBattle(snapshot: MatchSnapshot): void {
+    if (!this.battleRoot || !this.battlePlayer || !this.battleEnemy) return
+    const source = battleViewModel(snapshot, this.selectedStageId)
+    const vm = this.showcaseState === AppState.BATTLE ? { ...source, combo: this.showcaseBattleVariant === 'COMBO' ? 4 : source.combo, danger: this.showcaseBattleVariant === 'DANGER' || source.danger, lastTenSeconds: this.showcaseBattleVariant === 'LAST_10_SECONDS' || source.lastTenSeconds, timerSeconds: this.showcaseBattleVariant === 'LAST_10_SECONDS' ? 10 : source.timerSeconds } : source
+    const tick = snapshot.world.tick, hit = this.tickEvents.splice(0).find(e => e.type === 'HIT')
+    if (hit?.type === 'HIT' && this.firstHit?.round !== vm.round) this.firstHit = { round: vm.round, tick, byPlayer: hit.attacker === 'PLAYER' }
+    this.battlePlayer.update(vm.player, tick); this.battleEnemy.update(vm.enemy, tick)
+    this.battlePlayerBar?.setRatio(vm.playerHp / vm.maxHp, vm.playerHp); this.battleEnemyBar?.setRatio(vm.enemyHp / vm.maxHp, vm.enemyHp)
+    this.battlePlayerRounds?.setWins(vm.playerWins); this.battleEnemyRounds?.setWins(vm.enemyWins); this.battleTimer?.updateTime(vm.timerSeconds, vm.round)
+    this.battleCombo?.setText(vm.combo >= 2 ? `${vm.combo} COMBO` : ''); this.battleDanger?.setText(vm.danger ? 'DANGER' : '')
+    this.battleLastTen?.setText(vm.lastTenSeconds ? '10 SECONDS!' : '')
+    this.battleFirstAttack?.setVisible(Boolean(this.firstHit?.byPlayer && this.firstHit.round === vm.round && tick >= this.firstHit.tick && tick < this.firstHit.tick + 24))
+    const steps = roundBannerSequence(this.previousBattle, snapshot)
+    if (steps) this.battleBanner?.show(steps, this.clock.getTick())
+    this.battleBanner?.updateTick(this.clock.getTick()); this.previousBattle = snapshot
+    if (this.showcaseState && !this.showcaseAnnouncer) this.battleBanner?.setVisible(false)
+  }
 
   private renderP5(): void {
     const vm = presentationViewModel(this.resolvedResult, this.showcaseState === AppState.PRESENTATION ? this.showcaseP5Variant : undefined)
@@ -355,23 +398,32 @@ export class AppScene extends Phaser.Scene {
     this.battleRoot.add(this.add.rectangle(960, 540, 1920, 1080, uiTokens.colors.background0, uiTokens.backdrop.impact))
     addFocalGlow(this, this.battleRoot, 960, 470, 1120, 450, uiTokens.colors.danger, uiTokens.glowAlpha.result)
     addFocalGlow(this, this.battleRoot, 960, 470, 760, 310, uiTokens.colors.resultGold, uiTokens.glowAlpha.gold)
+    const rays = this.add.graphics().setPosition(960, 450)
+    for (let i = 0; i < 26; i += 1) { const angle = i * Math.PI * 2 / 26; rays.fillStyle(uiTokens.colors.playerPrimary, 0.1).fillTriangle(0, 0, Math.cos(angle) * 1500, Math.sin(angle) * 1500, Math.cos(angle + 0.04) * 1500, Math.sin(angle + 0.04) * 1500) }
+    this.battleRoot.add(rays); this.addScreenTween({ targets: rays, angle: 360, duration: 12000, repeat: -1 })
+    if (!reducedMotion) this.cameras.main.shake(300, 0.006)
     const impact = this.add.graphics()
     impact.lineStyle(20, uiTokens.colors.danger, 0.46).lineBetween(465, 610, 1455, 315)
     impact.lineStyle(6, uiTokens.colors.resultGold, 0.62).lineBetween(520, 635, 1405, 370)
     impact.lineStyle(3, uiTokens.colors.playerGlow, 0.38).lineBetween(580, 660, 1320, 410)
     this.battleRoot.add(impact)
     if (vm.headline) {
-      const ko = this.add.text(960, 438, vm.headline, { ...typography.announcer, fontSize: '190px', color: colorHex('resultGold'), stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.impact, shadow: { color: colorHex('danger'), blur: uiTokens.shadowBlur.impact, fill: true } }).setOrigin(0.5).setRotation(-0.045).setScale(0.86).setAlpha(0)
+      const ko = this.add.text(960, 330, vm.headline, { ...typography.announcer, fontSize: uiTokens.type.hero, color: colorHex('resultGold'), stroke: colorHex(this.game.renderer.type === Phaser.WEBGL ? 'background0' : 'danger'), strokeThickness: uiTokens.textStroke.impact, shadow: { color: colorHex('danger'), blur: uiTokens.shadowBlur.impact, fill: true } }).setOrigin(0.5).setRotation(-0.045).setScale(0.86).setAlpha(0)
       if (this.game.renderer.type === Phaser.WEBGL) ko.postFX.addGradient(uiTokens.colors.resultGold, uiTokens.colors.danger, 0.72, 0, 0, 0, 1)
       this.screen?.add(ko)
       this.addScreenTween({ targets: ko, scale: 1, alpha: 1, duration: uiTokens.motionMs.announcer, ease: 'Back.Out' })
     }
     if (vm.outcome) {
       const semantic = vm.result === 'WIN' ? colorHex('playerGlow') : vm.result === 'DRAW' ? colorHex('systemBlue') : colorHex('textSecondary')
-      this.screen?.add(this.add.text(960, 642, vm.outcome, { ...typography.action, fontSize: '48px', color: semantic, shadow: vm.result === 'WIN' ? { color: colorHex('danger'), blur: uiTokens.shadowBlur.semantic, fill: true } : undefined }).setOrigin(0.5))
+      this.screen?.add(this.add.text(960, 530, vm.outcome, { ...typography.action, fontSize: uiTokens.type.h2, color: semantic, shadow: vm.result === 'WIN' ? { color: colorHex('danger'), blur: uiTokens.shadowBlur.semantic, fill: true } : undefined }).setOrigin(0.5))
     }
-    if (this.resolvedResult && !this.showcaseState) {
-      const next = new ActionButton(this, 'VIEW RESULTS', 380, 76).setPosition(960, 870)
+    this.match.getRoundSummaries().forEach((round, index, rounds) => {
+      const panel = new AngularPanel(this, 210, 100, round.winner === 'PLAYER' ? uiTokens.colors.playerPrimary : round.winner === 'ENEMY' ? uiTokens.colors.enemyPrimary : uiTokens.colors.panelRaised).setPosition(960 + (index - (rounds.length - 1) / 2) * 230, 700)
+      panel.add(this.label('ROUND ' + round.roundNumber, 0, -22, uiTokens.type.label))
+      panel.add(this.add.text(0, 18, round.winner === 'PLAYER' ? 'WIN' : round.winner === 'ENEMY' ? 'LOSE' : 'DRAW', typography.action).setOrigin(0.5)); this.screen?.add(panel)
+    })
+    if (this.resolvedResult || this.showcaseState) {
+      const next = new ActionButton(this, 'VIEW RESULTS', 420, 96, uiTokens.colors.playerPrimary, '查看結算').setPosition(960, 952)
       next.setInteractive({ useHandCursor: true }).on('pointerup', () => this.appStateMachine.transitionTo(AppState.RESULT))
       this.screen?.add(next); this.register('presentation', 'presentation-next', next, () => this.appStateMachine.transitionTo(AppState.RESULT)); this.ui.focus.activate('presentation')
     }
@@ -384,49 +436,51 @@ export class AppScene extends Phaser.Scene {
 
   private renderResultColumns(vm: ResultViewModel): void {
     this.screen?.add(this.heading('MATCH RESULT'))
-    const columns = [{ x: 340, w: 520, title: 'STATISTICS' }, { x: 940, w: 620, title: 'RESULT' }, { x: 1560, w: 560, title: 'RANKING' }]
+    const columns = [{ x: 353, w: 514, title: 'STATISTICS' }, { x: 960, w: 644, title: 'RESULT' }, { x: 1567, w: 514, title: 'RANKING' }]
     const panels = columns.map(({ x, w, title }) => {
-      const panel = new AngularPanel(this, w, 760, uiTokens.colors.panelRaised).setPosition(x, 570)
-      panel.add(this.add.text(-w / 2 + 28, -328, title, typography.secondaryAction).setOrigin(0, 0.5))
-      panel.add(this.add.rectangle(0, -292, w - 52, 1, uiTokens.colors.lineDim, 0.9))
+      const panel = new AngularPanel(this, w, 640, uiTokens.colors.panelRaised).setPosition(x, 550)
+      panel.add(this.add.text(-w / 2 + 32, -275, title, typography.secondaryAction).setOrigin(0, 0.5))
+      panel.add(this.add.rectangle(0, -220, w - 52, 1, uiTokens.colors.lineDim, 0.9))
       this.screen?.add(panel)
       return panel
     })
     const [statistics, result, ranking] = panels
     const statStep = Math.min(88, 480 / Math.max(1, vm.statistics.length))
     vm.statistics.forEach((stat, index) => {
-      const y = -220 + index * statStep
-      statistics.add(this.add.text(-215, y, stat.label, { ...typography.note, fontSize: '18px', color: colorHex('textSecondary') }).setOrigin(0, 0.5))
-      statistics.add(this.add.text(215, y, String(stat.value), { ...typography.number, fontSize: '26px' }).setOrigin(1, 0.5))
+      const y = -160 + index * statStep
+      statistics.add(this.add.text(-215, y, stat.label, { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('textSecondary') }).setOrigin(0, 0.5))
+      statistics.add(this.add.text(215, y, String(stat.value), { ...typography.number, fontSize: uiTokens.type.body }).setOrigin(1, 0.5))
       statistics.add(this.add.rectangle(0, y + statStep / 2, 450, 1, uiTokens.colors.lineDim, 0.65))
     })
     const win = vm.outcome === 'WIN'
     const headlineColor = win ? colorHex('playerGlow') : vm.outcome === 'DRAW' ? colorHex('systemBlue') : colorHex('textSecondary')
     addFocalGlow(this, result, 0, -150, 520, 260, win ? uiTokens.colors.playerPrimary : uiTokens.colors.systemBlue, win ? uiTokens.glowAlpha.win : uiTokens.glowAlpha.subtle)
-    const headline = this.add.text(0, -170, vm.headline, { ...typography.announcer, fontSize: '76px', color: headlineColor, stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.result, shadow: win ? { color: colorHex('playerPrimary'), blur: uiTokens.shadowBlur.focal, fill: true } : undefined }).setOrigin(0.5).setScale(0.88).setAlpha(0)
+    const headline = this.add.text(0, -170, vm.headline, { ...typography.announcer, fontSize: uiTokens.type.h1, color: headlineColor, stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.result, shadow: win ? { color: colorHex('playerPrimary'), blur: uiTokens.shadowBlur.focal, fill: true } : undefined }).setOrigin(0.5).setScale(0.88).setAlpha(0)
     result.add(headline)
     this.addScreenTween({ targets: headline, scale: 1, alpha: 1, duration: uiTokens.motionMs.focalReveal, ease: 'Cubic.Out' })
-    const title = this.add.text(0, -38, vm.title, { ...typography.secondaryAction, fontSize: '34px', color: colorHex('resultGold') }).setOrigin(0.5).setAlpha(0)
-    const scoreLabel = this.add.text(0, 68, 'SCORE', { ...typography.note, fontSize: '18px', color: colorHex('textSecondary') }).setOrigin(0.5).setAlpha(0)
-    const score = this.add.text(0, 120, String(vm.score), { ...typography.number, fontSize: '66px' }).setOrigin(0.5).setAlpha(0)
-    const rank = this.add.text(0, 207, 'RANK  ' + (vm.rank ?? 'NOT RANKED'), { ...typography.note, fontSize: '22px', color: colorHex('textSecondary') }).setOrigin(0.5).setAlpha(0)
+    if (vm.title) result.add(new AngularPanel(this, 530, 62, uiTokens.colors.resultGold, 1).setPosition(0, -38))
+    const title = this.add.text(0, -38, vm.title, { ...typography.secondaryAction, fontSize: uiTokens.type.title, color: colorHex('background0') }).setOrigin(0.5).setAlpha(0)
+    const scoreLabel = this.add.text(0, 40, 'SCORE', { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('textSecondary') }).setOrigin(0.5).setAlpha(0)
+    const score = this.add.text(0, 120, String(vm.score), { ...typography.number, fontSize: uiTokens.type.display }).setOrigin(0.5).setAlpha(0)
+    const rank = this.add.text(0, 207, 'RANK  ' + (vm.rank ?? 'NOT RANKED'), { ...typography.note, fontSize: uiTokens.type.body, color: colorHex('textSecondary') }).setOrigin(0.5).setAlpha(0)
     result.add([title, scoreLabel, score, rank])
     this.addScreenTween({ targets: [title, scoreLabel, score, rank], alpha: 1, duration: 160, delay: 100, ease: 'Cubic.Out' })
     if (vm.newRecord) {
-      const badge = this.add.text(0, 278, 'NEW RECORD', { ...typography.secondaryAction, fontSize: '29px', color: colorHex('resultGold'), stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.badge, shadow: { color: colorHex('playerPrimary'), blur: uiTokens.shadowBlur.subtle, fill: true } }).setOrigin(0.5).setAlpha(0)
+      const badge = this.add.text(0, 278, 'NEW RECORD', { ...typography.secondaryAction, fontSize: uiTokens.type.title, color: colorHex('resultGold'), stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.badge, shadow: { color: colorHex('playerPrimary'), blur: uiTokens.shadowBlur.subtle, fill: true } }).setOrigin(0.5).setAlpha(0)
       result.add(badge)
       this.addScreenTween({ targets: badge, alpha: 1, duration: 160, delay: 240, ease: 'Cubic.Out' })
     }
-    vm.ranking.forEach((row, index) => {
-      const y = -246 + index * 46
-      if (row.highlighted) ranking.add(this.add.rectangle(0, y, 460, 40, uiTokens.colors.playerPrimary, 0.24))
-      ranking.add(this.add.rectangle(0, y + 23, 462, 1, uiTokens.colors.lineDim, 0.66))
-      if (row.highlighted) ranking.add(this.add.rectangle(-227, y, 4, 40, uiTokens.colors.playerGlow, 0.95))
-      ranking.add(this.add.text(-210, y, String(row.rank).padStart(2, '0') + '  ' + row.name, { ...typography.note, fontSize: '18px', color: colorHex('textPrimary') }).setOrigin(0, 0.5))
-      ranking.add(this.add.text(210, y, String(row.score), { ...typography.number, fontSize: '20px', color: row.highlighted ? colorHex('textPrimary') : colorHex('textSecondary') }).setOrigin(1, 0.5))
+    const rowSpacing = Math.min(46, 460 / Math.max(1, Math.min(20, vm.ranking.length)))
+    vm.ranking.slice(0, 20).forEach((row, index) => {
+      const y = -180 + index * rowSpacing
+      if (row.highlighted) ranking.add(this.add.rectangle(0, y, 460, rowSpacing - 4, uiTokens.colors.playerPrimary, 0.24))
+      ranking.add(this.add.rectangle(0, y + rowSpacing / 2, 462, 1, uiTokens.colors.lineDim, 0.66))
+      if (row.highlighted) ranking.add(this.add.rectangle(-227, y, 4, rowSpacing - 4, uiTokens.colors.playerGlow, 0.95))
+      ranking.add(this.add.text(-210, y, String(row.rank).padStart(2, '0') + '  ' + row.name, { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('textPrimary') }).setOrigin(0, 0.5))
+      ranking.add(this.add.text(210, y, String(row.score), { ...typography.number, fontSize: uiTokens.type.label, color: row.highlighted ? colorHex('textPrimary') : colorHex('textSecondary') }).setOrigin(1, 0.5))
     })
-    if (this.resolvedResult && !this.showcaseState) {
-      const next = new ActionButton(this, 'CONTINUE', 380, 72).setPosition(960, 1010)
+    if (this.resolvedResult || this.showcaseState) {
+      const next = new ActionButton(this, 'CONTINUE', 380, 88, uiTokens.colors.playerPrimary, '繼續').setPosition(960, 952)
       next.setInteractive({ useHandCursor: true }).on('pointerup', () => this.appStateMachine.transitionTo(AppState.END))
       this.screen?.add(next); this.register('result', 'result-next', next, () => this.appStateMachine.transitionTo(AppState.END)); this.ui.focus.activate('result')
     }
@@ -435,8 +489,8 @@ export class AppScene extends Phaser.Scene {
   private renderP7(): void {
     const vm = endViewModel(this.nextPlayerName)
     addFocalGlow(this, this.screen as Phaser.GameObjects.Container, 960, 515, 900, 560, uiTokens.colors.systemBlue, uiTokens.glowAlpha.ambient)
-    const panel = new AngularPanel(this, 760, 540, uiTokens.colors.panelRaised).setPosition(960, 525)
-    panel.add(this.add.text(0, -185, 'ONE MORE ROUND?', { ...typography.title, fontSize: '58px' }).setOrigin(0.5))
+    const panel = new AngularPanel(this, 900, 660, uiTokens.colors.panelRaised).setPosition(960, 500)
+    panel.add(this.add.text(0, -185, 'ONE MORE ROUND?', typography.title).setOrigin(0.5))
     const replay = new ActionButton(this, 'PLAY AGAIN', 470, 96).setPosition(0, -6)
     const finish = new ActionButton(this, 'FINISH', 470, 86, uiTokens.colors.background1).setPosition(0, 132)
     replay.setInteractive({ useHandCursor: true }).on('pointerup', () => this.ui.navigation.dispatch('REPLAY'))
@@ -447,9 +501,9 @@ export class AppScene extends Phaser.Scene {
     this.ui.focus.activate('end', 'play-again')
     if (vm.nextPlayerName) {
       const next = new AngularPanel(this, 430, 190, uiTokens.colors.panelRaised).setPosition(960, 885)
-      next.add(this.add.text(-180, -63, 'NEXT', { ...typography.secondaryAction, fontSize: '22px', color: colorHex('systemBlue') }).setOrigin(0, 0.5))
+      next.add(this.add.text(-180, -63, 'NEXT', { ...typography.secondaryAction, fontSize: uiTokens.type.body, color: colorHex('systemBlue') }).setOrigin(0, 0.5))
       next.add(fighterSilhouette(this, -125, 35, 116, 128, uiTokens.colors.enemyPrimary, 0.42))
-      next.add(this.add.text(-60, 34, vm.nextPlayerName, { ...typography.secondaryAction, fontSize: '26px' }).setOrigin(0, 0.5))
+      next.add(this.add.text(-60, 34, vm.nextPlayerName, { ...typography.secondaryAction, fontSize: uiTokens.type.body }).setOrigin(0, 0.5))
       this.screen?.add(next)
     }
   }
@@ -498,22 +552,22 @@ export class AppScene extends Phaser.Scene {
     this.screen?.add(this.add.image(cover.x + cover.width / 2, cover.y + cover.height / 2, stageTextureKey(this.selectedStageId)).setDisplaySize(cover.width, cover.height))
     this.screen?.add(this.add.rectangle(960, 540, 1920, 1080, uiTokens.colors.background0, 0.56))
     this.screen?.add(this.heading('CHARACTER ANIMATION LAB'))
-    this.screen?.add(this.label('V preview  /  B stage  /  F facing  /  H HUD  /  L loop  /  R replay', 960, 165, 24, colorHex('systemBlue')))
+    this.screen?.add(this.label('V preview  /  B stage  /  F facing  /  H HUD  /  L loop  /  R replay', 960, 165, uiTokens.type.body, colorHex('systemBlue')))
     const entries = existingAnimationEntries(); const entry = entries[this.labIndex % entries.length]; const validation = sampleWebmValidation.find((item) => item.filename === entry.filename)
     const list = new AngularPanel(this, 420, 760, uiTokens.colors.panelRaised).setPosition(270, 580); let y = -340
-    animationCategories.forEach((category) => { list.add(this.add.text(-180, y, category.label, { ...typography.note, fontSize: '19px', color: colorHex('systemBlue'), fontStyle: 'bold' }).setOrigin(0, 0.5)); y += 25; category.keys.forEach((key) => { const item = sampleCharacterAnimationManifest[key]; if (!item.url) return; list.add(this.add.text(-165, y, (item.previewOnly ? 'PREVIEW ' : 'RUNTIME ') + item.key, { ...typography.note, fontSize: '16px', color: item.key === entry.key ? colorHex('playerGlow') : colorHex('textPrimary') }).setOrigin(0, 0.5)); y += 23 }); y += 8 })
+    animationCategories.forEach((category) => { list.add(this.add.text(-180, y, category.label, { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('systemBlue'), fontStyle: 'bold' }).setOrigin(0, 0.5)); y += 25; category.keys.forEach((key) => { const item = sampleCharacterAnimationManifest[key]; if (!item.url) return; list.add(this.add.text(-165, y, (item.previewOnly ? 'PREVIEW ' : 'RUNTIME ') + item.key, { ...typography.note, fontSize: uiTokens.type.label, color: item.key === entry.key ? colorHex('playerGlow') : colorHex('textPrimary') }).setOrigin(0, 0.5)); y += 23 }); y += 8 })
     this.screen?.add(list)
     const diagnostics = new AngularPanel(this, 500, 560, uiTokens.colors.panelRaised).setPosition(1590, 590)
     diagnostics.add(this.add.text(-220, -225, 'DIAGNOSTICS', typography.secondaryAction).setOrigin(0, 0.5))
-    diagnostics.add(this.add.text(-220, -165, 'KEY ' + entry.key + '\nFILE ' + entry.filename + '\nDURATION ' + (validation?.durationMs ?? entry.nominalDurationMs ?? 'unknown') + 'ms\nDIMENSIONS ' + (validation ? validation.width + ' x ' + validation.height : 'runtime probe') + '\nLOOP ' + this.labLoop + '\nPREVIEW ONLY ' + entry.previewOnly + '\nFACING ' + this.labFacing + '\nSTAGE ' + resolveStageAsset(this.selectedStageId).label + '\nPLAYBACK RATE natural', { ...typography.note, fontSize: '19px', lineSpacing: 7 }))
-    const mediaStatus = this.add.text(-220, 175, 'MEDIA PLACEHOLDER', { ...typography.note, fontSize: '20px', color: colorHex('systemBlue') })
+    diagnostics.add(this.add.text(-220, -165, 'KEY ' + entry.key + '\nFILE ' + entry.filename + '\nDURATION ' + (validation?.durationMs ?? entry.nominalDurationMs ?? 'unknown') + 'ms\nDIMENSIONS ' + (validation ? validation.width + ' x ' + validation.height : 'runtime probe') + '\nLOOP ' + this.labLoop + '\nPREVIEW ONLY ' + entry.previewOnly + '\nFACING ' + this.labFacing + '\nSTAGE ' + resolveStageAsset(this.selectedStageId).label + '\nPLAYBACK RATE natural', { ...typography.note, fontSize: uiTokens.type.label, lineSpacing: 7 }))
+    const mediaStatus = this.add.text(-220, 175, 'MEDIA PLACEHOLDER', { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('systemBlue') })
     diagnostics.add(mediaStatus); this.screen?.add(diagnostics)
     this.labRenderer = new FighterVideoRenderer(this, sampleCharacterAnimationManifest, uiTokens.colors.playerPrimary, (status) => mediaStatus.setText('MEDIA ' + status))
     this.labRenderer.setPosition(960, 850); this.labRenderer.preview(entry.key, this.labFacing, this.labLoop); this.screen?.add(this.labRenderer)
     if (this.labHud) {
       const hud = this.add.container(0, 0); hud.add(this.add.rectangle(960, 105, 1740, 142, uiTokens.colors.background0, 0.82).setStrokeStyle(2, uiTokens.colors.lineBright))
       const playerBar = new HealthBar(this, 610, uiTokens.colors.playerPrimary).setPosition(180, 130); const enemyBar = new HealthBar(this, 610, uiTokens.colors.enemyPrimary, true).setPosition(1130, 130)
-      hud.add([playerBar, enemyBar]); hud.add(this.add.text(960, 155, '60', typography.timer).setOrigin(0.5)); hud.add(this.label('ROG_Player', 230, 90, 34, colorHex('textPrimary'))); hud.add(this.label('ROG_SAGA', 1690, 90, 34, colorHex('textPrimary'))); this.screen?.add(hud)
+      hud.add([playerBar, enemyBar]); hud.add(this.add.text(960, 155, '60', typography.timer).setOrigin(0.5)); hud.add(this.label('ROG_Player', 230, 90, uiTokens.type.title, colorHex('textPrimary'))); hud.add(this.label('ROG_SAGA', 1690, 90, uiTokens.type.title, colorHex('textPrimary'))); this.screen?.add(hud)
     }
   }
 
@@ -524,14 +578,13 @@ export class AppScene extends Phaser.Scene {
     const panel = new AngularPanel(this, 650, confirmMode ? 440 : 520, uiTokens.colors.panelRaised).setPosition(960, 540)
     panel.add(this.add.text(0, confirmMode ? -148 : -176, confirmMode ? 'EXIT GAME?' : 'PAUSED', typography.title).setOrigin(0.5))
     panel.add(this.add.rectangle(0, confirmMode ? -92 : -120, 560, 1, uiTokens.colors.lineDim, 0.9))
-    const actions = confirmMode ? ['CANCEL', 'CONFIRM'] : ['CONTINUE', 'RESTART', 'EXIT']
+    const actions = confirmMode ? ['CANCEL', 'CONFIRM'] : ['CONTINUE', 'EXIT']
     actions.forEach((action, index) => {
       const buttonColor = action === 'CONTINUE' || action === 'CONFIRM' ? uiTokens.colors.playerPrimary : uiTokens.colors.panel
       const button = new ActionButton(this, action, 380, 66, buttonColor).setPosition(0, (confirmMode ? -15 : -36) + index * 88)
-      if (action === 'RESTART') button.setEnabled(false)
       button.setInteractive({ useHandCursor: true }).on('pointerup', () => this.overlayAction(action))
       panel.add(button)
-      this.register(confirmMode ? 'overlay-confirm' : 'overlay', 'overlay-' + action, button, () => this.overlayAction(action), action !== 'RESTART')
+      this.register(confirmMode ? 'overlay-confirm' : 'overlay', 'overlay-' + action, button, () => this.overlayAction(action))
     })
     overlay.add(panel); this.screen?.add(overlay)
     this.ui.focus.activate(confirmMode ? 'overlay-confirm' : 'overlay')
@@ -578,9 +631,10 @@ export class AppScene extends Phaser.Scene {
 
   private destroyScreen(): void {
     stopOwnedTweens(this.screenTweens)
-    this.ui.focus.clearGroup('p0'); this.ui.focus.clearGroup('character'); this.ui.focus.clearGroup('stage'); this.ui.focus.clearGroup('presentation'); this.ui.focus.clearGroup('result'); this.ui.focus.clearGroup('end'); this.ui.focus.clearGroup('dev'); this.ui.focus.clearGroup('overlay'); this.ui.focus.clearGroup('overlay-confirm')
-    this.buttons.clear(); this.battlePlayer?.destroy(); this.labRenderer?.destroy()
-    this.battlePlayer = undefined; this.battleEnemy = undefined; this.labRenderer = undefined; this.battleRoot = undefined; this.battlePlayerRoundMarkers = []; this.battleEnemyRoundMarkers = []; this.characterHero = undefined; this.characterHeroTitle = undefined; this.characterPreview = undefined; this.characterHeroFallback = undefined; this.characterNickname = undefined
+    this.loadingPulse = undefined
+    this.ui.focus.clearGroup('loading'); this.ui.focus.clearGroup('p0'); this.ui.focus.clearGroup('character'); this.ui.focus.clearGroup('stage'); this.ui.focus.clearGroup('presentation'); this.ui.focus.clearGroup('result'); this.ui.focus.clearGroup('end'); this.ui.focus.clearGroup('dev'); this.ui.focus.clearGroup('overlay'); this.ui.focus.clearGroup('overlay-confirm')
+    this.keyCaps = []; this.promptDevice = undefined; this.loadingButton = undefined; this.loadingReady = undefined; this.loadingBar = undefined; this.loadingPercent = undefined; this.characterCards.clear(); this.previewCharacterId = undefined; this.buttons.clear(); this.battlePlayer?.destroy(); this.labRenderer?.destroy()
+    this.battlePlayer = undefined; this.battleEnemy = undefined; this.labRenderer = undefined; this.battleRoot = undefined; this.battlePlayerRounds = undefined; this.battleEnemyRounds = undefined; this.previousBattle = undefined; this.battleBanner = undefined; this.characterHero = undefined; this.characterHeroTitle = undefined; this.characterPreview = undefined; this.characterHeroFallback = undefined; this.characterNickname = undefined
     this.screen?.destroy(true); this.screen = undefined; this.overlay = undefined
   }
   private destroyScene(): void { this.destroyScreen(); this.showcaseListeners.forEach(({ event, listener }) => this.input.keyboard?.off(event, listener)); this.combatUnsubscribe?.(); this.unsubscribe?.(); this.clockUnsubscribe?.(); this.uiUnsubscribers.forEach((unsubscribe) => unsubscribe()); this.inputManager.detachKeyboard(); this.clock.stop() }

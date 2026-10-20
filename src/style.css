@@ -1,20 +1,12 @@
-:root {
-  background: #090b12;
-  color: #fff;
-  font-family: Arial, sans-serif;
-}
-
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-#app,
-#app canvas {
-  display: block;
-}
-
-#app canvas {
-  margin: auto;
-}
+@font-face { font-family: 'Oswald'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/oswald-700.woff2'); }
+@font-face { font-family: 'Chivo'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/chivo-400.woff2'); }
+@font-face { font-family: 'Chivo'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/chivo-700.woff2'); }
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/spacegrotesk-500.woff2'); }
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/spacegrotesk-700.woff2'); }
+@font-face { font-family: 'Noto Sans TC'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/notosanstc-400.woff2'); }
+@font-face { font-family: 'Noto Sans TC'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/notosanstc-700.woff2'); }
+:root { background: #07080d; color: #f5f7fb; font-family: 'Chivo', 'Noto Sans TC', sans-serif; }
+body { margin: 0; min-width: 320px; min-height: 100vh; overflow: hidden; }
+body::before { content: ''; position: fixed; inset: -32px; background: linear-gradient(#07080dbb, #07080dbb), var(--backdrop) center / cover; filter: blur(24px); pointer-events: none; z-index: -1; }
+#app, #app canvas { display: block; }
+#app canvas { margin: auto; }

@@ -9,6 +9,7 @@ type PendingOperation = { key: string; run: () => Promise<void> }
 const id = (prefix: string): string => `${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}:${prefix}`
 
 export class ExperiencePersistence {
+  lastLeaderboardOk: boolean | undefined
   private attemptId?: string
   private finishRequestId?: string
   private sessionFinishRequestId?: string
@@ -142,7 +143,7 @@ export class ExperiencePersistence {
   }
 
   p6SubState(): P6SubState { return p6SubStateForRank(this.context.snapshot.backendRank) }
-  async leaderboard(limit = 20): Promise<LeaderboardEntry[]> { try { return await this.api.leaderboard(limit) } catch { return [] } }
+  async leaderboard(limit = 20): Promise<LeaderboardEntry[]> { try { const rows = await this.api.leaderboard(limit); this.lastLeaderboardOk = true; return rows } catch { this.lastLeaderboardOk = false; return [] } }
   async nextQueuedPlayer(): Promise<string | undefined> { try { const next = (await this.api.queue())[0]; return next ? (await this.api.getPlayer(next.player_id)).nickname : undefined } catch { return undefined } }
   resetMatch(): void { this.context.set({ matchId: undefined, backendRank: undefined, persistence: 'IDLE' }); this.attemptId = undefined; this.matchPromise = undefined; this.finishRequestId = undefined; this.queuedRounds.clear(); this.pending = this.pending.filter((operation) => !operation.key.startsWith('match:') && !operation.key.startsWith('rounds:') && !operation.key.startsWith('finish:')) }
   clear(): void { this.storage ? this.context.remove(this.storage) : this.context.clear(); this.attemptId = undefined; this.matchPromise = undefined; this.finishRequestId = undefined; this.sessionFinishRequestId = undefined; this.playerRequestId = undefined; this.sessionRequestId = undefined; this.queueRequestId = undefined; this.queuedRounds.clear(); this.pending = [] }

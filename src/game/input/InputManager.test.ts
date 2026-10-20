@@ -7,6 +7,17 @@ import { UIEventBus } from '../ui/UIEventBus'
 import { InputManager, type GamepadLike } from './InputManager'
 
 describe('InputManager', () => {
+  it('tracks device switches without changing gameplay input or letting held pad input steal keyboard emphasis', () => {
+    const input = new InputManager(), pad = { buttons: [{ pressed: true }] }
+    expect(input.lastDevice()).toBe('keyboard'); input.update([pad]); expect(input.lastDevice()).toBe('gamepad')
+    expect(input.consumeGameplaySnapshot().jumpPressed).toBe(true)
+    input.handleKeyDown('KeyJ'); input.update([pad]); expect(input.lastDevice()).toBe('keyboard')
+    expect(input.consumeGameplaySnapshot().attackPressed).toBe(true)
+    input.update([{ buttons: [{ pressed: true }, { pressed: true }] }]); expect(input.lastDevice()).toBe('gamepad')
+    input.handleKeyDown('KeyD'); input.update([{ buttons: [{ pressed: true }, { pressed: true }] }]); expect(input.lastDevice()).toBe('keyboard')
+    input.update([{ buttons: [{ pressed: true }], axes: [-1] }]); expect(input.lastDevice()).toBe('gamepad')
+    input.update([]); input.update([pad]); expect(input.lastDevice()).toBe('gamepad')
+  })
   it('releases held keys and pending edges on blur, then accepts a fresh press and detaches', () => {
     const input = new InputManager()
     const target = { addEventListener: vi.fn(), removeEventListener: vi.fn() }
@@ -72,6 +83,7 @@ describe('InputManager', () => {
     let activated = 0; focus.register('menu', 'confirm', true, () => { activated += 1 }); focus.activate('menu')
     const input = new InputManager(); input.handleKeyDown('Enter'); input.update(); input.consumeUiActions().forEach((action) => nav.dispatch(action));
     expect(activated).toBe(1); expect(app.getCurrentState()).toBe(AppState.IDLE)
+    ;[AppState.READY, AppState.SETUP, AppState.LOADING, AppState.BATTLE].forEach((state) => app.transitionTo(state))
     input.handleKeyDown('Escape'); input.update(); input.consumeUiActions().forEach((action) => nav.dispatch(action)); expect(nav.isOverlayOpen()).toBe(true)
   })
 })

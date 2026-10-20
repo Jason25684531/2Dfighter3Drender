@@ -9,6 +9,14 @@ const match = (id: number, rank: number | null = null): Match => ({ id, session_
 const fakeSession: Session = { id: 1, player_id: 1, status: 'ACTIVE', selected_character: null, queue_position: null }
 
 describe('ExperiencePersistence', () => {
+  it('reports connection status from the existing leaderboard request', async () => {
+    const leaderboard = vi.fn().mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([])
+    const persistence = new ExperiencePersistence({ leaderboard } as unknown as ApiClient)
+    expect(persistence.lastLeaderboardOk).toBeUndefined()
+    await persistence.leaderboard(); expect(persistence.lastLeaderboardOk).toBe(true)
+    expect(await persistence.leaderboard()).toEqual([]); expect(persistence.lastLeaderboardOk).toBe(false)
+    await persistence.leaderboard(); expect(persistence.lastLeaderboardOk).toBe(true); expect(leaderboard).toHaveBeenCalledTimes(3)
+  })
   it('sends one match and one request per round, then stores backend rank', async () => {
     const api = { createMatch: vi.fn().mockResolvedValue(match(9)), addRound: vi.fn().mockResolvedValue({} as Round), finishMatch: vi.fn().mockResolvedValue({ ...match(9, 7), status: 'FINISHED' } as Match), getSession: vi.fn().mockResolvedValue(fakeSession) } as unknown as ApiClient
     const context = new ExperienceContext(); context.set({ sessionId: 1, sessionStatus: 'ACTIVE' })

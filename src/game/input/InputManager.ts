@@ -46,6 +46,9 @@ export class InputManager {
   private readonly pendingUi = new Set<UIAction>()
   private readonly pendingGameplay = new Set<GameplayAction>()
   private keyboardTarget?: KeyboardTarget
+  private device: 'keyboard' | 'gamepad' = 'keyboard'
+  private padInputs = new Set<string>()
+  lastDevice(): 'keyboard' | 'gamepad' { return this.device }
   private readonly onKeyDown = (event: KeyboardEvent): void => this.handleKeyDown(event.code)
   private readonly onKeyUp = (event: KeyboardEvent): void => this.handleKeyUp(event.code)
   private readonly onBlur = (): void => {
@@ -74,11 +77,18 @@ export class InputManager {
     this.keyboardTarget.removeEventListener('keydown', this.onKeyDown); this.keyboardTarget.removeEventListener('keyup', this.onKeyUp); this.keyboardTarget = undefined
   }
 
-  handleKeyDown(code: string): void { if (!this.keys.has(code)) this.keyPressed.add(code); this.keys.add(code) }
+  handleKeyDown(code: string): void { this.device = 'keyboard'; if (!this.keys.has(code)) this.keyPressed.add(code); this.keys.add(code) }
   handleKeyUp(code: string): void { if (this.keys.delete(code)) this.keyReleased.add(code) }
 
   update(gamepads: readonly GamepadLike[] = []): void {
     const pads = gamepads.filter((pad) => pad.connected !== false)
+    const padInputs = new Set<string>()
+    pads.forEach((pad, p) => {
+      pad.buttons?.forEach((button, b) => { if (button.pressed || (button.value ?? 0) >= 0.5) padInputs.add(`${p}:button:${b}`) })
+      pad.axes?.forEach((axis, a) => { if (Math.abs(axis) > this.config.deadzone) padInputs.add(`${p}:axis:${a}:${Math.sign(axis)}`) })
+    })
+    if ([...padInputs].some((input) => !this.padInputs.has(input))) this.device = 'gamepad'
+    this.padInputs = padInputs
     const keyboardHeld = (action: InputAction): boolean => this.config.keyboard[action].some((code) => this.keys.has(code))
     const keyboardPressed = (action: InputAction): boolean => this.config.keyboard[action].some((code) => this.keyPressed.has(code))
     const keyboardReleased = (action: InputAction): boolean => this.config.keyboard[action].some((code) => this.keyReleased.has(code))

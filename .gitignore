@@ -91,6 +91,7 @@ docs/handoff/*
 
 Char_Aassest/*
 public/*
+!public/fonts/
 sample_UIUX/*
 openspec/*
 prototypes/*

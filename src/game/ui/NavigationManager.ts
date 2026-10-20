@@ -1,4 +1,5 @@
 import { AppState } from '../state/AppState'
+import { backRoutes } from '../state/appStateTransitions'
 import type { AppStateMachine } from '../state/AppStateMachine'
 import type { FocusManager } from './FocusManager'
 import type { UIEventBus } from './UIEventBus'
@@ -9,6 +10,11 @@ export class NavigationManager {
   constructor(private readonly app: AppStateMachine, private readonly focus: FocusManager, private readonly events: UIEventBus) {}
   isOverlayOpen(): boolean { return this.overlayOpen }
   dispatch(action: UIAction): boolean {
+    if (action === 'BACK' && !this.overlayOpen) {
+      const state = this.app.getCurrentState(), back = backRoutes[state]
+      if (back) return this.app.transitionTo(back)
+      if (state !== AppState.BATTLE) return false
+    }
     if (action === 'NAV_UP' || action === 'NAV_LEFT') { this.focus.move(-1); return true }; if (action === 'NAV_DOWN' || action === 'NAV_RIGHT') { this.focus.move(1); return true }
     if (action === 'OPEN_MENU' || action === 'CLOSE_MENU' || action === 'BACK') {
       if (action === 'BACK' && this.overlayOpen && this.overlayConfirm) { this.overlayConfirm = false; this.focus.activate('overlay'); this.events.emit('OVERLAY_CHANGED', { open: true }); return true }

@@ -8,6 +8,16 @@ const reachEnd = (machine: AppStateMachine): void => {
 }
 
 describe('AppStateMachine', () => {
+  it('allows P2 to P1 and P1 to P0 but rejects P3/P5/P6 backwards transitions', () => {
+    const machine = new AppStateMachine()
+    machine.transitionTo(AppState.READY); machine.transitionTo(AppState.SETUP)
+    expect(machine.transitionTo(AppState.READY)).toBe(true); expect(machine.transitionTo(AppState.IDLE)).toBe(true)
+    for (const state of [AppState.READY, AppState.SETUP, AppState.LOADING, AppState.BATTLE, AppState.PRESENTATION, AppState.RESULT]) {
+      machine.transitionTo(state)
+      const back = state === AppState.LOADING ? AppState.SETUP : state === AppState.PRESENTATION ? AppState.BATTLE : state === AppState.RESULT ? AppState.PRESENTATION : undefined
+      if (back) { expect(machine.transitionTo(back)).toBe(false); expect(machine.getCurrentState()).toBe(state) }
+    }
+  })
   it('starts in P0_IDLE', () => {
     expect(new AppStateMachine().getCurrentState()).toBe(AppState.IDLE)
   })
