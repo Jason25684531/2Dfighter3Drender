@@ -48,32 +48,6 @@ export class ActionButton extends AngularPanel {
   setEnabled(enabled: boolean): this { this.setAlpha(enabled ? 1 : 0.4); if (this.input) this.input.enabled = enabled; return this }
 }
 
-export class CharacterCard extends AngularPanel {
-  private readonly selectedTag: Phaser.GameObjects.Text
-  private lift?: Phaser.Tweens.Tween
-  private restY?: number
-  constructor(scene: Phaser.Scene, label: string, nickname: string, custom = false, portraitTexture?: string) {
-    super(scene, 230, 400, uiTokens.colors.panelRaised, 0.96, { slant: 30 })
-    this.setAlpha(uiTokens.opacity.inactive)
-    this.add(scene.add.text(-80, -175, label, typography.note))
-    if (portraitTexture && scene.textures.exists(portraitTexture)) this.add(scene.add.image(0, -25, portraitTexture).setDisplaySize(230, 230))
-    else this.add(fighterSilhouette(scene, 0, -25, 160, 240, uiTokens.colors.textSecondary, 0.5))
-    this.add(scene.add.text(0, 130, custom ? 'CUSTOM' : nickname, { ...typography.secondaryAction, fontSize: uiTokens.type.body }).setOrigin(0.5))
-    this.selectedTag = scene.add.text(0, 174, 'SELECTED', { ...typography.note, color: colorHex('textPrimary') }).setOrigin(0.5).setVisible(false)
-    this.add(this.selectedTag)
-  }
-  setSelected(selected: boolean): this { this.selectedTag.setVisible(selected); this.shape.setFillStyle(selected ? uiTokens.colors.playerPrimary : uiTokens.colors.panelRaised, 0.92); return this }
-  setFocused(focused: boolean): this {
-    super.setFocused(focused, 1, 0.78)
-    this.restY ??= this.y
-    if (this.lift) stopOwnedTweens([this.lift])
-    if (reducedMotion) this.y = this.restY - (focused ? 14 : 0)
-    else this.lift = this.scene.tweens.add({ targets: this, y: this.restY - (focused ? 14 : 0), duration: uiTokens.motion.fast })
-    return this
-  }
-  destroy(fromScene?: boolean): void { if (this.lift) stopOwnedTweens([this.lift]); super.destroy(fromScene) }
-}
-
 export class StageCard extends AngularPanel {
   readonly image: Phaser.GameObjects.Image
   private readonly selectedBand: Phaser.GameObjects.Graphics

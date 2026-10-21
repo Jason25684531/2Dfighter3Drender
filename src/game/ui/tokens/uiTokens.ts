@@ -41,6 +41,17 @@ export const uiTokens = {
   stageFocusScale: 1.02,
   hud: { portrait: 96, healthHeight: 32, timer: 96, combo: 76, nickname: 34, danger: 30 },
   fighter: { targetHeight: 450, heroHeight: 650 },
+  // P1 雙玩家選角（design/shared-ia.md §2–§3、concept-a.md）
+  p1: {
+    bodyHazard: { color: 0xffc247, spacing: 16, alpha: 0.12 },
+    grid: { x: 459, y: 500, cellWidth: 93, cellHeight: 104, gap: 8 },
+    hero: { height: 720, footY: 1000, x: { P1: 330, P2: 1590 } },
+    cursor: { width: 4, outset: 3, slideMs: reducedMotion ? 0 : 80, breatheMs: 600 },
+    processingMs: 2500,
+    allReadyMs: 800,
+    // ponytail: D-11 暫定值，待營運確認
+    idleMs: { select: 60000, customize: 90000, end: 30000 },
+  },
   motionMs: { focus: reducedMotion ? 0 : 120, enter: reducedMotion ? 0 : 240, modal: reducedMotion ? 0 : 120, announcer: reducedMotion ? 0 : 360, focalReveal: reducedMotion ? 0 : 240 },
 } as const
 

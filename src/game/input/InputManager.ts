@@ -18,8 +18,14 @@ export type GamepadButtonLike = { pressed?: boolean; value?: number }
 export type GamepadLike = { buttons?: readonly GamepadButtonLike[]; axes?: readonly number[]; connected?: boolean }
 export type KeyboardTarget = Pick<Window, 'addEventListener' | 'removeEventListener'>
 
+export type PlayerSlotId = 'P1' | 'P2'
+export type OwnedUiAction = Exclude<UIAction, 'OPEN_MENU'>
+export type OwnedInput = { owner: PlayerSlotId; action: OwnedUiAction }
+type OwnerKeys = Partial<Record<OwnedUiAction, readonly string[]>>
+
 export type InputConfig = {
   keyboard?: Partial<Record<InputAction, readonly string[]>>
+  owners?: Partial<Record<PlayerSlotId, OwnerKeys>>
   gamepad?: Partial<Record<InputAction, readonly number[]>>
   axis?: number
   deadzone?: number
@@ -29,6 +35,11 @@ const defaults: Record<InputAction, readonly string[]> = {
   NAV_UP: ['ArrowUp'], NAV_DOWN: ['ArrowDown'], NAV_LEFT: ['ArrowLeft'], NAV_RIGHT: ['ArrowRight'],
   CONFIRM: ['Enter'], BACK: ['Escape'], OPEN_MENU: ['KeyM'],
   MOVE_LEFT: ['KeyA', 'ArrowLeft'], MOVE_RIGHT: ['KeyD', 'ArrowRight'], JUMP: ['Space'], ATTACK: ['KeyJ'], GUARD: ['KeyK'],
+}
+// P1 選角的雙玩家鍵位；與上方未標記鍵位並存，不取代任何既有行為。
+const ownerDefaults: Record<PlayerSlotId, OwnerKeys> = {
+  P1: { NAV_UP: ['KeyW'], NAV_DOWN: ['KeyS'], NAV_LEFT: ['KeyA'], NAV_RIGHT: ['KeyD'], CONFIRM: ['KeyJ'], BACK: ['KeyK'] },
+  P2: { NAV_UP: ['ArrowUp'], NAV_DOWN: ['ArrowDown'], NAV_LEFT: ['ArrowLeft'], NAV_RIGHT: ['ArrowRight'], CONFIRM: ['Enter'], BACK: ['Backspace'] },
 }
 const defaultGamepad: Record<InputAction, readonly number[]> = {
   NAV_UP: [12], NAV_DOWN: [13], NAV_LEFT: [14], NAV_RIGHT: [15], CONFIRM: [0], BACK: [1], OPEN_MENU: [9],
@@ -45,6 +56,8 @@ export class InputManager {
   private readonly states = new Map<InputAction, InputState>([...UI_ACTIONS, ...GAMEPLAY_ACTIONS].map((action) => [action, { pressed: false, held: false, released: false }]))
   private readonly pendingUi = new Set<UIAction>()
   private readonly pendingGameplay = new Set<GameplayAction>()
+  private readonly pendingOwned: OwnedInput[] = []
+  private readonly ownerKeys: Record<PlayerSlotId, OwnerKeys>
   private keyboardTarget?: KeyboardTarget
   private device: 'keyboard' | 'gamepad' = 'keyboard'
   private padInputs = new Set<string>()
@@ -53,7 +66,7 @@ export class InputManager {
   private readonly onKeyUp = (event: KeyboardEvent): void => this.handleKeyUp(event.code)
   private readonly onBlur = (): void => {
     this.keys.forEach((code) => this.keyReleased.add(code))
-    this.keys.clear(); this.keyPressed.clear(); this.pendingUi.clear(); this.pendingGameplay.clear()
+    this.keys.clear(); this.keyPressed.clear(); this.pendingUi.clear(); this.pendingGameplay.clear(); this.pendingOwned.length = 0
   }
 
   constructor(config: InputConfig = {}) {
@@ -63,6 +76,7 @@ export class InputManager {
       keyboard: Object.fromEntries((Object.keys(defaults) as InputAction[]).map((action) => [action, config.keyboard?.[action] ?? defaults[action]])) as Record<InputAction, readonly string[]>,
       gamepad: Object.fromEntries((Object.keys(defaultGamepad) as InputAction[]).map((action) => [action, config.gamepad?.[action] ?? defaultGamepad[action]])) as Record<InputAction, readonly number[]>,
     }
+    this.ownerKeys = { P1: { ...ownerDefaults.P1, ...config.owners?.P1 }, P2: { ...ownerDefaults.P2, ...config.owners?.P2 } }
   }
 
   attachKeyboard(target: KeyboardTarget): void {
@@ -77,7 +91,14 @@ export class InputManager {
     this.keyboardTarget.removeEventListener('keydown', this.onKeyDown); this.keyboardTarget.removeEventListener('keyup', this.onKeyUp); this.keyboardTarget = undefined
   }
 
-  handleKeyDown(code: string): void { this.device = 'keyboard'; if (!this.keys.has(code)) this.keyPressed.add(code); this.keys.add(code) }
+  handleKeyDown(code: string): void {
+    this.device = 'keyboard'
+    if (!this.keys.has(code)) {
+      this.keyPressed.add(code)
+      ;(Object.entries(this.ownerKeys) as [PlayerSlotId, OwnerKeys][]).forEach(([owner, keys]) => (Object.entries(keys) as [OwnedUiAction, readonly string[]][]).forEach(([action, codes]) => { if (codes.includes(code)) this.pendingOwned.push({ owner, action }) }))
+    }
+    this.keys.add(code)
+  }
   handleKeyUp(code: string): void { if (this.keys.delete(code)) this.keyReleased.add(code) }
 
   update(gamepads: readonly GamepadLike[] = []): void {
@@ -118,6 +139,7 @@ export class InputManager {
   }
 
   getActionState(action: InputAction): InputState { return { ...(this.states.get(action) ?? { pressed: false, held: false, released: false }) } }
+  consumeOwnedUiActions(): OwnedInput[] { return this.pendingOwned.splice(0) }
   consumeUiActions(): UIAction[] { const actions = [...this.pendingUi]; this.pendingUi.clear(); return actions }
   consumeGameplaySnapshot(): InputSnapshot {
     const pressed = (action: GameplayAction): boolean => this.pendingGameplay.delete(action)

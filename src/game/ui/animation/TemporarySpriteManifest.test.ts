@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { CombatWorld } from '../../combat/CombatWorld'
-import { characterChoices } from '../ViewModels'
+import { characterEntries } from '../assets/TestAssetManifest'
 import { spriteActionFor, spriteActions, spriteFrameCount, spriteFrameFor, spriteFrameUrl, spriteIds } from './TemporarySpriteManifest'
 
 describe('temporary sprite presentation', () => {
-  it('maps exactly three presets to complete local frame sets and keeps CUSTOM as fallback', () => {
-    expect(characterChoices().map((choice) => choice.spriteId)).toEqual(['aria', 'kael', 'riven', undefined])
+  it('maps featured characters and temporary body stand-ins to complete local frame sets', () => {
+    expect(characterEntries().map((entry) => entry.spriteId)).toEqual(['aria', 'kael', 'riven', 'aria', 'aria', 'kael', 'riven'])
     const urls = spriteIds.flatMap((id) => spriteActions.flatMap((action) => Array.from({ length: spriteFrameCount(action) }, (_, frame) => spriteFrameUrl(id, action, frame))))
     expect(urls).toHaveLength(84)
     expect(new Set(urls).size).toBe(urls.length)

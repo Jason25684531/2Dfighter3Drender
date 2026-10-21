@@ -8,6 +8,7 @@ import type { ExperiencePersistence } from '../app/ExperiencePersistence'
 export const createGameConfig = (appStateMachine: AppStateMachine, ui: UIFramework, persistence?: ExperiencePersistence): Phaser.Types.Core.GameConfig => ({
   type: Phaser.AUTO,
   parent: 'app',
+  dom: { createContainer: true },
   width: 1920,
   height: 1080,
   backgroundColor: '#090b12',

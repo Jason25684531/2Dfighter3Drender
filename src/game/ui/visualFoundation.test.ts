@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { aspectCover } from './tokens/layout'
-import { battleViewModel, characterChoices, endViewModel, loadingViewModel, mockResultViewModel, p0Variant, presentationViewModel, recordWallViewModel, resultViewModel, stageSelectViewModel } from './ViewModels'
+import { battleViewModel, endViewModel, loadingViewModel, mockResultViewModel, p0Variant, presentationViewModel, recordWallViewModel, resultViewModel, stageSelectViewModel } from './ViewModels'
 import { animationCategories, sampleCharacterAnimationManifest } from './animation/FighterAnimationManifest'
 import { facingScaleX, resolveFighterAnimation, resolvePreviewAnimation } from './animation/FighterAnimationResolver'
-import { resolveStageAsset, testCharacterManifest, testStageManifest } from './assets/TestAssetManifest'
+import { characterEntries, resolveStageAsset, testCharacterManifest, testStageManifest } from './assets/TestAssetManifest'
 import { ExperienceContext } from '../app/ExperienceContext'
 import { p6SubStateForRank } from '../match/ResultResolver'
 import { sampleWebmValidation } from './assets/sampleWebmValidation'
@@ -11,10 +11,22 @@ import { MatchController } from '../match/MatchController'
 import { uiTokens } from './tokens/uiTokens'
 import { typography } from './tokens/typography'
 import { stopOwnedTweens } from './tweens'
+import { AppState } from '../state/AppState'
+import { AppStateMachine } from '../state/AppStateMachine'
+import { UIFramework } from './UIFramework'
 
 describe('visual foundation', () => {
+  it('round-trips dual player selections and resets P1 substates on departure', () => {
+    const context = new ExperienceContext(), data = new Map<string, string>()
+    const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) } }
+    context.set({ selectedCharacterId: 'body-01', players: { P1: { characterId: 'body-01', nickname: 'Kevin' }, P2: { characterId: 'preset-c' } } }); context.serialize(storage)
+    const restored = new ExperienceContext(); restored.restore(storage); expect(restored.snapshot).toEqual(context.snapshot)
+    const app = new AppStateMachine(), ui = new UIFramework(app)
+    app.transitionTo(AppState.READY); ui.substates.set(AppState.READY, 'PROCESSING'); app.transitionTo(AppState.SETUP)
+    expect(ui.substates.get(AppState.READY)).toBe('READY')
+  })
   it('uses uniform centered aspect cover', () => { const result = aspectCover(2752, 1536, 1920, 1080); expect(result.scale).toBeGreaterThan(0); expect(result.width).toBeGreaterThanOrEqual(1920); expect(result.height).toBeGreaterThanOrEqual(1080) })
-  it('exposes exactly three presets and one custom choice', () => { expect(characterChoices()).toHaveLength(4); expect(characterChoices().filter((choice) => choice.custom)).toHaveLength(1) })
+  it('exposes four body templates and three featured characters', () => { expect(characterEntries().filter((entry) => entry.type === 'BODY_TEMPLATE')).toHaveLength(4); expect(characterEntries().filter((entry) => entry.type === 'FEATURED').map((entry) => entry.displayName)).toEqual(['ARIA', 'KAEL', 'RIVEN']) })
   it('keeps required mock result local and exact', () => { const result = mockResultViewModel(); expect(result.score).toBe(1541); expect(result.rank).toBe(3); expect(result.ranking).toHaveLength(10) })
   it('projects every DEV rank substate without changing the default mock', () => { expect(mockResultViewModel('RANK_7_TO_19').rank).toBe(12); expect(mockResultViewModel('RANK_20').rank).toBe(20); expect(mockResultViewModel('NOT_RANKED').rank).toBeNull() })
   it('maps movement relative to facing', () => { const base = { vx: -18, vy: 0, grounded: true, facing: 'LEFT' as const, state: 'WALK' as const, attackPhase: 'NONE' as const, attackId: 0 }; expect(resolveFighterAnimation(base, sampleCharacterAnimationManifest).animationKey).toBe('WALK_FORWARD') })
@@ -69,19 +81,18 @@ describe('visual foundation', () => {
     expect(first.stop).toHaveBeenCalledOnce(); expect(second.stop).toHaveBeenCalledOnce(); expect(owned).toEqual([])
   })
   it('projects only supported P3 data and clamps the existing loader progress', () => {
-    const vm = loadingViewModel('preset-b', 'COMPANY BUILDING', 0.4)
+    const vm = loadingViewModel(testCharacterManifest.presetB, 'ROG_SAGA', 'COMPANY BUILDING', 0.4)
     expect(vm.character.id).toBe('preset-b')
     expect(vm.stage).toBe('COMPANY BUILDING')
     expect(vm.progress).toBe(0.4)
     expect(vm.controls).toEqual(['MOVE', 'ATTACK', 'JUMP', 'K / LB = GUARD'])
-    expect(Object.keys(vm).sort()).toEqual(['character', 'controls', 'enemyName', 'progress', 'stage'])
-    expect(loadingViewModel('preset-a', 'LABORATORY', 2).progress).toBe(1)
+    expect(Object.keys(vm).sort()).toEqual(['character', 'controls', 'enemyName', 'playerName', 'progress', 'stage'])
+    expect(loadingViewModel(testCharacterManifest.presetA, 'ROG_SAGA', 'LABORATORY', 2).progress).toBe(1)
   })
   it('uses only the available runtime fighter preview and honest silhouette fallbacks', () => {
     expect(testCharacterManifest.presetA.previewUrl).toContain('/idle.webm')
     expect(testCharacterManifest.presetB.previewUrl).toBe('')
     expect(testCharacterManifest.presetC.previewUrl).toBe('')
-    expect(testCharacterManifest.custom.previewUrl).toBe('')
   })
   it('keeps P5 and P6 layout projections outcome-aware for WIN, LOSE, and DRAW', () => {
     const outcomes = [
@@ -99,5 +110,12 @@ describe('visual foundation', () => {
     expect(recordWallViewModel([]).rows).toEqual([])
     expect(endViewModel().nextPlayerName).toBeUndefined()
     expect(endViewModel('PLAYER').nextPlayerName).toBe('PLAYER')
+  })
+  it('adds a YOU row when the player is ranked outside the shown leaderboard', () => {
+    const result = { outcome: 'WIN', title: '', score: 50, maxPlayerCombo: 1, remainingPlayerHP: 10, playerRoundWins: 1, enemyRoundWins: 0, winner: 'PLAYER', finishReason: 'KO' } as never
+    const rows = Array.from({ length: 20 }, (_, i) => ({ rank: i + 1, match_id: i, session_id: i, nickname: 'P' + i, score: 100 - i, title: '', remaining_hp: 1, max_combo: 1, finished_at: '' }))
+    const vm = resultViewModel(result, 25, 'NOT_RANKED', rows, 99)
+    expect(vm.ranking).toHaveLength(20); expect(vm.ranking[19]).toEqual({ rank: 25, name: 'YOU', score: 50, highlighted: true })
+    expect(resultViewModel(result, 1, 'RANK_1_TO_6', rows, 0).newRecord).toBe(true)
   })
 })

@@ -3,7 +3,7 @@ import type { UIEventBus } from './UIEventBus'
 
 const states = {
   [AppState.IDLE]: ['EMPTY', 'RECORDS_1_TO_4', 'RECORDS_5_PLUS'],
-  [AppState.READY]: ['READY', 'PROCESSING', 'FALLBACK'],
+  [AppState.READY]: ['READY', 'CUSTOMIZE', 'REVIEW', 'PROCESSING', 'FALLBACK'],
   [AppState.SETUP]: ['DEFAULT'], [AppState.LOADING]: ['DEFAULT'],
   [AppState.BATTLE]: ['NORMAL', 'COMBO', 'DANGER', 'LAST_10_SECONDS'],
   [AppState.PRESENTATION]: ['DEFAULT'],
