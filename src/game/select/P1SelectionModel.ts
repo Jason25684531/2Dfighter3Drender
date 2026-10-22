@@ -12,16 +12,28 @@ export type P1Phase = 'GRID' | 'CUSTOMIZE' | 'REVIEW' | 'PROCESSING' | 'FAILED' 
 export type GenerationState = 'PHOTO_CONFIRMED' | 'REQUESTING' | 'PROCESSING' | 'API_READY' | 'DOWNLOADING' | 'DECODED' | 'RUNTIME_READY' | 'FAILED'
 export type PlayerStatus = 'JOIN' | 'SELECTING' | 'READY' | 'WAITING' | 'CUSTOMIZE'
 export type SelectFeedback = 'REJECTED' | 'JOIN_HINT' | 'NAME_REQUIRED'
-type PlayerState = { joined: boolean; cursor: number; locked?: number; nickname: string; customized: boolean; generation?: GenerationState }
+// photo：本機擷取的 dataURL，只存在記憶體、不進 result()／API。
+type PlayerState = { joined: boolean; cursor: number; locked?: number; nickname: string; customized: boolean; generation?: GenerationState; photo?: string }
 
 const players: readonly PlayerSlotId[] = ['P1', 'P2']
 
-// 01–04 永遠是 Body Template，05 起依序放現有角色，其餘為 EMPTY（不得補假角色）。
+// 區段索引帶：CUSTOMIZE 01–04、OFFICERS 05–10（補滿第 1 列）、ROSTER 11–40。編號與導覽不因分區改變。
+export type SectionId = 'CUSTOMIZE' | 'OFFICERS' | 'ROSTER'
+export const SECTIONS: readonly { id: SectionId; from: number; to: number }[] = [
+  { id: 'CUSTOMIZE', from: 1, to: 4 }, { id: 'OFFICERS', from: 5, to: 10 }, { id: 'ROSTER', from: 11, to: SLOT_COUNT },
+]
+export const sectionOf = (index: number): SectionId => (SECTIONS.find((section) => index <= section.to) ?? SECTIONS[2]).id
+export const sectionCounts = (slots: readonly Slot[]): Record<SectionId, { used: number; total: number }> =>
+  Object.fromEntries(SECTIONS.map(({ id, from, to }) => [id, { used: slots.slice(from - 1, to).filter((slot) => slot.entry).length, total: to - from + 1 }])) as Record<SectionId, { used: number; total: number }>
+
+// 01–04 永遠是 Body Template；FEATURED 依序填 05–10，超過的溢出到 ROSTER 起始；其餘（已生成）從 11 起。其餘為 EMPTY（不得補假角色）。
 export const buildSlots = (entries: readonly CharacterEntry[] = characterEntries()): Slot[] => {
   const bodies = bodyTemplates.map((template) => entries.find((entry) => entry.type === 'BODY_TEMPLATE' && entry.bodyTemplateId === template.bodyTemplateId) ?? template)
-  const others = entries.filter((entry) => entry.type !== 'BODY_TEMPLATE')
+  const officers = SECTIONS[1].to - SECTIONS[1].from + 1
+  const featured = entries.filter((entry) => entry.type === 'FEATURED'), generated = entries.filter((entry) => entry.type !== 'FEATURED' && entry.type !== 'BODY_TEMPLATE')
+  const placed: (CharacterEntry | undefined)[] = [...featured.slice(0, officers), ...Array<undefined>(Math.max(0, officers - featured.length)), ...featured.slice(officers), ...generated]
   return Array.from({ length: SLOT_COUNT }, (_, i) => {
-    const entry = i < 4 ? bodies[i] : others[i - 4]
+    const entry = i < 4 ? bodies[i] : placed[i - 4]
     return entry ? { index: i + 1, type: entry.type, status: entry.status, entry } : { index: i + 1, type: i < 4 ? 'BODY_TEMPLATE' : 'EMPTY' }
   })
 }
@@ -53,6 +65,7 @@ export class P1SelectionModel {
   isReady(id: PlayerSlotId): boolean { const p = this.state[id]; return p.joined && p.locked !== undefined && (!this.isBody(id) || p.customized) }
   nicknameValid(id: PlayerSlotId): boolean { const length = this.state[id].nickname.trim().length; return length > 0 && length <= NICKNAME_MAX }
   setNickname(id: PlayerSlotId, name: string): void { this.state[id].nickname = name.slice(0, NICKNAME_MAX) }
+  setPhoto(id: PlayerSlotId, photo: string | undefined): void { this.state[id].photo = photo }
 
   status(id: PlayerSlotId): PlayerStatus {
     if (!this.state[id].joined) return 'JOIN'
@@ -126,7 +139,7 @@ export class P1SelectionModel {
     }))
   }
 
-  private unlock(id: PlayerSlotId): void { this.state[id].locked = undefined; this.state[id].customized = false; this.state[id].generation = undefined }
+  private unlock(id: PlayerSlotId): void { this.state[id].locked = undefined; this.state[id].customized = false; this.state[id].generation = undefined; this.state[id].photo = undefined }
 
   private advance(): void {
     if (this.phase !== 'GRID' || players.some((id) => this.state[id].joined && this.state[id].locked === undefined)) return

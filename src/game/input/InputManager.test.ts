@@ -5,13 +5,14 @@ import { FocusManager } from '../ui/FocusManager'
 import { NavigationManager } from '../ui/NavigationManager'
 import { UIEventBus } from '../ui/UIEventBus'
 import { InputManager, type GamepadLike } from './InputManager'
+import { DEFAULT_KEYBOARD_BINDINGS } from './ControlProfile'
 
 describe('InputManager', () => {
   it('tracks device switches without changing gameplay input or letting held pad input steal keyboard emphasis', () => {
     const input = new InputManager(), pad = { buttons: [{ pressed: true }] }
     expect(input.lastDevice()).toBe('keyboard'); input.update([pad]); expect(input.lastDevice()).toBe('gamepad')
     expect(input.consumeGameplaySnapshot().jumpPressed).toBe(true)
-    input.handleKeyDown('KeyJ'); input.update([pad]); expect(input.lastDevice()).toBe('keyboard')
+    input.handleKeyDown('KeyF'); input.update([pad]); expect(input.lastDevice()).toBe('keyboard')
     expect(input.consumeGameplaySnapshot().attackPressed).toBe(true)
     input.update([{ buttons: [{ pressed: true }, { pressed: true }] }]); expect(input.lastDevice()).toBe('gamepad')
     input.handleKeyDown('KeyD'); input.update([{ buttons: [{ pressed: true }, { pressed: true }] }]); expect(input.lastDevice()).toBe('keyboard')
@@ -23,12 +24,12 @@ describe('InputManager', () => {
     const target = { addEventListener: vi.fn(), removeEventListener: vi.fn() }
     input.attachKeyboard(target)
     const blur = target.addEventListener.mock.calls.find(([type]) => type === 'blur')![1]
-    input.handleKeyDown('KeyD'); input.handleKeyDown('KeyJ'); input.handleKeyDown('Enter'); input.update()
+    input.handleKeyDown('KeyD'); input.handleKeyDown('KeyF'); input.handleKeyDown('Enter'); input.update()
     blur(); input.update()
     expect(input.consumeGameplaySnapshot()).toMatchObject({ moveX: 0, attackPressed: false, attackHeld: false })
-    expect(input.getActionState('ATTACK')).toEqual({ pressed: false, held: false, released: true })
+    expect(input.getActionState('LIGHT_PUNCH')).toEqual({ pressed: false, held: false, released: true })
     expect(input.consumeUiActions()).toEqual([])
-    input.handleKeyDown('KeyJ'); input.update()
+    input.handleKeyDown('KeyF'); input.update()
     expect(input.consumeGameplaySnapshot().attackPressed).toBe(true)
     input.detachKeyboard()
     expect(target.removeEventListener.mock.calls).toHaveLength(3)
@@ -58,7 +59,7 @@ describe('InputManager', () => {
 
   it('buffers a complete attack press between ticks and consumes it once', () => {
     const input = new InputManager()
-    input.handleKeyDown('KeyJ'); input.handleKeyUp('KeyJ'); input.update()
+    input.handleKeyDown('KeyF'); input.handleKeyUp('KeyF'); input.update()
     expect(input.consumeGameplaySnapshot()).toMatchObject({ attackPressed: true, attackHeld: false })
     expect(input.consumeGameplaySnapshot()).toMatchObject({ attackPressed: false, attackHeld: false })
   })
@@ -95,5 +96,33 @@ describe('InputManager', () => {
     input.update(); expect(input.consumeUiActions().sort()).toEqual(['CONFIRM', 'NAV_LEFT'])
     const custom = new InputManager({ owners: { P1: { CONFIRM: ['Space'] } } }); custom.handleKeyDown('Space'); custom.handleKeyDown('KeyJ')
     expect(custom.consumeOwnedUiActions()).toEqual([{ owner: 'P1', action: 'CONFIRM' }])
+  })
+  it('maps default P1 combat keys (WASD / Space X / F U G I / Esc) to semantic actions only', () => {
+    const input = new InputManager()
+    const tap = (code: string) => { input.handleKeyDown(code); input.update(); const snapshot = input.consumeGameplaySnapshot(); input.handleKeyUp(code); input.update(); return snapshot }
+    expect(tap('KeyF')).toMatchObject({ attackPressed: true, attack: 'LIGHT_PUNCH' })
+    expect(tap('KeyU').attack).toBe('HEAVY_PUNCH'); expect(tap('KeyG').attack).toBe('LIGHT_KICK'); expect(tap('KeyI').attack).toBe('HEAVY_KICK')
+    expect(tap('Space')).toMatchObject({ jumpPressed: true, attackPressed: false })
+    input.handleKeyDown('KeyX'); input.update(); expect(input.consumeGameplaySnapshot().crouchHeld).toBe(true); input.handleKeyUp('KeyX')
+    // W/S 是縱深，不是跳／蹲。
+    expect(tap('KeyW')).toMatchObject({ moveZ: 1, jumpPressed: false }); expect(tap('KeyS')).toMatchObject({ moveZ: -1, crouchHeld: false })
+    input.handleKeyDown('Escape'); input.update(); expect(input.consumePause()).toBe(true); expect(input.consumePause()).toBe(false)
+    // 戰鬥鍵不是選單鍵：F 不會變成 CONFIRM。
+    input.consumeUiActions(); input.handleKeyDown('KeyF'); input.update(); expect(input.consumeUiActions()).toEqual([])
+    expect(input.lastCombatInput).toEqual({ code: 'KeyF', action: 'LIGHT_PUNCH' })
+  })
+  it('uses a dedicated GUARD key; moving backward only walks', () => {
+    const input = new InputManager()
+    input.handleKeyDown('KeyA'); input.update()
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ moveX: -1, guardHeld: false })
+    input.handleKeyDown('KeyK'); input.update(); expect(input.consumeGameplaySnapshot().guardHeld).toBe(true)
+    input.handleKeyUp('KeyK'); input.update(); expect(input.consumeGameplaySnapshot().guardHeld).toBe(false)
+  })
+  it('rebinds Light Punch from F to Q without touching menu or owner keys', () => {
+    const input = new InputManager()
+    input.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS.P1, LIGHT_PUNCH: 'KeyQ' })
+    input.handleKeyDown('KeyF'); input.update(); expect(input.consumeGameplaySnapshot().attackPressed).toBe(false)
+    input.handleKeyDown('KeyQ'); input.update(); expect(input.consumeGameplaySnapshot().attack).toBe('LIGHT_PUNCH')
+    input.handleKeyDown('KeyJ'); expect(input.consumeOwnedUiActions()).toContainEqual({ owner: 'P1', action: 'CONFIRM' })
   })
 })

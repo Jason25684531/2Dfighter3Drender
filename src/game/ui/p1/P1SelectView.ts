@@ -1,8 +1,9 @@
 import Phaser from 'phaser'
 import type { OwnedUiAction, PlayerSlotId, UIAction } from '../../input/InputManager'
-import { GRID_COLUMNS, NICKNAME_MAX, type P1SelectionModel, type SelectFeedback, type Slot } from '../../select/P1SelectionModel'
+import { GRID_COLUMNS, NICKNAME_MAX, sectionCounts, sectionOf, type P1SelectionModel, type SelectFeedback, type Slot } from '../../select/P1SelectionModel'
 import { ActionButton, AngularPanel, fighterSilhouette } from '../VisualComponents'
-import { spriteDisplayHeight, spriteOriginY, spriteTextureKey } from '../animation/TemporarySpriteManifest'
+import { spriteDisplayHeight, spriteOriginY, spriteTextureFrame, spriteTextureKey } from '../animation/TemporarySpriteManifest'
+import { isSheetSprite } from '../animation/SheetSpriteManifest'
 import { colorHex, reducedMotion, uiTokens, type UiColorToken } from '../tokens/uiTokens'
 import { typography } from '../tokens/typography'
 import { stopOwnedTweens } from '../tweens'
@@ -22,13 +23,15 @@ const identity: Record<PlayerSlotId, { main: number; glow: number; text: UiColor
   P2: { main: colors.enemyPrimary, glow: colors.enemyGlow, text: 'enemyGlow', tag: '2P', label: 'PLAYER 2', keys: '↑ ↓ ← →', confirm: 'ENTER', back: 'BACKSPACE' },
 }
 const pad = (index: number): string => String(index).padStart(2, '0')
+// 第 2 列起下移一段，讓 ROSTER 標題有位置；所有游標／格子都經過 cellCenter，導覽不受影響。
+const SECTION_GAP = 34
 const cellCenter = (index: number): { x: number; y: number } => {
   const column = (index - 1) % GRID_COLUMNS, row = Math.floor((index - 1) / GRID_COLUMNS)
-  return { x: p1.grid.x + p1.grid.cellWidth / 2 + column * (p1.grid.cellWidth + p1.grid.gap), y: p1.grid.y + p1.grid.cellHeight / 2 + row * (p1.grid.cellHeight + p1.grid.gap) }
+  return { x: p1.grid.x + p1.grid.cellWidth / 2 + column * (p1.grid.cellWidth + p1.grid.gap), y: p1.grid.y + p1.grid.cellHeight / 2 + row * (p1.grid.cellHeight + p1.grid.gap) + (row > 0 ? SECTION_GAP : 0) }
 }
-const slotKind = (slot: Slot): string => slot.type === 'BODY_TEMPLATE' ? 'CUSTOM BODY' : slot.type === 'EMPTY' ? 'EMPTY SLOT' : slot.type
+const slotKind = (slot: Slot): string => slot.type === 'EMPTY' ? 'EMPTY SLOT' : sectionOf(slot.index)
 const label = (scene: Phaser.Scene, x: number, y: number, text: string, color: UiColorToken = 'textSecondary', size: number = type.label): Phaser.GameObjects.Text => scene.add.text(x, y, text, { ...typography.note, fontSize: size, color: colorHex(color) })
-const glowOn = (object: Phaser.GameObjects.Image | Phaser.GameObjects.Graphics, color: number, strength = 4): void => { if (object.scene.game.renderer.type === Phaser.WEBGL) object.postFX?.addGlow(color, strength, 0, false, 0.1, 12) }
+const glowOn = (object: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics, color: number, strength = 4): void => { if (object.scene.game.renderer.type === Phaser.WEBGL) object.postFX?.addGlow(color, strength, 0, false, 0.1, 12) }
 
 /** DEPTH 2：大型角色主體。內容只在格子/鎖定變化時替換，不重建畫面。 */
 class HeroPreview extends Phaser.GameObjects.Container {
@@ -36,7 +39,7 @@ class HeroPreview extends Phaser.GameObjects.Container {
   private readonly beam: Phaser.GameObjects.Graphics
   private readonly title: Phaser.GameObjects.Text
   private readonly kind: Phaser.GameObjects.Text
-  private figure?: Phaser.GameObjects.Image | Phaser.GameObjects.Graphics
+  private figure?: Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics
   private stamp?: Phaser.GameObjects.Text
   private key = ''
   private pulse?: Phaser.Tweens.Tween
@@ -72,7 +75,8 @@ class HeroPreview extends Phaser.GameObjects.Container {
     const body = slot?.type === 'BODY_TEMPLATE', sprite = slot?.entry?.spriteId
     const texture = slot?.entry?.heroTextureKey ?? (sprite && spriteTextureKey(sprite, 'idle'))
     if (texture && this.scene.textures.exists(texture)) {
-      const image = this.scene.add.image(0, 0, texture).setOrigin(0.5, slot?.entry?.heroTextureKey ? 1 : sprite ? spriteOriginY(sprite) : 1).setFlipX(this.owner === 'P2')
+      const image = this.scene.add.sprite(0, 0, texture, slot?.entry?.heroTextureKey ? undefined : spriteTextureFrame(sprite)).setOrigin(0.5, slot?.entry?.heroTextureKey ? 1 : sprite ? spriteOriginY(sprite) : 1).setFlipX(this.owner === 'P2')
+      if (isSheetSprite(sprite) && !body && !slot?.entry?.heroTextureKey && !reducedMotion && this.scene.anims.exists(`${sprite}-idle`)) image.play(`${sprite}-idle`)
       image.setScale(p1.hero.height / image.height * (slot?.entry?.heroTextureKey ? 1 : sprite ? spriteDisplayHeight(sprite) / 520 : 1))
       // Body 只顯示身形剪影（暫用替身 sprite 的輪廓），不冒充已生成角色。
       if (body && !slot?.entry?.heroTextureKey) { image.setTintFill(colors.textPrimary).setAlpha(0.5); glowOn(image, colors.resultGold, 3) }
@@ -121,7 +125,7 @@ class GridSlotView extends AngularPanel {
       this.add(dash)
     }
     const sprite = !body ? slot.entry?.spriteId : undefined
-    if (sprite && scene.textures.exists(spriteTextureKey(sprite, 'idle'))) this.add(scene.add.image(0, -4, spriteTextureKey(sprite, 'idle')).setDisplaySize(84, 84))
+    if (sprite && scene.textures.exists(spriteTextureKey(sprite, 'idle'))) this.add(scene.add.image(0, -4, spriteTextureKey(sprite, 'idle'), spriteTextureFrame(sprite)).setDisplaySize(84, 84))
     if (body) this.add([fighterSilhouette(scene, 0, -12, 46, 70, colors.textPrimary, 0.55), label(scene, 0, -14, '+', 'resultGold', type.h2).setOrigin(0.5)])
     this.add(label(scene, -40, -48, pad(slot.index), body ? 'resultGold' : 'textSecondary'))
     this.add(label(scene, 0, 38, empty ? 'EMPTY' : (slot.entry?.displayName ?? '').slice(0, 8), empty ? 'textSecondary' : 'textPrimary').setOrigin(0.5).setAlpha(empty ? 0.55 : 1))
@@ -216,6 +220,9 @@ export class P1SelectView {
   private bannerTimer?: Phaser.Time.TimerEvent
   private bannerTween?: Phaser.Tweens.Tween
   private nameInput?: Phaser.GameObjects.DOMElement
+  // media：Capture 的 webcam <video> 或 Review 的照片 <img>；DOM 會疊在 Canvas 上，離開確認框開啟時需隱藏。
+  private media?: Phaser.GameObjects.DOMElement
+  private stream?: MediaStream
   private takePhoto?: ActionButton
   private nameHint?: Phaser.GameObjects.Text
   private nameCount?: Phaser.GameObjects.Text
@@ -234,6 +241,7 @@ export class P1SelectView {
     this.onExit = onExit; this.exitChoice = 0
     this.timers.forEach((timer) => { timer.paused = true })
     if (this.nameInput) this.nameInput.setVisible(false)
+    this.media?.setVisible(false)
     const panel = this.scene.add.container(960, 540)
     panel.add(this.scene.add.rectangle(0, 0, 1920, 1080, colors.background0, 0.85).setInteractive())
     panel.add(new AngularPanel(this.scene, 760, 340, colors.panelRaised))
@@ -257,7 +265,7 @@ export class P1SelectView {
 
   private closeExit(confirm: boolean): void {
     this.exitPanel?.destroy(true); this.exitPanel = undefined; this.exitButtons = []
-    this.timers.forEach((timer) => { timer.paused = false }); this.nameInput?.setVisible(true)
+    this.timers.forEach((timer) => { timer.paused = false }); this.nameInput?.setVisible(true); this.media?.setVisible(true)
     if (confirm) this.onExit?.()
   }
 
@@ -327,6 +335,32 @@ export class P1SelectView {
   destroy(): void {
     stopOwnedTweens(this.tweens); this.timers.splice(0).forEach((timer) => timer.remove()); this.bannerTimer?.remove(); this.bannerTween?.stop()
     this.nameInput?.destroy(); this.nameInput = undefined
+    this.stream?.getTracks().forEach((track) => track.stop()); this.stream = undefined; this.media?.destroy(); this.media = undefined
+  }
+
+  /** Capture 按下確認時先擷取 webcam 畫面；照片只存在 model 記憶體，沒有相機時保持 Mock。 */
+  captureOnConfirm(owner: PlayerSlotId, action: OwnedUiAction): void {
+    const video = this.media?.node
+    if (this.model.phase !== 'CUSTOMIZE' || owner !== this.model.owner || action !== 'CONFIRM' || !this.model.nicknameValid(owner) || !(video instanceof HTMLVideoElement) || !video.videoWidth) return
+    const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = Math.round(640 * video.videoHeight / video.videoWidth)
+    const context = canvas.getContext('2d'); if (!context) return
+    context.translate(canvas.width, 0); context.scale(-1, 1) // 與鏡像預覽一致
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    this.model.setPhoto(owner, canvas.toDataURL('image/jpeg', 0.85))
+  }
+
+  private startCamera(note: Phaser.GameObjects.Text, band: Phaser.GameObjects.Text): void {
+    const video = document.createElement('video')
+    video.muted = true; video.playsInline = true; video.autoplay = true; video.setAttribute('aria-label', 'Camera preview')
+    video.style.cssText = 'width:636px;height:336px;object-fit:cover;transform:scaleX(-1);background:#000;display:none'
+    this.media = this.scene.add.dom(960, 640, video)
+    const fail = (): void => { if (note.active) note.setText('CAMERA UNAVAILABLE · 相機無法使用，將使用模擬照片').setColor(colorHex('resultGold')) }
+    if (!navigator.mediaDevices?.getUserMedia) { fail(); return }
+    navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: false }).then((stream) => {
+      if (this.media?.node !== video) { stream.getTracks().forEach((track) => track.stop()); return } // 授權回來前已離開 Capture
+      this.stream = stream; video.srcObject = stream; video.style.display = 'block'; note.setVisible(false)
+      band.setText('LOCAL CAMERA · 本機相機 · 不上傳、不生成')
+    }, fail)
   }
 
   private header(customizing: boolean): void {
@@ -339,11 +373,18 @@ export class P1SelectView {
 
   private buildGrid(): void {
     const { scene, root, model } = this
-    // 01–04 群組標頭與括框：Custom Body 與角色資料庫明確區隔。
-    const bodyWidth = 4 * p1.grid.cellWidth + 3 * p1.grid.gap
-    root.add(scene.add.rectangle(p1.grid.x + bodyWidth / 2, p1.grid.y + p1.grid.cellHeight / 2, bodyWidth + 10, p1.grid.cellHeight + 10).setStrokeStyle(2, colors.resultGold, 0.8))
-    const groupTag = new AngularPanel(scene, bodyWidth, 28, colors.resultGold, 1, { slant: 10 }).setPosition(p1.grid.x + bodyWidth / 2, p1.grid.y - 22)
-    groupTag.add(label(scene, 0, 0, 'CUSTOM BODY · CREATE YOUR FIGHTER', 'background0').setOrigin(0.5)); root.add(groupTag)
+    // 三區：CUSTOMIZE 01–04、OFFICERS 05–10 在第 1 列；ROSTER 11–40 在其下。各區有標題條、計數與括框。
+    const counts = sectionCounts(model.slots), cellW = p1.grid.cellWidth, gap = p1.grid.gap, step = cellW + gap
+    const section = (text: string, firstColumn: number, columns: number, top: number, height: number, color: number, textColor: UiColorToken): void => {
+      const width = columns * cellW + (columns - 1) * gap, x = p1.grid.x + firstColumn * step + width / 2
+      root.add(scene.add.rectangle(x, top + height / 2, width + 10, height + 10).setStrokeStyle(2, color, 0.8))
+      const tag = new AngularPanel(scene, width, 28, color, 1, { slant: 10 }).setPosition(x, top - 22)
+      tag.add(label(scene, 0, 0, text, textColor).setOrigin(0.5)); root.add(tag)
+    }
+    const rowH = p1.grid.cellHeight, rosterTop = p1.grid.y + rowH + gap + SECTION_GAP, rosterHeight = 3 * rowH + 2 * gap
+    section(`CUSTOMIZE · ${counts.CUSTOMIZE.used}/${counts.CUSTOMIZE.total}`, 0, 4, p1.grid.y, rowH, colors.resultGold, 'background0')
+    section(`OFFICERS · ${counts.OFFICERS.used}/${counts.OFFICERS.total}`, 4, 6, p1.grid.y, rowH, colors.playerPrimary, 'textPrimary')
+    section(`ROSTER · ${counts.ROSTER.used}/${counts.ROSTER.total}`, 0, GRID_COLUMNS, rosterTop, rosterHeight, colors.lineDim, 'textPrimary')
     model.slots.forEach((slot) => {
       const view = new GridSlotView(scene, slot)
       view.on('pointerover', () => this.hooks.onFocus('P1', slot.index)).on('pointerup', () => { this.hooks.onFocus('P1', slot.index); this.hooks.onInput('P1', 'CONFIRM') })
@@ -403,8 +444,10 @@ export class P1SelectView {
     }
     if (model.phase === 'CUSTOMIZE') {
       const band = new AngularPanel(scene, 640, 36, colors.resultGold, 1, { slant: 10 }).setPosition(960, 446)
-      band.add(label(scene, 0, 0, 'PROTOTYPE / CAMERA NOT CONNECTED · 原型 · 相機未連接', 'background0').setOrigin(0.5)); root.add(band)
-      root.add(label(scene, 960, 640, 'CAMERA PLACEHOLDER · 相機預覽（佔位）', 'systemBlue', type.body).setOrigin(0.5))
+      const bandText = label(scene, 0, 0, 'PROTOTYPE / CAMERA NOT CONNECTED · 原型 · 相機未連接', 'background0').setOrigin(0.5)
+      band.add(bandText); root.add(band)
+      const cameraNote = label(scene, 960, 640, 'CAMERA CONNECTING · 相機連線中（請允許使用相機）', 'systemBlue', type.body).setOrigin(0.5)
+      root.add(cameraNote); this.startCamera(cameraNote, bandText)
       root.add(label(scene, 640, 352, 'PLAYER NAME · 玩家名稱', 'textSecondary').setOrigin(0, 0.5))
       this.nameCount = label(scene, 1280, 352, '', 'textSecondary').setOrigin(1, 0.5); root.add(this.nameCount)
       this.nameInput = this.createNameInput(owner, player.nickname)
@@ -413,8 +456,15 @@ export class P1SelectView {
       this.nameHint = label(scene, 960, 856, 'ENTER A NAME FIRST · 請先輸入名稱', 'danger').setOrigin(0.5); root.add(this.nameHint)
       this.refreshName(owner)
     } else if (model.phase === 'REVIEW') {
-      root.add(fighterSilhouette(scene, 960, 620, 180, 260, colors.textSecondary, 0.45))
-      root.add(label(scene, 960, 790, 'MOCK PHOTO · 模擬照片', 'textSecondary').setOrigin(0.5))
+      if (player.photo) {
+        const image = document.createElement('img'); image.src = player.photo; image.alt = 'Captured photo'
+        image.style.cssText = 'width:636px;height:336px;object-fit:contain;background:#000'
+        this.media = scene.add.dom(960, 640, image)
+        root.add(label(scene, 960, 446, 'LOCAL PHOTO · 僅存於本機記憶體，未上傳', 'statusLime').setOrigin(0.5))
+      } else {
+        root.add(fighterSilhouette(scene, 960, 620, 180, 260, colors.textSecondary, 0.45))
+        root.add(label(scene, 960, 790, 'MOCK PHOTO · 模擬照片', 'textSecondary').setOrigin(0.5))
+      }
       root.add(label(scene, 960, 400, `${slot.entry?.displayName ?? ''}  ·  ${player.nickname.trim()}`, 'textPrimary', type.body).setOrigin(0.5))
       root.add(scene.add.text(960, 858, 'USE THIS PHOTO? · 使用這張照片？', typography.secondaryAction).setOrigin(0.5))
       button('RETAKE', `${id.back} · 重拍`, 790, colors.panelRaised, 'BACK')

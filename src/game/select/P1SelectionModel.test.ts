@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { moveSlot, P1SelectionModel } from './P1SelectionModel'
+import { buildSlots, moveSlot, P1SelectionModel, sectionCounts, sectionOf } from './P1SelectionModel'
+import type { CharacterEntry } from '../ui/assets/TestAssetManifest'
 import type { OwnedUiAction, PlayerSlotId } from '../input/InputManager'
 
 const press = (model: P1SelectionModel, id: PlayerSlotId, ...actions: OwnedUiAction[]) => actions.map((action) => model.input(id, action))
@@ -25,13 +26,25 @@ describe('P1 selection model', () => {
       model.slot(5).status = status; expect(model.input('P1', 'CONFIRM')).toBe('REJECTED'); expect(model.player('P1').locked).toBeUndefined()
     }
   })
-  it('lays out 40 honest slots: 4 body templates, 3 featured, the rest empty', () => {
+  it('lays out 40 honest slots: 4 body templates, 5 featured, the rest empty', () => {
     const { slots } = new P1SelectionModel()
     expect(slots).toHaveLength(40)
     expect(slots.slice(0, 4).map((slot) => slot.entry?.displayName)).toEqual(['BODY 01', 'BODY 02', 'BODY 03', 'BODY 04'])
-    expect(slots.slice(4, 7).map((slot) => slot.entry?.displayName)).toEqual(['ARIA', 'KAEL', 'RIVEN'])
-    expect(slots.slice(7).every((slot) => slot.type === 'EMPTY' && !slot.entry)).toBe(true)
+    expect(slots.slice(4, 9).map((slot) => slot.entry?.displayName)).toEqual(['ARIA', 'KAEL', 'RIVEN', 'KEVIN', 'CUSTOM01'])
+    expect(slots.slice(9).every((slot) => slot.type === 'EMPTY' && !slot.entry)).toBe(true)
     expect(new P1SelectionModel([]).slots.slice(0, 4).map(slot => slot.entry?.id)).toEqual(['body-01', 'body-02', 'body-03', 'body-04'])
+  })
+  it('splits the grid into CUSTOMIZE 01–04, OFFICERS 05–10, ROSTER 11–40 with counts', () => {
+    expect([1, 4, 5, 10, 11, 40].map(sectionOf)).toEqual(['CUSTOMIZE', 'CUSTOMIZE', 'OFFICERS', 'OFFICERS', 'ROSTER', 'ROSTER'])
+    expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 5, total: 6 }, ROSTER: { used: 0, total: 30 } })
+  })
+  it('puts generated characters in ROSTER and overflows extra featured characters after OFFICERS', () => {
+    const entry = (id: string, type: CharacterEntry['type']): CharacterEntry => ({ id, displayName: id, type, status: 'AVAILABLE', previewUrl: '' })
+    const featured = Array.from({ length: 8 }, (_, i) => entry(`f${i}`, 'FEATURED')), generated = [entry('c0', 'CUSTOM'), entry('c1', 'CUSTOM')]
+    const slots = buildSlots([...featured, ...generated])
+    expect(slots.slice(4, 10).map((slot) => slot.entry?.id)).toEqual(['f0', 'f1', 'f2', 'f3', 'f4', 'f5'])
+    expect(slots.slice(10, 14).map((slot) => [slot.entry?.id, slot.type])).toEqual([['f6', 'FEATURED'], ['f7', 'FEATURED'], ['c0', 'CUSTOM'], ['c1', 'CUSTOM']])
+    expect(buildSlots(generated).slice(4, 10).every((slot) => slot.type === 'EMPTY')).toBe(true); expect(buildSlots(generated)[10].entry?.id).toBe('c0')
   })
   it('wraps row-major horizontally and column-wise vertically', () => {
     expect(moveSlot(5, 'NAV_DOWN')).toBe(15); expect(moveSlot(17, 'NAV_UP')).toBe(7); expect(moveSlot(7, 'NAV_UP')).toBe(37)
@@ -89,8 +102,10 @@ describe('P1 selection model', () => {
     const model = new P1SelectionModel(); model.input('P2', 'CONFIRM')
     toSlot(model, 'P1', 1); toSlot(model, 'P2', 2); model.input('P1', 'CONFIRM'); model.input('P2', 'CONFIRM')
     capture(model, 'P1', 'Ready')
+    model.setPhoto('P2', 'data:image/jpeg;base64,x')
     model.input('P2', 'BACK')
     expect(model.phase).toBe('GRID'); expect(model.player('P2').locked).toBeUndefined(); expect(model.isReady('P1')).toBe(true)
+    expect(model.player('P2').photo).toBeUndefined(); expect(JSON.stringify(model.result())).not.toContain('data:')
     model.input('P2', 'CONFIRM'); expect(model.owner).toBe('P2')
   })
   it('allows both players to lock the same character', () => {

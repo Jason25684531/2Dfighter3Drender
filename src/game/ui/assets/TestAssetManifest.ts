@@ -8,10 +8,6 @@ export const testStageManifest: Record<StageId, { id: StageId; label: string; ur
   'company-building': { id: 'company-building', label: 'COMPANY BUILDING', url: '/test-assets/stages/company-building.png' },
 }
 
-export const testUiAssetManifest = {
-  storyboard: { id: 'storyboard', url: '/test-assets/ui/uiux-sample.png', opaqueReferenceOnly: true },
-} as const
-
 export type SlotType = 'BODY_TEMPLATE' | 'FEATURED' | 'CUSTOM' | 'EMPTY'
 export type SlotStatus = 'AVAILABLE' | 'PROCESSING' | 'READY' | 'FAILED'
 export type CharacterEntry = { id: string; displayName: string; type: Exclude<SlotType, 'EMPTY'>; status: SlotStatus; spriteId?: SpriteId; heroTextureKey?: string; previewUrl: string; bodyTemplateId?: string }
@@ -20,10 +16,12 @@ export const testCharacterManifest = {
   presetA: { id: 'preset-a', displayName: 'ARIA', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'aria', previewUrl: '/test-assets/characters/sample-fighter/idle.webm' },
   presetB: { id: 'preset-b', displayName: 'KAEL', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'kael', previewUrl: '' },
   presetC: { id: 'preset-c', displayName: 'RIVEN', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'riven', previewUrl: '' },
+  presetD: { id: 'preset-d', displayName: 'KEVIN', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'kevin', previewUrl: '' },
+  presetE: { id: 'preset-e', displayName: 'CUSTOM01', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'body01', previewUrl: '' },
 } as const satisfies Record<string, CharacterEntry>
 
-// ponytail: Body 的 spriteId 只是戰鬥暫用替身（shared-ia §4.4）；P1 一律畫剪影。正式 Body 素材到位後替換。
-const bodySprites: readonly SpriteId[] = ['aria', 'kael', 'riven', 'aria']
+// ponytail: Body 01 已有正式身形素材；其餘 spriteId 仍是戰鬥暫用替身（shared-ia §4.4）。P1 一律畫剪影。
+const bodySprites: readonly SpriteId[] = ['body01', 'kael', 'riven', 'aria']
 export const bodyTemplates: readonly CharacterEntry[] = bodySprites.map((spriteId, i) => ({ id: `body-0${i + 1}`, displayName: `BODY 0${i + 1}`, type: 'BODY_TEMPLATE', status: 'AVAILABLE', spriteId, previewUrl: '', bodyTemplateId: `body-0${i + 1}` }))
 
 export const characterEntries = (): CharacterEntry[] => [...bodyTemplates, ...Object.values(testCharacterManifest)]

@@ -1,16 +1,22 @@
+import { ATTACK_ACTIONS, COMBAT_ACTIONS, DEFAULT_KEYBOARD_BINDINGS, type AttackAction, type Bindings, type CombatAction } from './ControlProfile'
+
 export const UI_ACTIONS = ['NAV_UP', 'NAV_DOWN', 'NAV_LEFT', 'NAV_RIGHT', 'CONFIRM', 'BACK', 'OPEN_MENU'] as const
-export const GAMEPLAY_ACTIONS = ['MOVE_LEFT', 'MOVE_RIGHT', 'JUMP', 'ATTACK', 'GUARD'] as const
+export const GAMEPLAY_ACTIONS = COMBAT_ACTIONS
 export type UIAction = (typeof UI_ACTIONS)[number]
-export type GameplayAction = (typeof GAMEPLAY_ACTIONS)[number]
+export type GameplayAction = CombatAction
 export type InputAction = UIAction | GameplayAction
 
 export type InputSnapshot = {
   moveX: number
+  moveZ: number
   jumpPressed: boolean
   jumpHeld: boolean
   attackPressed: boolean
   attackHeld: boolean
   guardHeld: boolean
+  // 以下只供呈現解析；Combat intent 只讀上面的欄位。
+  attack?: AttackAction
+  crouchHeld: boolean
 }
 
 export type InputState = { pressed: boolean; held: boolean; released: boolean }
@@ -31,10 +37,12 @@ export type InputConfig = {
   deadzone?: number
 }
 
+function combatKeys(bindings: Bindings): Record<CombatAction, readonly string[]> { return Object.fromEntries(COMBAT_ACTIONS.map((action): [CombatAction, string[]] => [action, [bindings[action]]])) as unknown as Record<CombatAction, readonly string[]> }
+
 const defaults: Record<InputAction, readonly string[]> = {
   NAV_UP: ['ArrowUp'], NAV_DOWN: ['ArrowDown'], NAV_LEFT: ['ArrowLeft'], NAV_RIGHT: ['ArrowRight'],
   CONFIRM: ['Enter'], BACK: ['Escape'], OPEN_MENU: ['KeyM'],
-  MOVE_LEFT: ['KeyA', 'ArrowLeft'], MOVE_RIGHT: ['KeyD', 'ArrowRight'], JUMP: ['Space'], ATTACK: ['KeyJ'], GUARD: ['KeyK'],
+  ...combatKeys(DEFAULT_KEYBOARD_BINDINGS.P1),
 }
 // P1 選角的雙玩家鍵位；與上方未標記鍵位並存，不取代任何既有行為。
 const ownerDefaults: Record<PlayerSlotId, OwnerKeys> = {
@@ -43,7 +51,7 @@ const ownerDefaults: Record<PlayerSlotId, OwnerKeys> = {
 }
 const defaultGamepad: Record<InputAction, readonly number[]> = {
   NAV_UP: [12], NAV_DOWN: [13], NAV_LEFT: [14], NAV_RIGHT: [15], CONFIRM: [0], BACK: [1], OPEN_MENU: [9],
-  MOVE_LEFT: [14], MOVE_RIGHT: [15], JUMP: [0], ATTACK: [2], GUARD: [4],
+  MOVE_LEFT: [14], MOVE_RIGHT: [15], MOVE_UP: [12], MOVE_DOWN: [13], JUMP: [0], CROUCH: [6], LIGHT_PUNCH: [2], HEAVY_PUNCH: [3], LIGHT_KICK: [4], HEAVY_KICK: [5], GUARD: [7], PAUSE: [9],
 }
 
 const isUi = (action: InputAction): action is UIAction => (UI_ACTIONS as readonly string[]).includes(action)
@@ -61,6 +69,8 @@ export class InputManager {
   private keyboardTarget?: KeyboardTarget
   private device: 'keyboard' | 'gamepad' = 'keyboard'
   private padInputs = new Set<string>()
+  /** 最後一次映射到戰鬥動作的實體鍵（DEV 診斷用）。 */
+  lastCombatInput?: { code: string; action: CombatAction }
   lastDevice(): 'keyboard' | 'gamepad' { return this.device }
   private readonly onKeyDown = (event: KeyboardEvent): void => this.handleKeyDown(event.code)
   private readonly onKeyUp = (event: KeyboardEvent): void => this.handleKeyUp(event.code)
@@ -95,6 +105,8 @@ export class InputManager {
     this.device = 'keyboard'
     if (!this.keys.has(code)) {
       this.keyPressed.add(code)
+      const action = COMBAT_ACTIONS.find((candidate) => this.config.keyboard[candidate].includes(code))
+      if (action) this.lastCombatInput = { code, action }
       ;(Object.entries(this.ownerKeys) as [PlayerSlotId, OwnerKeys][]).forEach(([owner, keys]) => (Object.entries(keys) as [OwnedUiAction, readonly string[]][]).forEach(([action, codes]) => { if (codes.includes(code)) this.pendingOwned.push({ owner, action }) }))
     }
     this.keys.add(code)
@@ -130,19 +142,26 @@ export class InputManager {
     })
     this.keyPressed.clear(); this.keyReleased.clear()
     this.lastMoveX = moveX
+    // ponytail: 縱深只讀數位方向（鍵盤／D-pad），類比搖桿 Y 軸等實體手把測試後再加。
+    this.lastMoveZ = Number(keyboardHeld('MOVE_UP') || padHeld('MOVE_UP')) - Number(keyboardHeld('MOVE_DOWN') || padHeld('MOVE_DOWN'))
   }
 
   private lastMoveX = 0
+  private lastMoveZ = 0
   private normalizeAxis(value: number): number {
     const magnitude = Math.min(1, Math.abs(value)); if (magnitude <= this.config.deadzone) return 0
     return Math.sign(value) * ((magnitude - this.config.deadzone) / (1 - this.config.deadzone))
   }
 
+  /** 只替換戰鬥鍵位；選單與選角 owner 鍵位不受影響。 */
+  setCombatBindings(bindings: Bindings): void { Object.assign(this.config.keyboard, combatKeys(bindings)) }
+  consumePause(): boolean { return this.pendingGameplay.delete('PAUSE') }
   getActionState(action: InputAction): InputState { return { ...(this.states.get(action) ?? { pressed: false, held: false, released: false }) } }
   consumeOwnedUiActions(): OwnedInput[] { return this.pendingOwned.splice(0) }
   consumeUiActions(): UIAction[] { const actions = [...this.pendingUi]; this.pendingUi.clear(); return actions }
   consumeGameplaySnapshot(): InputSnapshot {
     const pressed = (action: GameplayAction): boolean => this.pendingGameplay.delete(action)
-    return { moveX: this.lastMoveX, jumpPressed: pressed('JUMP'), jumpHeld: this.getActionState('JUMP').held, attackPressed: pressed('ATTACK'), attackHeld: this.getActionState('ATTACK').held, guardHeld: this.getActionState('GUARD').held }
+    const jumpPressed = pressed('JUMP'), attack = ATTACK_ACTIONS.filter(pressed)[0]
+    return { moveX: this.lastMoveX, moveZ: this.lastMoveZ, jumpPressed, jumpHeld: this.getActionState('JUMP').held, attackPressed: Boolean(attack), attackHeld: ATTACK_ACTIONS.some((action) => this.getActionState(action).held), guardHeld: this.getActionState('GUARD').held, attack, crouchHeld: this.getActionState('CROUCH').held }
   }
 }

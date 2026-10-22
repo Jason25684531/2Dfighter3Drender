@@ -1,25 +1,41 @@
 import type { InputSnapshot } from '../input/InputManager'
+import { ARENA_WIDTH, STAGE_TUNING } from '../config/stageTuning'
 
 export type FighterId = 'PLAYER' | 'ENEMY'
 export type Facing = 'LEFT' | 'RIGHT'
 export type FighterState = 'IDLE' | 'WALK' | 'JUMP' | 'ATTACK' | 'GUARD' | 'HIT_STUN'
 export type AttackPhase = 'NONE' | 'STARTUP' | 'ACTIVE' | 'RECOVERY'
 export type Aabb = { x: number; y: number; width: number; height: number }
-export type FighterIntent = { moveX: number; jumpPressed: boolean; attackPressed: boolean; guardHeld: boolean }
+// moveZ：縱深（+ 往後／畫面上方，- 往前）；省略視為 0。
+export type FighterIntent = { moveX: number; moveZ?: number; jumpPressed: boolean; attackPressed: boolean; guardHeld: boolean }
 
 export type CombatConfig = {
   inputBufferTicks?: number
   arenaWidth: number; floorY: number; fighterWidth: number; fighterHeight: number; walkSpeed: number; jumpVelocity: number; gravity: number; maxHp: number
   attack: { startupTicks: number; activeTicks: number; recoveryTicks: number; damage: number; hitStunTicks: number; hitboxOffset: number; hitboxWidth: number; hitboxHeight: number }
   initialPositions: Record<FighterId, number>
+  // 2.5D 縱深帶：只影響移動、推擠與命中判定，不影響跳躍。
+  depth?: { min: number; max: number; speed: number; tolerance: number; initial: number }
+  // 兩人最大水平距離，讓鏡頭（可視 1920/0.9 寬）永遠框住兩人。
+  maxSeparation?: number
+  // 推擠寬度（兩人中心最小距離）；sprite 身體約 285 寬，hurtbox 120 太窄會視覺重疊。省略時用 fighterWidth。
+  pushWidth?: number
+  // 角色中心離牆最小距離；省略時用 fighterWidth / 2。
+  wallMargin?: number
 }
 
 export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
   inputBufferTicks: 3,
-  arenaWidth: 1920, floorY: 820, fighterWidth: 120, fighterHeight: 220, walkSpeed: 18, jumpVelocity: -34, gravity: 3, maxHp: 100,
-  attack: { startupTicks: 3, activeTicks: 2, recoveryTicks: 5, damage: 10, hitStunTicks: 6, hitboxOffset: 90, hitboxWidth: 90, hitboxHeight: 80 },
-  initialPositions: { PLAYER: 560, ENEMY: 1360 },
+  arenaWidth: ARENA_WIDTH, floorY: 820, fighterWidth: 120, fighterHeight: 220, walkSpeed: 18, jumpVelocity: -34, gravity: 3, maxHp: 100,
+  attack: { startupTicks: 3, activeTicks: 2, recoveryTicks: 5, damage: 10, hitStunTicks: 6, hitboxOffset: 150, hitboxWidth: 90, hitboxHeight: 80 },
+  // 場地、縱深、推擠、最大距離都在 config/stageTuning.ts 調整。
+  initialPositions: { PLAYER: ARENA_WIDTH / 2 - 400, ENEMY: ARENA_WIDTH / 2 + 400 },
+  pushWidth: STAGE_TUNING.pushWidth,
+  wallMargin: STAGE_TUNING.wallMargin,
+  depth: STAGE_TUNING.depth,
+  maxSeparation: STAGE_TUNING.maxSeparation,
 }
+const FLAT_DEPTH = { min: 0, max: 0, speed: 0, tolerance: Infinity, initial: 0 }
 
 export type CombatEvent =
   | { type: 'ATTACK_STARTED'; attacker: FighterId; attackId: number }
@@ -31,19 +47,20 @@ export type CombatEvent =
 
 type Fighter = {
   jumpBuffer: number; attackBuffer: number
-  id: FighterId; x: number; y: number; vx: number; vy: number; facing: Facing; currentHP: number; grounded: boolean; state: FighterState
+  id: FighterId; x: number; y: number; z: number; vx: number; vy: number; vz: number; facing: Facing; currentHP: number; grounded: boolean; state: FighterState
   hitStunTicks: number; attackPhase: AttackPhase; attackTicks: number; attackId: number; hitTargets: Set<FighterId>; combo: number; comboWindowTicks: number
 }
 
 export type FighterSnapshot = Omit<Fighter, 'hitTargets' | 'jumpBuffer' | 'attackBuffer'>
 export type CombatSnapshot = { tick: number; fighters: Record<FighterId, FighterSnapshot> }
-export const intentFromInput = (input: InputSnapshot): FighterIntent => ({ moveX: input.moveX, jumpPressed: input.jumpPressed, attackPressed: input.attackPressed, guardHeld: input.guardHeld })
+export const intentFromInput = (input: InputSnapshot): FighterIntent => ({ moveX: input.moveX, moveZ: input.moveZ, jumpPressed: input.jumpPressed, attackPressed: input.attackPressed, guardHeld: input.guardHeld })
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
 const overlaps = (a: Aabb, b: Aabb): boolean => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 
 export class CombatWorld {
   private readonly config: CombatConfig
+  private readonly depth: NonNullable<CombatConfig['depth']>
   private readonly fighters: Record<FighterId, Fighter>
   private readonly listeners = new Set<(event: CombatEvent) => void>()
   private tickNumber = 0
@@ -51,12 +68,12 @@ export class CombatWorld {
   private readonly intents: Record<FighterId, FighterIntent> = { PLAYER: { moveX: 0, jumpPressed: false, attackPressed: false, guardHeld: false }, ENEMY: { moveX: 0, jumpPressed: false, attackPressed: false, guardHeld: false } }
 
   constructor(config: CombatConfig = DEFAULT_COMBAT_CONFIG) {
-    this.config = config
+    this.config = config; this.depth = config.depth ?? FLAT_DEPTH
     this.fighters = { PLAYER: this.createFighter('PLAYER'), ENEMY: this.createFighter('ENEMY') }
   }
 
   private createFighter(id: FighterId): Fighter {
-    return { id, x: this.config.initialPositions[id], y: this.config.floorY, vx: 0, vy: 0, facing: id === 'PLAYER' ? 'RIGHT' : 'LEFT', currentHP: this.config.maxHp, grounded: true, state: 'IDLE', hitStunTicks: 0, attackPhase: 'NONE', attackTicks: 0, attackId: 0, hitTargets: new Set(), combo: 0, comboWindowTicks: 0, jumpBuffer: 0, attackBuffer: 0 }
+    return { id, x: this.config.initialPositions[id], y: this.config.floorY, z: this.depth.initial, vx: 0, vy: 0, vz: 0, facing: id === 'PLAYER' ? 'RIGHT' : 'LEFT', currentHP: this.config.maxHp, grounded: true, state: 'IDLE', hitStunTicks: 0, attackPhase: 'NONE', attackTicks: 0, attackId: 0, hitTargets: new Set(), combo: 0, comboWindowTicks: 0, jumpBuffer: 0, attackBuffer: 0 }
   }
 
   subscribe(listener: (event: CombatEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener) }
@@ -74,7 +91,9 @@ export class CombatWorld {
     this.intents.PLAYER = playerIntent; this.intents.ENEMY = enemyIntent; this.tickNumber += 1
     ;(['PLAYER', 'ENEMY'] as FighterId[]).forEach((id) => this.beginTick(this.fighters[id]))
     ;(['PLAYER', 'ENEMY'] as FighterId[]).forEach((id) => this.applyIntent(this.fighters[id], this.intents[id], id === 'PLAYER' ? 'ENEMY' : 'PLAYER'))
+    const before = { PLAYER: this.fighters.PLAYER.x, ENEMY: this.fighters.ENEMY.x }
     ;(['PLAYER', 'ENEMY'] as FighterId[]).forEach((id) => this.advancePhysics(this.fighters[id]))
+    this.separate(before)
     ;(['PLAYER', 'ENEMY'] as FighterId[]).forEach((id) => this.advanceAttack(this.fighters[id]))
     this.resolveCollisions()
   }
@@ -96,11 +115,12 @@ export class CombatWorld {
     if (fighter.attackPhase !== 'NONE') return
     if (fighter.x < opponent.x) fighter.facing = 'RIGHT'; else if (fighter.x > opponent.x) fighter.facing = 'LEFT'
     // 按住防禦即成立，不限方向。
-    if (intent.guardHeld) { fighter.vx = 0; fighter.state = 'GUARD'; return }
+    if (intent.guardHeld) { fighter.vx = 0; fighter.vz = 0; fighter.state = 'GUARD'; return }
     if (fighter.attackBuffer > 0) { fighter.attackBuffer = 0; this.startAttack(fighter); return }
     if (fighter.jumpBuffer > 0 && fighter.grounded) { fighter.jumpBuffer = 0; fighter.vy = this.config.jumpVelocity; fighter.grounded = false; fighter.state = 'JUMP' }
     fighter.vx = clamp(intent.moveX, -1, 1) * this.config.walkSpeed
-    if (fighter.vx !== 0) fighter.state = 'WALK'; else if (fighter.grounded) fighter.state = 'IDLE'
+    if (fighter.grounded) fighter.vz = clamp(intent.moveZ ?? 0, -1, 1) * this.depth.speed
+    if (fighter.vx !== 0 || fighter.vz !== 0) fighter.state = 'WALK'; else if (fighter.grounded) fighter.state = 'IDLE'
   }
 
   private startAttack(fighter: Fighter): void {
@@ -109,8 +129,26 @@ export class CombatWorld {
 
   private advancePhysics(fighter: Fighter): void {
     if (!fighter.grounded || fighter.vy !== 0) { fighter.vy += this.config.gravity; fighter.y += fighter.vy; if (fighter.y >= this.config.floorY) { fighter.y = this.config.floorY; fighter.vy = 0; fighter.grounded = true; if (fighter.state === 'JUMP') fighter.state = 'IDLE' } else fighter.grounded = false }
-    fighter.x += fighter.vx; const edge = this.config.fighterWidth / 2; fighter.x = clamp(fighter.x, edge, this.config.arenaWidth - edge)
-    if (fighter.grounded) fighter.vx = 0
+    fighter.x += fighter.vx; const edge = this.config.wallMargin ?? this.config.fighterWidth / 2; fighter.x = clamp(fighter.x, edge, this.config.arenaWidth - edge)
+    fighter.z = clamp(fighter.z + fighter.vz, this.depth.min, this.depth.max)
+    if (fighter.grounded) { fighter.vx = 0; fighter.vz = 0 }
+  }
+
+  /** 推擠：同縱深帶且高度重疊時，兩人中心至少相距一個身寬；牆邊由另一人讓出。再限制最大距離，由往外走的一方停下。 */
+  private separate(before: Record<FighterId, number>): void {
+    const { PLAYER: a, ENEMY: b } = this.fighters, width = this.config.pushWidth ?? this.config.fighterWidth, low = this.config.wallMargin ?? this.config.fighterWidth / 2, high = this.config.arenaWidth - low
+    const dir = a.x !== b.x ? Math.sign(b.x - a.x) : a.facing === 'RIGHT' ? 1 : -1
+    if (Math.abs(a.z - b.z) < this.depth.tolerance && Math.abs(a.y - b.y) < this.config.fighterHeight * 0.75 && Math.abs(b.x - a.x) < width) {
+      const overlap = width - Math.abs(b.x - a.x)
+      a.x = clamp(a.x - dir * overlap / 2, low, high); b.x = clamp(b.x + dir * overlap / 2, low, high)
+      if ((b.x - a.x) * dir < width) { if (a.x === low || a.x === high) b.x = a.x + dir * width; else a.x = b.x - dir * width }
+    }
+    const excess = Math.abs(b.x - a.x) - (this.config.maxSeparation ?? Infinity)
+    if (excess > 0) {
+      const aOut = (a.x - before.PLAYER) * dir < 0, bOut = (b.x - before.ENEMY) * dir > 0
+      const share = aOut === bOut ? 0.5 : aOut ? 1 : 0
+      a.x += dir * excess * share; b.x -= dir * excess * (1 - share)
+    }
   }
 
   private advanceAttack(fighter: Fighter): void {
@@ -124,7 +162,7 @@ export class CombatWorld {
   private resolveCollisions(): void {
     ;(['PLAYER', 'ENEMY'] as FighterId[]).forEach((attackerId) => {
       const attacker = this.fighters[attackerId]; const defenderId = attackerId === 'PLAYER' ? 'ENEMY' : 'PLAYER'; const defender = this.fighters[defenderId]; const hitbox = this.getActiveHitbox(attackerId)
-      if (!hitbox || attacker.hitTargets.has(defenderId) || !overlaps(hitbox, this.getHurtbox(defenderId))) return
+      if (!hitbox || attacker.hitTargets.has(defenderId) || Math.abs(attacker.z - defender.z) > this.depth.tolerance || !overlaps(hitbox, this.getHurtbox(defenderId))) return
       attacker.hitTargets.add(defenderId); this.emit({ type: 'HIT', attacker: attackerId, defender: defenderId, attackId: attacker.attackId })
       if (this.intents[defenderId].guardHeld && defender.hitStunTicks === 0) { this.emit({ type: 'BLOCK', attacker: attackerId, defender: defenderId, attackId: attacker.attackId }); return }
       const previousHP = defender.currentHP; defender.currentHP = Math.max(0, defender.currentHP - this.config.attack.damage); defender.hitStunTicks = this.config.attack.hitStunTicks; defender.state = 'HIT_STUN'; defender.attackPhase = 'NONE'; defender.attackTicks = 0; this.setCombo(attacker, attacker.comboWindowTicks > 0 ? attacker.combo + 1 : 1); attacker.comboWindowTicks = this.config.attack.hitStunTicks; this.setCombo(defender, 0)

@@ -4,7 +4,8 @@ import type { UIEventBus } from './UIEventBus'
 const states = {
   [AppState.IDLE]: ['EMPTY', 'RECORDS_1_TO_4', 'RECORDS_5_PLUS'],
   [AppState.READY]: ['READY', 'CUSTOMIZE', 'REVIEW', 'PROCESSING', 'FALLBACK'],
-  [AppState.SETUP]: ['DEFAULT'], [AppState.LOADING]: ['DEFAULT'],
+  // SETUP：DEFAULT＝選場景；OPPONENT＝1P 選對手（在選場景之前）。
+  [AppState.SETUP]: ['DEFAULT', 'OPPONENT'], [AppState.LOADING]: ['DEFAULT'],
   [AppState.BATTLE]: ['NORMAL', 'COMBO', 'DANGER', 'LAST_10_SECONDS'],
   [AppState.PRESENTATION]: ['DEFAULT'],
   [AppState.RESULT]: ['RANK_1_TO_6', 'RANK_7_TO_19', 'RANK_20', 'NOT_RANKED'],

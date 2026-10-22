@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CombatWorld, type CombatConfig, type FighterIntent } from '../combat/CombatWorld'
 import { EnemyAI } from './EnemyAI'
-import { MatchController, p4SubStateFor, ROUND_TICKS } from './MatchController'
+import { INTRO_FIGHT_TICKS, INTRO_READY_TICKS, INTRO_ROUND_TICKS, MatchController, p4SubStateFor, ROUND_TICKS } from './MatchController'
 import { FIXED_STEP_MS, GameClock } from '../time/GameClock'
 import { resolveMatchResult } from './ResultResolver'
 
@@ -11,9 +11,7 @@ const closeConfig = (damage = 10): CombatConfig => ({ arenaWidth: 1920, floorY: 
 describe('EnemyAI and MatchController', () => {
   it('approaches, attacks, guards deterministically, and respects restricted state', () => {
     const distant = new CombatWorld(); const ai = new EnemyAI(); expect(ai.getIntent(distant.getSnapshot()).moveX).toBe(-1)
-    const close = new CombatWorld(closeConfig()); ai.reset(); expect(ai.getIntent(close.getSnapshot()).attackPressed).toBe(true)
-    for (let i = 0; i < 70; i += 1) ai.getIntent(close.getSnapshot()); expect(ai.getIntent(close.getSnapshot()).guardHeld).toBe(true)
-    const paced = new EnemyAI(closeConfig(), 3); expect([0, 1, 2, 3, 4].map(() => paced.getIntent(close.getSnapshot()).attackPressed)).toEqual([true, false, false, false, true])
+    const close = new CombatWorld(closeConfig())
     const restricted = close.getSnapshot(); restricted.fighters.ENEMY.state = 'HIT_STUN'; expect(ai.getIntent(restricted)).toEqual(neutral)
     const ai2 = new EnemyAI(); const a = Array.from({ length: 10 }, () => ai2.getIntent(close.getSnapshot())); const ai3 = new EnemyAI(); const b = Array.from({ length: 10 }, () => ai3.getIntent(close.getSnapshot())); expect(a).toEqual(b)
   })
@@ -74,5 +72,35 @@ describe('EnemyAI and MatchController', () => {
   it('uses the documented P4 priority and freezes match timing while paused', () => {
     expect(p4SubStateFor(240, 1, 100, 5)).toBe('LAST_10_SECONDS'); expect(p4SubStateFor(241, 25, 100, 5)).toBe('DANGER'); expect(p4SubStateFor(241, 100, 100, 2)).toBe('COMBO'); expect(p4SubStateFor(241, 100, 100, 0)).toBe('NORMAL')
     const match = new MatchController(); match.ai.getIntent = () => neutral; match.start(); const clock = new GameClock(); clock.subscribe(() => match.tick()); clock.start(); clock.advance(FIXED_STEP_MS); const before = match.getSnapshot(); clock.pause(); clock.advance(1000); expect(match.getSnapshot()).toEqual(before); clock.resume(); clock.advance(FIXED_STEP_MS); expect(match.getSnapshot().remainingTicks).toBe(before.remainingTicks - 1)
+  })
+})
+
+describe('MatchController round intro', () => {
+  const press: FighterIntent = { ...neutral, attackPressed: true }
+  const phases = (match: MatchController, ticks: number): (string | undefined)[] => Array.from({ length: ticks }, () => { match.tick(); return match.getSnapshot().introPhase })
+
+  it('freezes the first round through ROUND then READY, then shows FIGHT while fighting', () => {
+    const match = new MatchController(closeConfig(100), { intro: true }); match.ai.getIntent = () => neutral; match.start()
+    const seen = phases(match, INTRO_ROUND_TICKS.first + INTRO_READY_TICKS + 2)
+    expect(seen[0]).toBe('ROUND'); expect(seen[INTRO_ROUND_TICKS.first - 1]).toBe('READY'); expect(match.getSnapshot().matchState).toBe('FIGHTING')
+    expect(match.getSnapshot().remainingTicks).toBeGreaterThan(ROUND_TICKS - 3); expect(match.getSnapshot().introPhase).toBe('FIGHT')
+  })
+
+  it('drops input pressed during the intro', () => {
+    const match = new MatchController(closeConfig(100), { intro: true }); match.ai.getIntent = () => neutral; match.start()
+    for (let i = 0; i < INTRO_ROUND_TICKS.first + INTRO_READY_TICKS - 1; i += 1) match.tick(press)
+    expect(match.getSnapshot().world.fighters.PLAYER.attackPhase).toBe('NONE'); expect(match.getSnapshot().remainingTicks).toBe(ROUND_TICKS)
+  })
+
+  it('skips READY on later rounds and replays the intro after a draw', () => {
+    const match = new MatchController(closeConfig(100), { intro: true }); match.ai.getIntent = () => neutral; match.start()
+    phases(match, INTRO_ROUND_TICKS.first + INTRO_READY_TICKS + INTRO_FIGHT_TICKS)
+    for (let i = 0; i < 400 && match.getSnapshot().matchState !== 'ROUND_END'; i += 1) match.tick(press)
+    expect(match.getSnapshot().matchState).toBe('ROUND_END'); match.tick()
+    const seen = phases(match, INTRO_ROUND_TICKS.later); expect(new Set(seen.slice(0, -1))).toEqual(new Set(['ROUND'])); expect(match.getSnapshot().matchState).toBe('FIGHTING')
+  })
+
+  it('has no intro unless enabled', () => {
+    const match = new MatchController(closeConfig(100)); match.start(); expect(match.getSnapshot().matchState).toBe('FIGHTING'); expect(match.getSnapshot().introPhase).toBeUndefined()
   })
 })

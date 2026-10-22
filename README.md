@@ -8,6 +8,8 @@ Browser-based 2D fighting game framework using Vite, TypeScript, Phaser 3, FastA
 - Semantic keyboard/gamepad input, a 24Hz fixed-step clock, combat, rounds, enemy AI, and local result resolution are implemented.
 - FastAPI/SQLite player, session, queue, match, round, score, and leaderboard paths are implemented.
 - Current UI uses supplied stage media, sample WebM, and temporary fighter sprites. Final art, VFX, audio, and ComfyUI result integration remain future work.
+- P0 has a LEADERBOARD button (Top 10 overlay, offline-safe). In 1P mode P2 starts with an opponent step (pick any usable character, cancel/reselect with BACK, choose EASY/NORMAL/HARD) before stage select. The P1 grid is split into CUSTOMIZE (01–04), OFFICERS (05–10) and ROSTER (11–40). Each round opens with ROUND → READY? → FIGHT! while the simulation is frozen.
+- Enemy AI is tuned in `src/game/config/aiProfiles.ts` (spacing band, aggression, guard chance, retreat/cooldown ticks); NORMAL keeps its distance instead of chasing.
 - Concept A Cyber Arena presentation covers P0–P7 and ESC, with bundled OFL fonts, Canvas fallbacks, reduced-motion support, and an ultrawide stage backdrop.
 
 ## System ownership
@@ -29,7 +31,7 @@ UIFramework (substate, focus, navigation)          snapshots / result
 
 The normal flow is P0 Idle → P1 Ready → P2 Setup → P3 Loading → P4 Battle → P5 Presentation → P6 Result → P7 End. Replay returns to P2; Finish returns to P0. P1 establishes a session; each P4 play attempt creates its own match. Backend writes are ordered and use stable request IDs for retry.
 
-BACK returns P2 to P1 and P1 to P0 (finishing the unused session). P3 waits for explicit FIGHT! confirmation after asset loading. During battle, ESC offers Continue and Exit; exit confirmation defaults to Cancel. Other screens ignore BACK.
+BACK in P2 first cancels a locked opponent, then (1P) steps from stage back to opponent, then returns to P1; P1 returns to P0 (finishing the unused session). P3 waits for explicit FIGHT! confirmation after asset loading. During battle, ESC offers Continue and Exit; exit confirmation defaults to Cancel. Other screens ignore BACK.
 
 ## Development
 

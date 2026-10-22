@@ -148,6 +148,8 @@ export class RoundBanner extends Phaser.GameObjects.Container {
   }
   show(steps: readonly BannerStep[], tick: number): void { this.steps = steps; this.started = tick; this.updateTick(tick) }
   updateTick(tick: number): void { const text = bannerTextAt(this.steps, tick - this.started); this.label.setText(text); this.setVisible(Boolean(text)) }
+  /** 固定文字（Ready?／Fight! 起手序列由 MatchController 的 introPhase 驅動，不走 clock 計時步驟）。 */
+  setText(text: string): void { this.steps = []; this.label.setText(text); this.setVisible(Boolean(text)) }
 }
 
 export const addFocalGlow = (scene: Phaser.Scene, parent: Phaser.GameObjects.Container, x: number, y: number, width: number, height: number, color: number, alpha: number = uiTokens.opacity.focusGlow): Phaser.GameObjects.Graphics => {

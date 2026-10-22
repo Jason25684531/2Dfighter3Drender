@@ -8,9 +8,13 @@ export class NavigationManager {
   private overlayOpen = false
   private overlayConfirm = false
   constructor(private readonly app: AppStateMachine, private readonly focus: FocusManager, private readonly events: UIEventBus) {}
+  private backHandler?: () => boolean
+  /** 畫面內子步驟的返回：回傳 true 表示已處理，不再走 declared back route。 */
+  setBackHandler(handler: (() => boolean) | undefined): void { this.backHandler = handler }
   isOverlayOpen(): boolean { return this.overlayOpen }
   dispatch(action: UIAction): boolean {
     if (action === 'BACK' && !this.overlayOpen) {
+      if (this.backHandler?.()) return true
       const state = this.app.getCurrentState(), back = backRoutes[state]
       if (back) return this.app.transitionTo(back)
       if (state !== AppState.BATTLE) return false

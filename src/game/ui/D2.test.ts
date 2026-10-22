@@ -18,4 +18,14 @@ describe('D2 UI framework', () => {
   it('activates a preferred selection for presentation previews', () => { const f = new FocusManager(new UIEventBus()); f.register('character', 'character-a'); f.register('character', 'character-b'); f.activate('character', 'character-b'); expect(f.current()).toBe('character-b') })
   it('does not re-emit overlay close when already closed', () => { const e = new UIEventBus(), listener = vi.fn(), n = new NavigationManager(new AppStateMachine(), new FocusManager(e), e); e.on('OVERLAY_CHANGED', listener); n.dispatch('CLOSE_MENU'); expect(listener).not.toHaveBeenCalled() })
   it('keeps exit confirmation in the overlay and lets back return to the menu', () => { const e = new UIEventBus(), app = new AppStateMachine(), f = new FocusManager(e), n = new NavigationManager(app, f, e); n.dispatch('OPEN_MENU'); expect(n.openExitConfirmation()).toBe(true); expect(n.isExitConfirmationOpen()).toBe(true); expect(app.getCurrentState()).toBe(AppState.IDLE); n.dispatch('BACK'); expect(n.isExitConfirmationOpen()).toBe(false); expect(n.isOverlayOpen()).toBe(true) })
+  it('lets a back handler consume BACK before the declared route', () => {
+    const app = new AppStateMachine(), e = new UIEventBus(), nav = new NavigationManager(app, new FocusManager(e), e); app.transitionTo(AppState.READY); app.transitionTo(AppState.SETUP)
+    let handled = true; nav.setBackHandler(() => handled)
+    expect(nav.dispatch('BACK')).toBe(true); expect(app.getCurrentState()).toBe(AppState.SETUP)
+    handled = false; expect(nav.dispatch('BACK')).toBe(true); expect(app.getCurrentState()).toBe(AppState.READY)
+    nav.setBackHandler(undefined); app.transitionTo(AppState.SETUP); expect(nav.dispatch('BACK')).toBe(true); expect(app.getCurrentState()).toBe(AppState.READY)
+  })
+  it('accepts the OPPONENT sub-step on SETUP only', () => {
+    const s = new ScreenSubState(new UIEventBus()); expect(s.get(AppState.SETUP)).toBe('DEFAULT'); expect(s.set(AppState.SETUP, 'OPPONENT')).toBe(true); expect(s.set(AppState.BATTLE, 'OPPONENT')).toBe(false); expect(s.reset(AppState.SETUP)).toBe(true)
+  })
 })

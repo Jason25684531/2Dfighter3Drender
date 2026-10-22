@@ -1,13 +1,8 @@
 import type { MatchSnapshot } from '../match/MatchController'
 import type { MatchResult, P6SubState } from '../match/ResultResolver'
 import type { LeaderboardEntry } from '../api/ApiTypes'
-import type { StageId } from './assets/TestAssetManifest'
-import type { CharacterEntry } from './assets/TestAssetManifest'
-import { testCharacterManifest } from './assets/TestAssetManifest'
-import { testStageManifest } from './assets/TestAssetManifest'
+import { testCharacterManifest, testStageManifest, type CharacterEntry, type StageId } from './assets/TestAssetManifest'
 
-export type RecordWallRow = { name: string; score: number; maxCombo?: number; title?: string }
-export type P0RecordWallViewModel = { variant: 'EMPTY' | 'RECORDS_1_TO_4' | 'RECORDS_5_PLUS'; rows: RecordWallRow[] }
 export type P2StageSelectViewModel = { heading: string; stages: { id: StageId; label: string; url: string }[]; selectedStageId: StageId }
 export type P3LoadingViewModel = { character: CharacterEntry; playerName: string; enemyName: string; stage: string; progress: number; controls: string[] }
 export type BattleViewModel = { stageId: StageId; playerName: string; enemyName: string; playerHp: number; enemyHp: number; maxHp: number; timerSeconds: number; round: number; playerWins: number; enemyWins: number; combo: number; danger: boolean; lastTenSeconds: boolean; player: MatchSnapshot['world']['fighters']['PLAYER']; enemy: MatchSnapshot['world']['fighters']['ENEMY'] }
@@ -16,15 +11,13 @@ export type PresentationViewModel = { headline: string; outcome: string; result?
 export type ResultStatistic = { label: string; value: string | number }
 export type ResultRow = { rank: number; name: string; score: number; highlighted?: boolean }
 export type ResultViewModel = { outcome: string; headline: string; title: string; score: number; rank: number | null; substate: P6SubState; statistics: ResultStatistic[]; ranking: ResultRow[]; newRecord: boolean }
+export type LeaderboardPanelStatus = 'LOADING' | 'READY' | 'EMPTY' | 'OFFLINE'
+export type LeaderboardPanelModel = { status: LeaderboardPanelStatus; rows: { rank: number; name: string; score: number; title: string }[] }
 export type EndViewModel = { nextPlayerName?: string; nextPlayerLabel?: string }
 
 export const stageSelectViewModel = (selectedStageId: StageId = 'laboratory'): P2StageSelectViewModel => ({ heading: 'SELECT STAGE', stages: Object.values(testStageManifest), selectedStageId })
 
-export const p0Variant = (recordCount: number): 'EMPTY' | 'RECORDS_1_TO_4' | 'RECORDS_5_PLUS' => recordCount <= 0 ? 'EMPTY' : recordCount < 5 ? 'RECORDS_1_TO_4' : 'RECORDS_5_PLUS'
-
-export const recordWallViewModel = (rows: readonly RecordWallRow[], variant = p0Variant(rows.length)): P0RecordWallViewModel => ({ variant, rows: [...rows] })
-
-export const loadingViewModel = (character: CharacterEntry = testCharacterManifest.presetA, enemyName = 'ROG_SAGA', stage = 'LABORATORY', progress = 1, playerName = character.displayName): P3LoadingViewModel => ({ character, playerName, enemyName, stage, progress: Math.max(0, Math.min(1, progress)), controls: ['MOVE', 'ATTACK', 'JUMP', 'K / LB = GUARD'] })
+export const loadingViewModel = (character: CharacterEntry = testCharacterManifest.presetA, enemyName = 'ROG_SAGA', stage = 'LABORATORY', progress = 1, playerName = character.displayName): P3LoadingViewModel => ({ character, playerName, enemyName, stage, progress: Math.max(0, Math.min(1, progress)), controls: ['MOVE', 'JUMP', 'PUNCH', 'KICK', 'GUARD'] })
 
 export const battleViewModel = (snapshot: MatchSnapshot, stageId: StageId, playerName = 'ROG_Player', enemyName = 'ROG_SAGA'): BattleViewModel => {
   const player = snapshot.world.fighters.PLAYER; const enemy = snapshot.world.fighters.ENEMY; const maxHp = 100
@@ -53,3 +46,11 @@ export const presentationViewModel = (result?: MatchResult, showcase?: P5Showcas
 }
 
 export const endViewModel = (nextPlayerName?: string): EndViewModel => ({ nextPlayerName: nextPlayerName || undefined, nextPlayerLabel: nextPlayerName ? `NEXT  /  ${nextPlayerName}` : undefined })
+
+// 首頁排行榜：entries 為 undefined 代表尚在載入，ok=false 代表請求失敗（離線）。
+export const leaderboardPanelModel = (entries: readonly LeaderboardEntry[] | undefined, ok = true, limit = 10): LeaderboardPanelModel => {
+  if (!ok) return { status: 'OFFLINE', rows: [] }
+  if (!entries) return { status: 'LOADING', rows: [] }
+  const rows = entries.slice(0, limit).map((entry) => ({ rank: entry.rank, name: entry.nickname, score: entry.score, title: entry.title }))
+  return { status: rows.length ? 'READY' : 'EMPTY', rows }
+}

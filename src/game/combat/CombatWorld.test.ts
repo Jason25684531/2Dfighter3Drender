@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { CombatWorld, type CombatConfig, type FighterIntent } from './CombatWorld'
+import { STAGE_TUNING } from '../config/stageTuning'
+import { CombatWorld, DEFAULT_COMBAT_CONFIG, type CombatConfig, type FighterIntent } from './CombatWorld'
 
 const neutral: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: false, guardHeld: false }
 const closeConfig = (positions = { PLAYER: 560, ENEMY: 640 }): CombatConfig => ({
@@ -77,8 +78,9 @@ describe('CombatWorld', () => {
   })
 
   it('moves, clamps, faces, and jumps deterministically', () => {
-    const world = new CombatWorld(); tick(world, { ...neutral, moveX: -1 }); expect(world.getFighter('PLAYER').x).toBe(542); expect(world.getFighter('PLAYER').facing).toBe('RIGHT')
-    for (let i = 0; i < 100; i += 1) tick(world, { ...neutral, moveX: -1 }); expect(world.getFighter('PLAYER').x).toBe(60)
+    const world = new CombatWorld(); tick(world, { ...neutral, moveX: -1 }); expect(world.getFighter('PLAYER').x).toBe(DEFAULT_COMBAT_CONFIG.initialPositions.PLAYER - 18); expect(world.getFighter('PLAYER').facing).toBe('RIGHT')
+    // 對手不動時，往後走會被最大距離擋住（牆邊夾住另見推擠測試）。
+    for (let i = 0; i < 150; i += 1) tick(world, { ...neutral, moveX: -1 }); expect(world.getFighter('PLAYER').x).toBe(Math.max(STAGE_TUNING.wallMargin, DEFAULT_COMBAT_CONFIG.initialPositions.ENEMY - STAGE_TUNING.maxSeparation))
     const before = world.getFighter('PLAYER'); tick(world, { ...neutral, jumpPressed: true }); expect(world.getFighter('PLAYER').grounded).toBe(false); expect(world.getFighter('PLAYER').vy).toBe(-31)
     tick(world, { ...neutral, jumpPressed: true }); expect(world.getFighter('PLAYER').vy).not.toBe(before.vy)
     for (let i = 0; i < 30; i += 1) tick(world); expect(world.getFighter('PLAYER').grounded).toBe(true); expect(world.getFighter('PLAYER').y).toBe(820)
@@ -96,7 +98,7 @@ describe('CombatWorld', () => {
   it('does not hit when inactive or separated and mirrors hitboxes by facing', () => {
     const world = new CombatWorld(closeConfig({ PLAYER: 560, ENEMY: 1200 })); tick(world, { ...neutral, attackPressed: true }); for (let i = 0; i < 4; i += 1) tick(world); expect(world.getFighter('ENEMY').currentHP).toBe(100)
     const mirrored = new CombatWorld(closeConfig()); tick(mirrored, { ...neutral, attackPressed: true }); for (let i = 0; i < 3; i += 1) tick(mirrored); const right = mirrored.getActiveHitbox('PLAYER')!
-    mirrored.reset(); mirrored.tick(neutral, { ...neutral, attackPressed: true }); for (let i = 0; i < 3; i += 1) tick(mirrored); const left = mirrored.getActiveHitbox('ENEMY')!; expect(right.x + right.width).toBeCloseTo(695); expect(left.x).toBeCloseTo(505)
+    mirrored.reset(); mirrored.tick(neutral, { ...neutral, attackPressed: true }); for (let i = 0; i < 3; i += 1) tick(mirrored); const left = mirrored.getActiveHitbox('ENEMY')!; expect(right.x + right.width).toBeCloseTo(675); expect(left.x).toBeCloseTo(525)
   })
 
   it('blocks whenever guard is held, in any direction, and applies damage/hit stun otherwise', () => {
@@ -108,5 +110,34 @@ describe('CombatWorld', () => {
   it('resets and produces identical snapshots for identical inputs', () => {
     const a = new CombatWorld(closeConfig()); const b = new CombatWorld(closeConfig()); const inputs = [{ ...neutral, moveX: 1 }, { ...neutral, attackPressed: true }, neutral, neutral, neutral, neutral]
     inputs.forEach((input) => { tick(a, input); tick(b, input) }); expect(a.getSnapshot()).toEqual(b.getSnapshot()); a.tick({ ...neutral, moveX: -1 }, neutral); a.reset(); expect(a.getSnapshot()).toEqual(new CombatWorld(closeConfig()).getSnapshot())
+  })
+
+  it('never lets fighters overlap or pass through each other on the same depth lane, even against a wall', () => {
+    const world = new CombatWorld()
+    for (let i = 0; i < 80; i += 1) { tick(world, { ...neutral, moveX: 1 }, { ...neutral, moveX: -1 }); const { PLAYER, ENEMY } = world.getSnapshot().fighters; expect(ENEMY.x - PLAYER.x).toBeGreaterThanOrEqual(220 - 1e-9) }
+    expect(world.getFighter('PLAYER').facing).toBe('RIGHT'); expect(world.getFighter('ENEMY').facing).toBe('LEFT')
+    const m = STAGE_TUNING.wallMargin, wall = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: m, ENEMY: m + 90 } }); tick(wall)
+    expect([wall.getFighter('PLAYER').x, wall.getFighter('ENEMY').x]).toEqual([m, m + STAGE_TUNING.pushWidth])
+    // 推擠寬 220 時攻擊仍打得到（hitbox 延伸到 150+45）。
+    const close = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: 1300, ENEMY: 1380 } }); tick(close)
+    tick(close, { ...neutral, attackPressed: true }); for (let i = 0; i < 4; i += 1) tick(close)
+    expect(close.getFighter('ENEMY').currentHP).toBe(90)
+  })
+  it('limits separation so both fighters stay inside the camera, stopping whoever walks away', () => {
+    const world = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: 300, ENEMY: 2090 } })
+    for (let i = 0; i < 10; i += 1) tick(world, { ...neutral, moveX: -1 })
+    expect(world.getFighter('ENEMY').x).toBe(2090); expect(world.getFighter('ENEMY').x - world.getFighter('PLAYER').x).toBe(1800)
+  })
+  it('moves in depth, keeps the band, lets fighters pass on different lanes, and misses across lanes', () => {
+    const world = new CombatWorld()
+    const { min, max } = STAGE_TUNING.depth
+    for (let i = 0; i < 60; i += 1) tick(world, { ...neutral, moveZ: 1 })
+    expect(world.getFighter('PLAYER').z).toBe(max); expect(world.getFighter('PLAYER').state).toBe('WALK')
+    for (let i = 0; i < 80; i += 1) tick(world, { ...neutral, moveZ: -1 }); expect(world.getFighter('PLAYER').z).toBe(min)
+    const lanes = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: 1300, ENEMY: 1380 } })
+    for (let i = 0; i < 12; i += 1) tick(lanes, { ...neutral, moveZ: 1 })
+    expect(lanes.getFighter('PLAYER').z - lanes.getFighter('ENEMY').z).toBeGreaterThan(45)
+    tick(lanes, { ...neutral, attackPressed: true }); for (let i = 0; i < 4; i += 1) tick(lanes)
+    expect(lanes.getFighter('ENEMY').currentHP).toBe(100)
   })
 })

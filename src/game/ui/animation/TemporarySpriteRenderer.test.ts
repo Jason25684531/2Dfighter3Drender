@@ -18,7 +18,7 @@ describe('TemporarySpriteRenderer', () => {
     const shadow = { setY: vi.fn() }
     const scene = { add: { ellipse: () => shadow }, textures: { exists: () => false } }
     const renderer = new TemporarySpriteRenderer(scene as never, undefined, 0, 820)
-    const fighter = new CombatWorld().getFighter('PLAYER')
+    const fighter = { ...new CombatWorld().getFighter('PLAYER'), x: 560, z: 0 }
     renderer.update(fighter, 10); renderer.renderAt(0)
     expect([renderer.x, renderer.y]).toEqual([560, 820])
     const current = { ...fighter, x: 578, y: 789 }

@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Experience 2 — 隔離整合原型</title></head>
+<body><header><strong>EXPERIENCE 2 · PROTOTYPE</strong><span id="view-status" role="status">素材載入中…</span>
+<nav aria-label="原型展示"><button id="selection">P1 / P2 流程</button><button id="battle">HUD / 舞台展示</button><button id="input-demo">操作展示</button><button id="pause">暫停 Esc</button><label><input id="static-stage" type="checkbox">靜態背景</label></nav></header>
+<p class="mobile-note">建議橫向與外接鍵盤。手機可檢視版面；本原型尚未提供完整觸控戰鬥。</p>
+<main><div id="prototype-app" aria-label="Phaser 遊戲原型"></div></main>
+<section id="semantic-tools" hidden><label>預覽動作 <select id="semantic"><option value="">跟隨按鍵</option></select></label><p>此區只播放 Kevin 動畫，不造成傷害；向後依角色朝向顯示 BLOCK。</p></section>
+<details open><summary>操作與原型限制</summary><table><thead><tr><th>區域</th><th>1P</th><th>2P</th></tr></thead><tbody><tr><td>選單 / 選角</td><td>WASD · J 確認 · K 返回</td><td>方向鍵 · Enter 加入／確認 · Backspace 返回</td></tr><tr><td>動作展示（目標配置）</td><td>ADWS · F 輕拳 / U 重拳 / G 輕腳 / I 重腳</td><td>方向鍵 · Numpad 1/2/4/5</td></tr><tr><td>既有 CPU 戰鬥</td><td>A/D · Space 跳躍 · J 攻擊 · K 防禦</td><td>CPU 控制；選角決定外觀</td></tr></tbody></table><p>拍照使用本機 webcam（照片只存在記憶體、不上傳）；生成是 Mock，沒有 ComfyUI、成績上傳或最近角色持久化。Gamepad 是後續規格，未宣稱實體驗證。</p></details>
+<dialog id="pause-dialog"><h2>已暫停</h2><p>時鐘、動畫與舞台停止。Enter / J / K / Esc 恢復。</p><button id="resume">繼續展示</button></dialog>
+<script type="module" src="/src/prototype.ts"></script></body></html>

@@ -1,0 +1,18 @@
+html, body { margin: 0; width: 100%; height: auto; overflow: auto; background: #090e1c; color: #eef3ff; }
+body { font: 16px Chivo, 'Noto Sans TC', sans-serif; }
+header, details, #semantic-tools { padding: 16px 24px; }
+header { border-bottom: 1px solid #34425e; }
+header strong { color: #63ccff; margin-right: 24px; }
+nav { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 12px; }
+button, select { min-height: 44px; padding: 10px 18px; border: 1px solid #7592be; background: #19273e; color: #fff; font: inherit; cursor: pointer; }
+button:hover { background: #304c72; }
+:focus-visible { outline: 3px solid #ffda85; outline-offset: 3px; }
+main { width: 100%; }
+#prototype-app { position: relative; width: 100%; height: min(56.25vw, 78vh); overflow: hidden; }
+#prototype-app canvas { display: block; }
+table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+th, td { text-align: left; border: 1px solid #34425e; padding: 12px; }
+dialog { color: #fff; background: #14223b; border: 2px solid #63ccff; max-width: min(560px, 85vw); }
+dialog::backdrop { background: #030816d9; }
+.mobile-note { display: none; padding: 12px 24px; background: #332914; }
+@media (max-width: 900px) { .mobile-note { display: block; } header, details, #semantic-tools { padding: 12px; } table { font-size: 13px; } th, td { padding: 6px; } }

@@ -50,7 +50,7 @@ export const uiTokens = {
     processingMs: 2500,
     allReadyMs: 800,
     // ponytail: D-11 暫定值，待營運確認
-    idleMs: { select: 60000, customize: 90000, end: 30000 },
+    idleMs: { select: 60000, customize: 90000, end: 30000, attract: 30000 },
   },
   motionMs: { focus: reducedMotion ? 0 : 120, enter: reducedMotion ? 0 : 240, modal: reducedMotion ? 0 : 120, announcer: reducedMotion ? 0 : 360, focalReveal: reducedMotion ? 0 : 240 },
 } as const
