@@ -1,4 +1,4 @@
-import { DEFAULT_COMBAT_CONFIG, type CombatConfig, type CombatSnapshot, type FighterIntent } from '../combat/CombatWorld'
+import { DEFAULT_COMBAT_CONFIG, NEUTRAL_INTENT as neutral, type CombatConfig, type CombatSnapshot, type FighterIntent } from '../combat/CombatWorld'
 import { DEFAULT_AI_PROFILE, type AiProfile } from '../config/aiProfiles'
 
 // 難度與行為參數在 config/aiProfiles.ts。
@@ -11,7 +11,6 @@ const mulberry32 = (seed: number): (() => number) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296
 }
 
-const neutral: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: false, guardHeld: false }
 type Stance = 'HOLD' | 'IN' | 'OUT'
 const stances: readonly Stance[] = ['HOLD', 'IN', 'OUT']
 

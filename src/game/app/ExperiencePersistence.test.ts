@@ -25,7 +25,7 @@ describe('ExperiencePersistence', () => {
     const summary = { roundIndex: 1, roundNumber: 1, winner: 'PLAYER' as const, finishReason: 'KO' as const, playerHP: 80, enemyHP: 0, maxCombo: 3, durationTicks: 12 }
     await persistence.recordRounds([summary]); await persistence.recordRounds([summary]); expect(api.addRound).toHaveBeenCalledTimes(1)
     const result = resolveMatchResult({ winner: 'PLAYER', finishReason: 'KO', playerRoundWins: 2, enemyRoundWins: 0, remainingPlayerHP: 80, maxPlayerCombo: 3 })
-    await persistence.finishMatch(result); expect(api.finishMatch).toHaveBeenCalledTimes(1); expect(context.snapshot).toMatchObject({ backendRank: 7, persistence: 'SAVED' }); expect(persistence.p6SubState()).toBe('RANK_7_TO_19')
+    await persistence.finishMatch(result); expect(api.finishMatch).toHaveBeenCalledTimes(1); expect(context.snapshot).toMatchObject({ backendRank: 7, persistence: 'SAVED' })
   })
 
   it('keeps failed operations and retries them with the same request payload', async () => {
@@ -91,7 +91,7 @@ describe('ExperiencePersistence', () => {
     expect(context.snapshot).toMatchObject({ persistence: 'SAVED', backendRank: 5 })
   })
 
-  it('holds finish until a failed round is retried', async () => {
+  it('retries a failed round before finishing', async () => {
     const addRound = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({} as Round)
     const finishMatch = vi.fn().mockResolvedValue({ ...match(9, 4), status: 'FINISHED' } as Match)
     const api = { createMatch: vi.fn().mockResolvedValue(match(9)), addRound, finishMatch } as unknown as ApiClient
@@ -102,9 +102,7 @@ describe('ExperiencePersistence', () => {
     const failedRound = persistence.recordRounds([summary])
     const result = resolveMatchResult({ winner: 'PLAYER', finishReason: 'KO', playerRoundWins: 2, enemyRoundWins: 0, remainingPlayerHP: 80, maxPlayerCombo: 3 })
     const heldFinish = persistence.finishMatch(result)
-    await expect(failedRound).rejects.toThrow('offline'); await expect(heldFinish).rejects.toThrow('Earlier match writes are pending')
-    expect(finishMatch).not.toHaveBeenCalled()
-    await persistence.retryPending()
+    await expect(failedRound).rejects.toThrow('offline'); await heldFinish
     expect(addRound).toHaveBeenCalledTimes(2); expect(finishMatch).toHaveBeenCalledTimes(1)
     expect(context.snapshot.backendRank).toBe(4)
   })

@@ -3,9 +3,9 @@ import { AppScene } from '../scenes/AppScene'
 import { BootScene } from '../scenes/BootScene'
 import type { AppStateMachine } from '../state/AppStateMachine'
 import type { UIFramework } from '../ui/UIFramework'
-import type { ExperiencePersistence } from '../app/ExperiencePersistence'
+import type { ExperienceFlow } from '../app/ExperienceFlow'
 
-export const createGameConfig = (appStateMachine: AppStateMachine, ui: UIFramework, persistence?: ExperiencePersistence): Phaser.Types.Core.GameConfig => ({
+export const createGameConfig = (appStateMachine: AppStateMachine, ui: UIFramework, flow: ExperienceFlow): Phaser.Types.Core.GameConfig => ({
   type: Phaser.AUTO,
   parent: 'app',
   dom: { createContainer: true },
@@ -16,5 +16,5 @@ export const createGameConfig = (appStateMachine: AppStateMachine, ui: UIFramewo
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [BootScene, new AppScene(appStateMachine, ui, persistence)],
+  scene: [BootScene, new AppScene(appStateMachine, ui, flow)],
 })

@@ -1,7 +1,7 @@
 import { ApiClient } from '../api/ApiClient'
 import { ApiError } from '../api/ApiError'
 import type { LeaderboardEntry, Match, RoundCreate } from '../api/ApiTypes'
-import { p6SubStateForRank, type MatchResult, type P6SubState } from '../match/ResultResolver'
+import type { MatchResult } from '../match/ResultResolver'
 import type { RoundSummary } from '../match/MatchController'
 import { ExperienceContext, type StorageLike } from './ExperienceContext'
 
@@ -112,7 +112,10 @@ export class ExperiencePersistence {
     let persisted: Match | undefined
     return this.enqueue({ key: `finish:${attemptId}`, run: async () => {
       if (this.attemptId !== attemptId) return
-      if (this.pending.some((operation) => operation.key === `match:${attemptId}` || operation.key.startsWith(`rounds:${attemptId}:`))) throw new Error('Earlier match writes are pending')
+      // 先重送本次對戰先前失敗的寫入（佇列已序列化，此時仍在 pending 的只剩失敗者）；仍失敗則 finish 一併失敗。
+      for (const operation of this.pending.filter((item) => item.key === `match:${attemptId}` || item.key.startsWith(`rounds:${attemptId}:`))) {
+        await operation.run(); this.pending = this.pending.filter((item) => item !== operation)
+      }
       const matchId = this.context.snapshot.matchId
       if (!matchId) throw new Error('Match has not been persisted')
       this.context.set({ persistence: 'SAVING' })
@@ -142,7 +145,6 @@ export class ExperiencePersistence {
     if (this.pending.length === 0 && this.context.snapshot.persistence === 'ERROR') { this.context.set({ persistence: 'SAVED' }); this.persist() }
   }
 
-  p6SubState(): P6SubState { return p6SubStateForRank(this.context.snapshot.backendRank) }
   async leaderboard(limit = 20): Promise<LeaderboardEntry[]> { try { const rows = await this.api.leaderboard(limit); this.lastLeaderboardOk = true; return rows } catch { this.lastLeaderboardOk = false; return [] } }
   async nextQueuedPlayer(): Promise<string | undefined> { try { const next = (await this.api.queue())[0]; return next ? (await this.api.getPlayer(next.player_id)).nickname : undefined } catch { return undefined } }
   resetMatch(): void { this.context.set({ matchId: undefined, backendRank: undefined, persistence: 'IDLE' }); this.attemptId = undefined; this.matchPromise = undefined; this.finishRequestId = undefined; this.queuedRounds.clear(); this.pending = this.pending.filter((operation) => !operation.key.startsWith('match:') && !operation.key.startsWith('rounds:') && !operation.key.startsWith('finish:')) }

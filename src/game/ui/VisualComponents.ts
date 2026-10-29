@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { colorHex, reducedMotion, uiTokens } from './tokens/uiTokens'
 import { typography } from './tokens/typography'
 import { stopOwnedTweens } from './tweens'
-import { bannerTextAt, healthRatio, panelPoints, type BannerStep } from './presentationMath'
+import { healthRatio, panelPoints } from './presentationMath'
 
 export class AngularPanel extends Phaser.GameObjects.Container {
   readonly shape: Phaser.GameObjects.Polygon
@@ -138,18 +138,14 @@ export class KeyCap extends Phaser.GameObjects.Container {
 
 export class RoundBanner extends Phaser.GameObjects.Container {
   private readonly label: Phaser.GameObjects.Text
-  private steps: readonly BannerStep[] = []
-  private started = 0
   constructor(scene: Phaser.Scene) {
     super(scene, 960, 360)
     this.add(new AngularPanel(scene, 1400, 120, uiTokens.colors.playerPrimary, 0.68))
     this.label = scene.add.text(0, 0, '', { ...typography.announcer, fontSize: uiTokens.type.h1 }).setOrigin(0.5)
     this.add(this.label).setVisible(false)
   }
-  show(steps: readonly BannerStep[], tick: number): void { this.steps = steps; this.started = tick; this.updateTick(tick) }
-  updateTick(tick: number): void { const text = bannerTextAt(this.steps, tick - this.started); this.label.setText(text); this.setVisible(Boolean(text)) }
   /** 固定文字（Ready?／Fight! 起手序列由 MatchController 的 introPhase 驅動，不走 clock 計時步驟）。 */
-  setText(text: string): void { this.steps = []; this.label.setText(text); this.setVisible(Boolean(text)) }
+  setText(text: string): void { this.label.setText(text); this.setVisible(Boolean(text)) }
 }
 
 export const addFocalGlow = (scene: Phaser.Scene, parent: Phaser.GameObjects.Container, x: number, y: number, width: number, height: number, color: number, alpha: number = uiTokens.opacity.focusGlow): Phaser.GameObjects.Graphics => {

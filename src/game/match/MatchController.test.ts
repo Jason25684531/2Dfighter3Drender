@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CombatWorld, type CombatConfig, type FighterIntent } from '../combat/CombatWorld'
 import { EnemyAI } from './EnemyAI'
-import { INTRO_FIGHT_TICKS, INTRO_READY_TICKS, INTRO_ROUND_TICKS, MatchController, p4SubStateFor, ROUND_TICKS } from './MatchController'
+import { INTRO_FIGHT_TICKS, INTRO_OUTCOME_TICKS, INTRO_READY_TICKS, INTRO_ROUND_TICKS, MatchController, p4SubStateFor, ROUND_TICKS } from './MatchController'
 import { FIXED_STEP_MS, GameClock } from '../time/GameClock'
 import { resolveMatchResult } from './ResultResolver'
 
@@ -92,12 +92,15 @@ describe('MatchController round intro', () => {
     expect(match.getSnapshot().world.fighters.PLAYER.attackPhase).toBe('NONE'); expect(match.getSnapshot().remainingTicks).toBe(ROUND_TICKS)
   })
 
-  it('skips READY on later rounds and replays the intro after a draw', () => {
+  it('shows OUTCOME then ROUND on later rounds without spending round time', () => {
     const match = new MatchController(closeConfig(100), { intro: true }); match.ai.getIntent = () => neutral; match.start()
     phases(match, INTRO_ROUND_TICKS.first + INTRO_READY_TICKS + INTRO_FIGHT_TICKS)
     for (let i = 0; i < 400 && match.getSnapshot().matchState !== 'ROUND_END'; i += 1) match.tick(press)
     expect(match.getSnapshot().matchState).toBe('ROUND_END'); match.tick()
-    const seen = phases(match, INTRO_ROUND_TICKS.later); expect(new Set(seen.slice(0, -1))).toEqual(new Set(['ROUND'])); expect(match.getSnapshot().matchState).toBe('FIGHTING')
+    expect(match.getRoundSummaries().at(-1)?.winner).toBe('PLAYER')
+    const seen = phases(match, INTRO_OUTCOME_TICKS + INTRO_ROUND_TICKS.later)
+    expect(seen[0]).toBe('OUTCOME'); expect(seen[INTRO_OUTCOME_TICKS - 2]).toBe('OUTCOME'); expect(seen[INTRO_OUTCOME_TICKS]).toBe('ROUND'); expect(seen).not.toContain('READY')
+    expect(match.getSnapshot().matchState).toBe('FIGHTING'); expect(match.getSnapshot().remainingTicks).toBe(ROUND_TICKS)
   })
 
   it('has no intro unless enabled', () => {

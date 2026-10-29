@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { aspectCover } from './tokens/layout'
-import { battleViewModel, endViewModel, loadingViewModel, mockResultViewModel, presentationViewModel, leaderboardPanelModel, resultViewModel, stageSelectViewModel } from './ViewModels'
+import { battleViewModel, endViewModel, loadingViewModel, presentationViewModel, leaderboardPanelModel, resultViewModel, stageSelectViewModel } from './ViewModels'
 import { animationCategories, sampleCharacterAnimationManifest } from './animation/FighterAnimationManifest'
 import { facingScaleX, resolveFighterAnimation, resolvePreviewAnimation } from './animation/FighterAnimationResolver'
 import { characterEntries, resolveStageAsset, testCharacterManifest, testStageManifest } from './assets/TestAssetManifest'
@@ -19,7 +19,7 @@ describe('visual foundation', () => {
   it('round-trips dual player selections and resets P1 substates on departure', () => {
     const context = new ExperienceContext(), data = new Map<string, string>()
     const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) } }
-    context.set({ selectedCharacterId: 'body-01', players: { P1: { characterId: 'body-01', nickname: 'Kevin' }, P2: { characterId: 'preset-c' } } }); context.serialize(storage)
+    context.set({ players: { P1: { characterId: 'body-01', nickname: 'Kevin' }, P2: { characterId: 'preset-c' } } }); context.serialize(storage)
     const restored = new ExperienceContext(); restored.restore(storage); expect(restored.snapshot).toEqual(context.snapshot)
     const app = new AppStateMachine(), ui = new UIFramework(app)
     app.transitionTo(AppState.READY); ui.substates.set(AppState.READY, 'PROCESSING'); app.transitionTo(AppState.SETUP)
@@ -27,13 +27,10 @@ describe('visual foundation', () => {
   })
   it('uses uniform centered aspect cover', () => { const result = aspectCover(2752, 1536, 1920, 1080); expect(result.scale).toBeGreaterThan(0); expect(result.width).toBeGreaterThanOrEqual(1920); expect(result.height).toBeGreaterThanOrEqual(1080) })
   it('exposes four body templates and five featured characters', () => { expect(characterEntries().filter((entry) => entry.type === 'BODY_TEMPLATE')).toHaveLength(4); expect(characterEntries().filter((entry) => entry.type === 'FEATURED').map((entry) => entry.displayName)).toEqual(['ARIA', 'KAEL', 'RIVEN', 'KEVIN', 'CUSTOM01']) })
-  it('keeps required mock result local and exact', () => { const result = mockResultViewModel(); expect(result.score).toBe(1541); expect(result.rank).toBe(3); expect(result.ranking).toHaveLength(10) })
-  it('projects every DEV rank substate without changing the default mock', () => { expect(mockResultViewModel('RANK_7_TO_19').rank).toBe(12); expect(mockResultViewModel('RANK_20').rank).toBe(20); expect(mockResultViewModel('NOT_RANKED').rank).toBeNull() })
   it('maps movement relative to facing', () => { const base = { vx: -18, vy: 0, grounded: true, facing: 'LEFT' as const, state: 'WALK' as const, attackPhase: 'NONE' as const, attackId: 0 }; expect(resolveFighterAnimation(base, sampleCharacterAnimationManifest).animationKey).toBe('WALK_FORWARD') })
   it('resolves both centralized stage assets and safe fallback', () => { expect(testStageManifest.laboratory.url).toContain('/test-assets/stages/laboratory.png'); expect(testStageManifest['company-building'].url).toContain('/test-assets/stages/company-building.png'); expect(resolveStageAsset('missing').id).toBe('laboratory') })
   it('keeps P2 and P3 view models presentation-only', () => { expect(stageSelectViewModel().stages).toHaveLength(2); expect(loadingViewModel().controls).toContain('GUARD') })
-  it('projects P5 and P7 variants without domain mutation', () => { expect(presentationViewModel(undefined, 'KO')).toEqual({ headline: 'K.O.', outcome: '' }); expect(presentationViewModel(undefined, 'TIME_UP')).toMatchObject({ headline: 'TIME UP', outcome: 'DRAW', result: 'DRAW' }); expect(presentationViewModel(undefined, 'WIN')).toMatchObject({ headline: 'YOU WIN!', outcome: 'MATCH COMPLETE', result: 'WIN' }); expect(endViewModel('NEXT').nextPlayerLabel).toBe('NEXT  /  NEXT') })
-  it('stores setup selections without introducing backend fields', () => { const context = new ExperienceContext(); context.set({ selectedCharacterId: 'custom', selectedStageId: 'company-building' }); expect(context.snapshot.selectedCharacterId).toBe('custom'); expect(context.snapshot.selectedStageId).toBe('company-building') })
+  it('stores setup selections without introducing backend fields', () => { const context = new ExperienceContext(); context.set({ players: { P1: { characterId: 'custom' } }, selectedStageId: 'company-building' }); expect(context.snapshot.players?.P1?.characterId).toBe('custom'); expect(context.snapshot.selectedStageId).toBe('company-building') })
   it('keeps backend rank mapping authoritative', () => { expect(p6SubStateForRank(3)).toBe('RANK_1_TO_6'); expect(p6SubStateForRank(12)).toBe('RANK_7_TO_19'); expect(p6SubStateForRank(20)).toBe('RANK_20'); expect(p6SubStateForRank(null)).toBe('NOT_RANKED') })
   it('projects backend leaderboard rows without sorting or recalculating rank', () => { const result = { outcome: 'WIN', title: 'CHAMPION', score: 100, maxPlayerCombo: 2, remainingPlayerHP: 80, playerRoundWins: 1, enemyRoundWins: 0, winner: 'PLAYER', finishReason: 'KO' } as never; const vm = resultViewModel(result, 7, 'RANK_7_TO_19', [{ rank: 7, match_id: 4, session_id: 9, nickname: 'PLAYER', score: 100, title: 'CHAMPION', remaining_hp: 80, max_combo: 2, finished_at: '' }], 9); expect(vm.rank).toBe(7); expect(vm.ranking).toEqual([{ rank: 7, name: 'PLAYER', score: 100, highlighted: true }]) })
   it('records all discovered WebM metadata and alpha metadata', () => { expect(sampleWebmValidation).toHaveLength(19); expect(sampleWebmValidation.find((entry) => entry.filename === 'stA.webm')).toMatchObject({ width: 188, height: 266, durationMs: 250, alphaMode: 1 }) })
@@ -102,7 +99,6 @@ describe('visual foundation', () => {
       const result = { outcome, title: 'TITLE', score: 80, maxPlayerCombo: 4, remainingPlayerHP: 30, playerRoundWins: 1, enemyRoundWins: 1, winner: null, finishReason: 'KO' } as never
       expect(presentationViewModel(result)).toMatchObject({ outcome: headline, result: outcome })
       expect(resultViewModel(result, 3, 'RANK_1_TO_6')).toMatchObject({ outcome, headline, score: 80, ranking: [] })
-      expect(mockResultViewModel('RANK_1_TO_6', outcome)).toMatchObject({ headline, outcome, newRecord: outcome === 'WIN' })
     }
   })
   it('does not invent P7 next-player data when the source is empty', () => {

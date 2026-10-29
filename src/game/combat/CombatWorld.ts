@@ -8,6 +8,7 @@ export type AttackPhase = 'NONE' | 'STARTUP' | 'ACTIVE' | 'RECOVERY'
 export type Aabb = { x: number; y: number; width: number; height: number }
 // moveZ：縱深（+ 往後／畫面上方，- 往前）；省略視為 0。
 export type FighterIntent = { moveX: number; moveZ?: number; jumpPressed: boolean; attackPressed: boolean; guardHeld: boolean }
+export const NEUTRAL_INTENT: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: false, guardHeld: false }
 
 export type CombatConfig = {
   inputBufferTicks?: number

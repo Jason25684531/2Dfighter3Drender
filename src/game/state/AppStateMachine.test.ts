@@ -52,12 +52,20 @@ describe('AppStateMachine', () => {
     expect(machine.transitionTo(AppState.IDLE)).toBe(true)
   })
 
-  it('allows leaving P4 for P0 but not other mid-flow exits', () => {
+  it('returns home from P3/P5/P6/P4 but P2 cannot skip to P0 and P3 cannot go back to P2', () => {
     const machine = new AppStateMachine()
-    ;[AppState.READY, AppState.SETUP, AppState.LOADING].forEach((state) => machine.transitionTo(state))
+    ;[AppState.READY, AppState.SETUP].forEach((state) => machine.transitionTo(state))
     expect(machine.transitionTo(AppState.IDLE)).toBe(false)
-    expect(machine.transitionTo(AppState.BATTLE)).toBe(true)
+    machine.transitionTo(AppState.LOADING)
+    expect(machine.transitionTo(AppState.SETUP)).toBe(false)
+    expect(machine.transitionTo(AppState.PRESENTATION)).toBe(false)
     expect(machine.transitionTo(AppState.IDLE)).toBe(true)
+    for (const exit of [AppState.BATTLE, AppState.PRESENTATION, AppState.RESULT]) {
+      const path = [AppState.READY, AppState.SETUP, AppState.LOADING, AppState.BATTLE, AppState.PRESENTATION, AppState.RESULT]
+      path.slice(0, path.indexOf(exit) + 1).forEach((state) => machine.transitionTo(state))
+      expect(machine.getCurrentState()).toBe(exit)
+      expect(machine.transitionTo(AppState.IDLE)).toBe(true)
+    }
   })
 
   it('notifies subscribers with previous and next state', () => {
