@@ -128,6 +128,7 @@
 | `backend/app` | FastAPI 路由、服務、SQLite schema、計分 |
 | `public/test-assets` | 暫用舞台、角色、開頭影片素材 |
 | `scripts` | Playwright 實機驗證與素材處理腳本 |
+| `docs/architecture` | 系統架構圖、遊戲流程圖與校正說明 |
 | `openspec/specs` | 已接受的需求規格 |
 | `openspec/changes` | 進行中與已封存的變更 |
 | `sample_UIUX` | 視覺參考，不在執行期使用 |

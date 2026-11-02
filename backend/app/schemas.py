@@ -9,13 +9,6 @@ class PlayerCreate(BaseModel):
     client_request_id: str = Field(min_length=1, max_length=128)
 
 
-class PlayerOut(BaseModel):
-    id: int
-    nickname: str
-    language: str
-    created_at: str
-
-
 class SessionCreate(BaseModel):
     player_id: int
     selected_character: str | None = None

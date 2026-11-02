@@ -49,7 +49,7 @@ try {
   assert.deepEqual(await scene(s => [s.battlePlayer.spriteId, s.battleEnemy.spriteId]), ['kevin', 'kevin'])
   await key('Escape')
   const projections = await scene(s => {
-    const renderer = s.battlePlayer, fighter = s.match.world.getFighter('PLAYER'), before = JSON.stringify(s.match.getSnapshot()), results = []
+    const renderer = s.battlePlayer, fighter = s.flow.match.world.getFighter('PLAYER'), before = JSON.stringify(s.flow.match.getSnapshot()), results = []
     let tick = 1000
     for (const [state, patch] of [['IDLE', {}], ['WALK', {}], ['JUMP', { grounded: false }], ['GUARD', {}], ['HIT_STUN', {}], ['ATTACK', { attackPhase: 'ACTIVE', attackTicks: 1, attackId: 101 }]]) {
       renderer.update({ ...fighter, state, attackPhase: 'NONE', ...patch }, tick++)
@@ -57,7 +57,7 @@ try {
     }
     renderer.update({ ...fighter, state: 'WALK', facing: 'LEFT' }, 2000)
     renderer.update({ ...fighter, state: 'WALK', facing: 'LEFT' }, 2005)
-    return { results, nextFrame: Number(renderer.image.frame.name), facing: renderer.scaleX, unchanged: before === JSON.stringify(s.match.getSnapshot()) }
+    return { results, nextFrame: Number(renderer.image.frame.name), facing: renderer.scaleX, unchanged: before === JSON.stringify(s.flow.match.getSnapshot()) }
   })
   assert.deepEqual(projections.results.map(item => item.key), ['kevin-idle', 'kevin-walk', 'kevin-jump', 'kevin-guard', 'kevin-prone', 'kevin-attack'])
   assert(projections.results.every(item => item.size === 128)); assert.equal(projections.nextFrame, 1); assert.ok(projections.facing < 0) // 縱深縮放使 |scaleX| < 1; assert(projections.unchanged)

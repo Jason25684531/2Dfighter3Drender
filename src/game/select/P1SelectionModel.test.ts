@@ -39,7 +39,7 @@ describe('P1 selection model', () => {
     expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 5, total: 6 }, ROSTER: { used: 0, total: 30 } })
   })
   it('puts generated characters in ROSTER and overflows extra featured characters after OFFICERS', () => {
-    const entry = (id: string, type: CharacterEntry['type']): CharacterEntry => ({ id, displayName: id, type, status: 'AVAILABLE', previewUrl: '' })
+    const entry = (id: string, type: CharacterEntry['type']): CharacterEntry => ({ id, displayName: id, type, status: 'AVAILABLE' })
     const featured = Array.from({ length: 8 }, (_, i) => entry(`f${i}`, 'FEATURED')), generated = [entry('c0', 'CUSTOM'), entry('c1', 'CUSTOM')]
     const slots = buildSlots([...featured, ...generated])
     expect(slots.slice(4, 10).map((slot) => slot.entry?.id)).toEqual(['f0', 'f1', 'f2', 'f3', 'f4', 'f5'])

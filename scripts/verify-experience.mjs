@@ -75,7 +75,8 @@ try {
   assert.equal(await s(s => s.p1View.media), undefined, '離開 Capture 後 webcam 已釋放')
   check('Retake 重新開啟相機；Confirm 進 Mock Processing，相機 track 已停止')
   await waitState('P2', 10000)
-  await key('Enter'); await key('Enter'); await waitState('P3')
+  // 1P：選對手 → NEXT → 選場景 → CONFIRM
+  await key('Enter'); await key('Enter'); await key('Enter'); await key('Enter'); await waitState('P3')
   assert.equal(await s(s => s.playerSpriteId()), 'body01')
   await key('Enter'); await waitState('P4')
   assert.match(await s(s => s.battlePlayer.image.texture.key), /^body01-/)
@@ -85,7 +86,7 @@ try {
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').stage?.video?.isPlaying(), null, { timeout: 8000 })
   const before = await s(s => ({ bg: s.stage.background.x, fg: s.stage.foreground.x, timer: [s.battleTimer.x, s.battleTimer.y] }))
   await page.screenshot({ path: `${out}/06-battle-lab.png` })
-  await s(s => { s.match.world.fighters.PLAYER.x = s.match.world.getConfig().wallMargin }); await wait(3500) // 後退現在是防禦，直接把玩家放到左邊界
+  await s(s => { s.flow.match.world.fighters.PLAYER.x = s.flow.match.world.getConfig().wallMargin }); await wait(3500) // 後退現在是防禦，直接把玩家放到左邊界
   const after = await s(s => {
     const edges = o => [o.x - o.displayWidth / 2, o.x + o.displayWidth / 2], screen = a => s.battleWorld.x + a.x * s.battleWorld.scaleX
     return { scroll: s.stageScroll, bg: s.stage.background.x, fg: s.stage.foreground.x, bgEdges: edges(s.stage.background), fgEdges: edges(s.stage.foreground), actors: [screen(s.battlePlayer), screen(s.battleEnemy)], timer: [s.battleTimer.x, s.battleTimer.y] }

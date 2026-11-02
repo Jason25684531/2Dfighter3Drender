@@ -1,12 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { aspectCover } from './tokens/layout'
 import { battleViewModel, endViewModel, loadingViewModel, presentationViewModel, leaderboardPanelModel, resultViewModel, stageSelectViewModel } from './ViewModels'
-import { animationCategories, sampleCharacterAnimationManifest } from './animation/FighterAnimationManifest'
-import { facingScaleX, resolveFighterAnimation, resolvePreviewAnimation } from './animation/FighterAnimationResolver'
 import { characterEntries, resolveStageAsset, testCharacterManifest, testStageManifest } from './assets/TestAssetManifest'
 import { ExperienceContext } from '../app/ExperienceContext'
 import { p6SubStateForRank } from '../match/ResultResolver'
-import { sampleWebmValidation } from './assets/sampleWebmValidation'
 import { MatchController } from '../match/MatchController'
 import { uiTokens } from './tokens/uiTokens'
 import { typography } from './tokens/typography'
@@ -27,26 +24,12 @@ describe('visual foundation', () => {
   })
   it('uses uniform centered aspect cover', () => { const result = aspectCover(2752, 1536, 1920, 1080); expect(result.scale).toBeGreaterThan(0); expect(result.width).toBeGreaterThanOrEqual(1920); expect(result.height).toBeGreaterThanOrEqual(1080) })
   it('exposes four body templates and five featured characters', () => { expect(characterEntries().filter((entry) => entry.type === 'BODY_TEMPLATE')).toHaveLength(4); expect(characterEntries().filter((entry) => entry.type === 'FEATURED').map((entry) => entry.displayName)).toEqual(['ARIA', 'KAEL', 'RIVEN', 'KEVIN', 'CUSTOM01']) })
-  it('maps movement relative to facing', () => { const base = { vx: -18, vy: 0, grounded: true, facing: 'LEFT' as const, state: 'WALK' as const, attackPhase: 'NONE' as const, attackId: 0 }; expect(resolveFighterAnimation(base, sampleCharacterAnimationManifest).animationKey).toBe('WALK_FORWARD') })
   it('resolves both centralized stage assets and safe fallback', () => { expect(testStageManifest.laboratory.url).toContain('/test-assets/stages/laboratory.png'); expect(testStageManifest['company-building'].url).toContain('/test-assets/stages/company-building.png'); expect(resolveStageAsset('missing').id).toBe('laboratory') })
   it('keeps P2 and P3 view models presentation-only', () => { expect(stageSelectViewModel().stages).toHaveLength(2); expect(loadingViewModel().controls).toContain('GUARD') })
   it('stores setup selections without introducing backend fields', () => { const context = new ExperienceContext(); context.set({ players: { P1: { characterId: 'custom' } }, selectedStageId: 'company-building' }); expect(context.snapshot.players?.P1?.characterId).toBe('custom'); expect(context.snapshot.selectedStageId).toBe('company-building') })
   it('keeps backend rank mapping authoritative', () => { expect(p6SubStateForRank(3)).toBe('RANK_1_TO_6'); expect(p6SubStateForRank(12)).toBe('RANK_7_TO_19'); expect(p6SubStateForRank(20)).toBe('RANK_20'); expect(p6SubStateForRank(null)).toBe('NOT_RANKED') })
   it('projects backend leaderboard rows without sorting or recalculating rank', () => { const result = { outcome: 'WIN', title: 'CHAMPION', score: 100, maxPlayerCombo: 2, remainingPlayerHP: 80, playerRoundWins: 1, enemyRoundWins: 0, winner: 'PLAYER', finishReason: 'KO' } as never; const vm = resultViewModel(result, 7, 'RANK_7_TO_19', [{ rank: 7, match_id: 4, session_id: 9, nickname: 'PLAYER', score: 100, title: 'CHAMPION', remaining_hp: 80, max_combo: 2, finished_at: '' }], 9); expect(vm.rank).toBe(7); expect(vm.ranking).toEqual([{ rank: 7, name: 'PLAYER', score: 100, highlighted: true }]) })
-  it('records all discovered WebM metadata and alpha metadata', () => { expect(sampleWebmValidation).toHaveLength(19); expect(sampleWebmValidation.find((entry) => entry.filename === 'stA.webm')).toMatchObject({ width: 188, height: 266, durationMs: 250, alphaMode: 1 }) })
-  it('groups every animation once for the Lab', () => { const keys = animationCategories.flatMap((category) => category.keys); expect(keys).toHaveLength(19); expect(new Set(keys).size).toBe(19) })
-  it('applies Lab facing and loop override before switching media', () => { expect(facingScaleX('LEFT')).toBe(-1); expect(resolvePreviewAnimation('IDLE', sampleCharacterAnimationManifest.IDLE, 'LEFT', false)).toMatchObject({ animationKey: 'IDLE', facing: 'LEFT', loop: false }) })
   it('projects authoritative battle values without mutating the match', () => { const match = new MatchController(); match.start(); const before = match.getSnapshot(); const vm = battleViewModel(before, 'company-building'); expect(vm.timerSeconds).toBe(60); expect(vm.playerHp).toBe(100); expect(match.getSnapshot()).toEqual(before) })
-  it('resolves runtime animation states without adding preview moves', () => {
-    const base = { vx: 0, vy: 0, grounded: true, facing: 'RIGHT' as const, state: 'IDLE' as const, attackPhase: 'NONE' as const, attackId: 0 }
-    expect(resolveFighterAnimation(base, sampleCharacterAnimationManifest).animationKey).toBe('IDLE')
-    expect(resolveFighterAnimation({ ...base, vy: -4, grounded: false, state: 'JUMP' }, sampleCharacterAnimationManifest).animationKey).toBe('JUMP')
-    expect(resolveFighterAnimation({ ...base, attackPhase: 'ACTIVE', attackId: 4, state: 'ATTACK' }, sampleCharacterAnimationManifest).restartToken).toBe('attack:4')
-    expect(resolveFighterAnimation({ ...base, state: 'HIT_STUN' }, sampleCharacterAnimationManifest).animationKey).toBe('HIT_STUN')
-    expect(resolveFighterAnimation({ ...base, state: 'GUARD', recentEvent: { type: 'BLOCK', attacker: 'ENEMY', defender: 'PLAYER', attackId: 7 }, recentEventToken: 'BLOCK:7' }, sampleCharacterAnimationManifest)).toMatchObject({ animationKey: 'BLOCK_STUN', loop: false })
-    expect(resolveFighterAnimation({ ...base, state: 'GUARD' }, sampleCharacterAnimationManifest).animationKey).toBe('WALK_BACKWARD')
-    expect(sampleCharacterAnimationManifest.STANDING_HEAVY_PUNCH.previewOnly).toBe(true)
-  })
   it('centralizes the approved focus, panel, depth, and motion anchors', () => {
     expect(uiTokens.chamfer).toBeGreaterThanOrEqual(10)
     expect(uiTokens.chamfer).toBeLessThanOrEqual(16)
@@ -85,11 +68,6 @@ describe('visual foundation', () => {
     expect(vm.controls).toEqual(['MOVE', 'JUMP', 'PUNCH', 'KICK', 'GUARD'])
     expect(Object.keys(vm).sort()).toEqual(['character', 'controls', 'enemyName', 'playerName', 'progress', 'stage'])
     expect(loadingViewModel(testCharacterManifest.presetA, 'ROG_SAGA', 'LABORATORY', 2).progress).toBe(1)
-  })
-  it('uses only the available runtime fighter preview and honest silhouette fallbacks', () => {
-    expect(testCharacterManifest.presetA.previewUrl).toContain('/idle.webm')
-    expect(testCharacterManifest.presetB.previewUrl).toBe('')
-    expect(testCharacterManifest.presetC.previewUrl).toBe('')
   })
   it('keeps P5 and P6 layout projections outcome-aware for WIN, LOSE, and DRAW', () => {
     const outcomes = [

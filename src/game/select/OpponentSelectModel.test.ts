@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { OpponentSelectModel } from './OpponentSelectModel'
 import type { CharacterEntry } from '../ui/assets/TestAssetManifest'
 
-const entry = (id: string, status: CharacterEntry['status'] = 'AVAILABLE'): CharacterEntry => ({ id, displayName: id, type: 'FEATURED', status, previewUrl: '' })
+const entry = (id: string, status: CharacterEntry['status'] = 'AVAILABLE'): CharacterEntry => ({ id, displayName: id, type: 'FEATURED', status })
 const entries = [entry('a'), entry('b'), entry('c', 'PROCESSING'), entry('d', 'READY')]
 
 describe('OpponentSelectModel', () => {

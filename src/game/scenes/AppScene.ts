@@ -349,8 +349,8 @@ export class AppScene extends Phaser.Scene {
     const playerFallback = fighterSilhouette(this, 430, 340, 480, 600, uiTokens.colors.playerPrimary, 0.4)
     const enemyFallback = fighterSilhouette(this, 1480, 340, 480, 600, uiTokens.colors.enemyPrimary, 0.4)
     root.add([playerFallback, enemyFallback])
-    this.addCharacterPreview(root, vm.character.spriteId, vm.character.previewUrl, 430, 360, 560, 700, playerFallback)
-    this.addCharacterPreview(root, this.enemySpriteId(), undefined, 1480, 360, 560, 700, enemyFallback)?.setFlipX(true)
+    this.addCharacterPreview(root, vm.character.spriteId, 430, 360, 560, 700, playerFallback)
+    this.addCharacterPreview(root, this.enemySpriteId(), 1480, 360, 560, 700, enemyFallback)?.setFlipX(true)
     root.add(this.add.text(130, 565, 'PLAYER', { ...typography.note, color: colorHex('playerGlow') }))
     root.add(this.add.text(130, 600, vm.playerName, typography.title))
     if (vm.character.type === 'BODY_TEMPLATE') root.add(this.add.text(130, 680, vm.character.displayName + ' · TEMP BODY', { ...typography.note, color: colorHex('resultGold') }))
@@ -618,7 +618,7 @@ export class AppScene extends Phaser.Scene {
   private playerSpriteId(): SpriteId | undefined { return this.playerEntry().spriteId }
   private enemySpriteId(): SpriteId { return this.opponentEntry()?.spriteId ?? characterEntry(this.flow.players.P2?.characterId)?.spriteId ?? (this.playerSpriteId() === 'riven' ? 'kael' : 'riven') }
 
-  private addCharacterPreview(parent: Phaser.GameObjects.Container, spriteId: SpriteId | undefined, videoUrl: string | undefined, x: number, y: number, width: number, height: number, fallback: Phaser.GameObjects.Graphics): Phaser.GameObjects.Sprite | Phaser.GameObjects.Video | undefined {
+  private addCharacterPreview(parent: Phaser.GameObjects.Container, spriteId: SpriteId | undefined, x: number, y: number, width: number, height: number, fallback: Phaser.GameObjects.Graphics): Phaser.GameObjects.Sprite | undefined {
     const key = spriteId && spriteTextureKey(spriteId, 'idle')
     if (key && this.textures.exists(key)) {
       const size = Math.min(height, width * 1.3)
@@ -627,25 +627,7 @@ export class AppScene extends Phaser.Scene {
       parent.add(image); fallback.setVisible(false)
       return image
     }
-    return this.addPreviewVideo(parent, videoUrl, x, y, width, height, fallback)
-  }
-
-  private addPreviewVideo(parent: Phaser.GameObjects.Container, url?: string, x = 0, y = 0, width = 420, height = 600, fallback?: Phaser.GameObjects.Graphics): Phaser.GameObjects.Video | undefined {
-    if (!url) return undefined
-    try {
-      const video = this.add.video(x, y).loadURL(url, true).setDisplaySize(width, height)
-      const rawVideo = (video as unknown as { video?: HTMLVideoElement }).video
-      const fit = (): void => { const sourceWidth = rawVideo?.videoWidth ?? 0; const sourceHeight = rawVideo?.videoHeight ?? 0; if (sourceWidth > 0 && sourceHeight > 0) video.setDisplaySize(height * sourceWidth / sourceHeight, height) }
-      const hideOnError = (): void => { video.setVisible(false); fallback?.setVisible(true) }
-      const showVideo = (): void => { fallback?.setVisible(false) }
-      const cleanup = (): void => { rawVideo?.removeEventListener('loadedmetadata', fit); rawVideo?.removeEventListener('error', hideOnError); rawVideo?.removeEventListener('playing', showVideo) }
-      rawVideo?.addEventListener('loadedmetadata', fit, { once: true })
-      rawVideo?.addEventListener('error', hideOnError, { once: true })
-      rawVideo?.addEventListener('playing', showVideo, { once: true })
-      video.once(Phaser.GameObjects.Events.DESTROY, cleanup)
-      parent.add(video); video.play(true)
-      return video
-    } catch { return undefined }
+    return undefined // 無貼圖：保留剪影
   }
 
   private destroyScreen(): void {
@@ -654,7 +636,7 @@ export class AppScene extends Phaser.Scene {
     stopOwnedTweens(this.screenTweens)
     this.loadingPulse = undefined
     this.ui.focus.clearGroup('loading'); this.ui.focus.clearGroup('p0'); this.ui.focus.clearGroup('stage'); this.ui.focus.clearGroup('opponent'); this.ui.focus.clearGroup('presentation'); this.ui.focus.clearGroup('result'); this.ui.focus.clearGroup('end'); this.ui.focus.clearGroup('overlay'); this.ui.focus.clearGroup('overlay-confirm')
-    this.keyCaps = []; this.promptDevice = undefined; this.loadingButton = undefined; this.loadingReady = undefined; this.loadingBar = undefined; this.loadingPercent = undefined; this.buttons.clear(); this.p1View?.destroy(); this.p1View = undefined; this.battlePlayer?.destroy()
+    this.keyCaps = []; this.promptDevice = undefined; this.loadingButton = undefined; this.loadingReady = undefined; this.loadingBar = undefined; this.loadingPercent = undefined; this.buttons.clear(); this.p1View?.destroy(); this.p1View = undefined
     this.battlePlayer = undefined; this.battleEnemy = undefined; this.battleRoot = undefined; this.battlePlayerRounds = undefined; this.battleEnemyRounds = undefined; this.battleBanner = undefined;
     this.screen?.destroy(true); this.screen = undefined; this.overlay = undefined
   }
