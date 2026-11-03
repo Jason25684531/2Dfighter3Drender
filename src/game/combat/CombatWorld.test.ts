@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { STAGE_TUNING } from '../config/stageTuning'
-import { CombatWorld, DEFAULT_COMBAT_CONFIG, type CombatConfig, type FighterIntent } from './CombatWorld'
+import { CombatWorld, DEFAULT_COMBAT_CONFIG, type CombatConfig, type CombatEvent, type FighterIntent } from './CombatWorld'
 
 const neutral: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: false, guardHeld: false }
 const closeConfig = (positions = { PLAYER: 560, ENEMY: 640 }): CombatConfig => ({
@@ -112,7 +112,7 @@ describe('CombatWorld', () => {
     inputs.forEach((input) => { tick(a, input); tick(b, input) }); expect(a.getSnapshot()).toEqual(b.getSnapshot()); a.tick({ ...neutral, moveX: -1 }, neutral); a.reset(); expect(a.getSnapshot()).toEqual(new CombatWorld(closeConfig()).getSnapshot())
   })
 
-  it('never lets fighters overlap or pass through each other on the same depth lane, even against a wall', () => {
+  it('never lets fighters overlap or pass through each other even against a wall', () => {
     const world = new CombatWorld()
     for (let i = 0; i < 80; i += 1) { tick(world, { ...neutral, moveX: 1 }, { ...neutral, moveX: -1 }); const { PLAYER, ENEMY } = world.getSnapshot().fighters; expect(ENEMY.x - PLAYER.x).toBeGreaterThanOrEqual(220 - 1e-9) }
     expect(world.getFighter('PLAYER').facing).toBe('RIGHT'); expect(world.getFighter('ENEMY').facing).toBe('LEFT')
@@ -128,16 +128,27 @@ describe('CombatWorld', () => {
     for (let i = 0; i < 10; i += 1) tick(world, { ...neutral, moveX: -1 })
     expect(world.getFighter('ENEMY').x).toBe(2090); expect(world.getFighter('ENEMY').x - world.getFighter('PLAYER').x).toBe(1800)
   })
-  it('moves in depth, keeps the band, lets fighters pass on different lanes, and misses across lanes', () => {
-    const world = new CombatWorld()
-    const { min, max } = STAGE_TUNING.depth
-    for (let i = 0; i < 60; i += 1) tick(world, { ...neutral, moveZ: 1 })
-    expect(world.getFighter('PLAYER').z).toBe(max); expect(world.getFighter('PLAYER').state).toBe('WALK')
-    for (let i = 0; i < 80; i += 1) tick(world, { ...neutral, moveZ: -1 }); expect(world.getFighter('PLAYER').z).toBe(min)
-    const lanes = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: 1300, ENEMY: 1380 } })
-    for (let i = 0; i < 12; i += 1) tick(lanes, { ...neutral, moveZ: 1 })
-    expect(lanes.getFighter('PLAYER').z - lanes.getFighter('ENEMY').z).toBeGreaterThan(45)
-    tick(lanes, { ...neutral, attackPressed: true }); for (let i = 0; i < 4; i += 1) tick(lanes)
-    expect(lanes.getFighter('ENEMY').currentHP).toBe(100)
+  it('records the attack kind without changing timing or damage, and reports the contact point', () => {
+    const run = (attack?: 'HEAVY_KICK') => {
+      const world = new CombatWorld(closeConfig()), events: CombatEvent[] = []
+      world.subscribe((event) => events.push(event))
+      tick(world, { ...neutral, attackPressed: true, attack }); const kind = world.getFighter('PLAYER').attack
+      for (let i = 0; i < 12; i += 1) tick(world)
+      return { kind, events, hp: world.getFighter('ENEMY').currentHP }
+    }
+    const heavy = run('HEAVY_KICK'), light = run()
+    expect([heavy.kind, light.kind]).toEqual(['HEAVY_KICK', 'LIGHT_PUNCH']); expect(heavy.hp).toBe(light.hp)
+    expect(heavy.events.map((e) => e.type)).toEqual(light.events.map((e) => e.type))
+    const hit = heavy.events.find((e) => e.type === 'HIT')
+    expect(hit).toMatchObject({ attack: 'HEAVY_KICK', at: { x: expect.any(Number), y: expect.any(Number) } })
+    // 接觸點落在敵方 hurtbox 內。
+    if (hit?.type === 'HIT') { expect(hit.at.x).toBeGreaterThan(640 - 60); expect(hit.at.x).toBeLessThan(640 + 60) }
+  })
+  it('emits HIT then BLOCK for a guarded attack and no damage', () => {
+    const world = new CombatWorld(closeConfig()), types: string[] = []
+    world.subscribe((event) => types.push(event.type))
+    tick(world, { ...neutral, attackPressed: true }, { ...neutral, guardHeld: true })
+    for (let i = 0; i < 6; i += 1) tick(world, neutral, { ...neutral, guardHeld: true })
+    expect(types).toEqual(['ATTACK_STARTED', 'HIT', 'BLOCK']); expect(world.getFighter('ENEMY').currentHP).toBe(100)
   })
 })

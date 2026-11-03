@@ -3,6 +3,7 @@ import { colorHex, reducedMotion, uiTokens } from './tokens/uiTokens'
 import { typography } from './tokens/typography'
 import { stopOwnedTweens } from './tweens'
 import { healthRatio, panelPoints } from './presentationMath'
+import type { Announcement, AnnouncerTone } from './ViewModels'
 
 export class AngularPanel extends Phaser.GameObjects.Container {
   readonly shape: Phaser.GameObjects.Polygon
@@ -136,16 +137,42 @@ export class KeyCap extends Phaser.GameObjects.Container {
   setEmphasis(emphasized: boolean): void { this.setAlpha(emphasized ? 1 : 0.48) }
 }
 
-export class RoundBanner extends Phaser.GameObjects.Container {
+const toneColor: Record<AnnouncerTone, number> = { system: uiTokens.colors.systemBlue, player: uiTokens.colors.playerPrimary, enemy: uiTokens.colors.enemyPrimary, danger: uiTokens.colors.danger, gold: uiTokens.colors.resultGold }
+
+/** 全部播報（ROUND／READY?／FIGHT!／K.O.／TIME UP／勝負）共用的斜切色帶大字；內容只來自 Announcement。 */
+export class Announcer extends Phaser.GameObjects.Container {
+  private band?: AngularPanel
   private readonly label: Phaser.GameObjects.Text
-  constructor(scene: Phaser.Scene) {
-    super(scene, 960, 360)
-    this.add(new AngularPanel(scene, 1400, 120, uiTokens.colors.playerPrimary, 0.68))
-    this.label = scene.add.text(0, 0, '', { ...typography.announcer, fontSize: uiTokens.type.h1 }).setOrigin(0.5)
-    this.add(this.label).setVisible(false)
+  private readonly sub: Phaser.GameObjects.Text
+  private key = ''
+  private tween?: Phaser.Tweens.Tween
+  constructor(scene: Phaser.Scene, y = 380) {
+    super(scene, 960, y)
+    this.label = scene.add.text(0, 0, '', typography.announcer).setOrigin(0.5)
+    this.sub = scene.add.text(0, 0, '', { ...typography.secondaryAction, color: colorHex('textPrimary') }).setOrigin(0.5)
+    this.add([this.label, this.sub]).setVisible(false)
   }
-  /** 固定文字（Ready?／Fight! 起手序列由 MatchController 的 introPhase 驅動，不走 clock 計時步驟）。 */
-  setText(text: string): void { this.label.setText(text); this.setVisible(Boolean(text)) }
+  show(announcement?: Announcement): this {
+    const key = announcement ? `${announcement.text}|${announcement.sub ?? ''}|${announcement.tone}` : ''
+    if (key === this.key) return this
+    this.key = key
+    if (this.tween) stopOwnedTweens([this.tween])
+    if (!announcement) return this.setVisible(false)
+    const { text, sub, tone, big } = announcement, color = toneColor[tone], height = big ? 300 : 170
+    this.band?.destroy()
+    this.band = new AngularPanel(this.scene, 1400, height, color, 0.72)
+    this.addAt(this.band, 0)
+    this.label.setText(text).setY(sub ? -18 : 0).setStyle({ fontSize: big ? uiTokens.type.hero : uiTokens.type.display, strokeThickness: big ? uiTokens.textStroke.impact : uiTokens.textStroke.announcer })
+      .setShadow(0, 0, colorHex(big ? 'danger' : 'background0'), big ? uiTokens.shadowBlur.impact : 0, false, true)
+    this.sub.setText(sub ?? '').setY(height / 2 - 34)
+    this.setVisible(true)
+    if (reducedMotion) { this.setScale(1).setAlpha(1); return this }
+    this.setScale(0.86).setAlpha(0)
+    this.tween = this.scene.tweens.add({ targets: this, scale: 1, alpha: 1, duration: uiTokens.motionMs.announcer, ease: 'Back.Out' })
+    if (text === 'K.O.') this.scene.cameras.main.shake(300, 0.006)
+    return this
+  }
+  destroy(fromScene?: boolean): void { if (this.tween) stopOwnedTweens([this.tween]); super.destroy(fromScene) }
 }
 
 export const addFocalGlow = (scene: Phaser.Scene, parent: Phaser.GameObjects.Container, x: number, y: number, width: number, height: number, color: number, alpha: number = uiTokens.opacity.focusGlow): Phaser.GameObjects.Graphics => {

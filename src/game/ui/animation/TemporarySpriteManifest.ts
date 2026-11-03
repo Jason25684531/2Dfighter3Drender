@@ -35,10 +35,11 @@ export const presentationSheet = {
   PRONE: 'prone', INTRO: 'intro-victory', VICTORY: 'intro-victory',
 } as const
 export type Presentation = keyof typeof presentationSheet
-export type PresentationContext = { attack?: AttackAction; crouch?: boolean }
+export type PresentationContext = { crouch?: boolean }
 const standingAttack: Record<AttackAction, Presentation> = { LIGHT_PUNCH: 'PUNCH_LIGHT', HEAVY_PUNCH: 'PUNCH_HEAVY', LIGHT_KICK: 'KICK_LIGHT', HEAVY_KICK: 'KICK_HEAVY' }
-/** Combat 決定狀態，這裡只決定播哪張圖；不讀寫 Combat。蹲姿是純呈現（Combat 沒有蹲）。 */
-export const resolvePresentation = (fighter: FighterSnapshot, { attack = 'LIGHT_PUNCH', crouch = false }: PresentationContext = {}): Presentation => {
+/** Combat 決定狀態與招式種類，這裡只決定播哪張圖；不讀寫 Combat。蹲姿是純呈現（Combat 沒有蹲）。 */
+export const resolvePresentation = (fighter: FighterSnapshot, { crouch = false }: PresentationContext = {}): Presentation => {
+  const { attack } = fighter
   if (fighter.state === 'HIT_STUN') return 'PRONE'
   if (fighter.attackPhase !== 'NONE') {
     const kick = attack.endsWith('KICK')

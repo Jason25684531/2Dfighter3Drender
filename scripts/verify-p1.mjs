@@ -58,19 +58,21 @@ try {
  await key('Backspace'); assert.equal(await scene(s => s.p1Model.player('P2').joined), false)
  assert(await scene(s => s.screen === s.__screen && s.p1View.heroes.P1 === s.__hero))
  check('Join/leave, independent owners, EMPTY rejection, persistent grid and heroes')
- await key('j'); await waitPhase('ALL_READY'); await key('k'); await waitPhase('GRID')
- await key('j'); await waitState('P2'); check('CASE A and ALL READY cancellation')
+ // 單人：鎖定後在同頁選對手（OPPONENT）→ 難度（DIFFICULTY）→ ALL READY；返回逐層退回。
+ await key('j'); await waitPhase('OPPONENT'); await key('j'); await waitPhase('DIFFICULTY'); await key('j'); await waitPhase('ALL_READY')
+ await key('k'); await waitPhase('DIFFICULTY'); await key('k'); await waitPhase('OPPONENT'); await key('k'); await waitPhase('GRID')
+ await key('j'); await key('j'); await key('j'); await waitState('P2'); check('CASE A：選角→對手→難度同頁完成，ALL READY 可逐層取消')
  await home(); await start(); await key('a'); await key('j'); await waitPhase('CUSTOMIZE')
  await page.locator('input').fill('WASDJK Kevin'); await page.keyboard.press('Enter')
  assert.equal(await scene(s => s.p1Model.player('P1').cursor), 4)
  await key('j'); await waitPhase('REVIEW'); await key('k'); await waitPhase('CUSTOMIZE')
  assert.equal(await page.locator('input').inputValue(), 'WASDJK Kevin')
- await capture('P1', 'Kevin'); await waitState('P2'); check('CASE B, typing isolation and RETAKE retains name')
+ await capture('P1', 'Kevin'); await waitPhase('OPPONENT'); await key('j'); await key('j'); await waitState('P2'); check('CASE B, typing isolation and RETAKE retains name')
  for (const custom of ['P1', 'P2']) {
    await home(); await start(); await key('Enter')
    if (custom === 'P1') await key('a'); else { await key('ArrowLeft'); await key('ArrowLeft') }
    await key('j'); await key('Enter'); await capture(custom, custom === 'P1' ? 'Kevin' : 'CPU Kevin'); await waitState('P2')
-   assert.equal(await scene(s => Object.keys(s.players).length), 2)
+   assert.equal(await scene(s => Object.keys(s.flow.players).length), 2)
    check(custom === 'P1' ? 'CASE C' : 'CASE D')
  }
  await home(); await start(); await key('Enter'); await key('a'); await key('ArrowLeft'); await key('ArrowLeft'); await key('j'); await key('Enter')
@@ -122,7 +124,7 @@ try {
  async function captureFailure() {
    await waitPhase('CUSTOMIZE'); await page.locator('input').fill('Kevin'); await page.keyboard.press('Enter'); await key('j'); await key('j'); await waitPhase('PROCESSING')
    await scene(s => { s.p1Model.setGenerationState('FAILED'); s.syncP1() }); await waitPhase('FAILED'); await shot('failed')
-   await key('j'); await page.waitForFunction(()=>window.__game.scene.getScene('AppScene').p1Model.isReady('P1')); await waitState('P2')
+   await key('j'); await page.waitForFunction(()=>window.__game.scene.getScene('AppScene').p1Model.isReady('P1')); await waitPhase('OPPONENT'); await key('j'); await key('j'); await waitState('P2')
  }
  check('FAILED retry completes; leaving a phase cancels its previous timer')
  await key('Enter'); await key('Enter'); await waitState('P3')
@@ -139,7 +141,7 @@ try {
  await page.unroute('http://localhost:8000/**'); await page.route('http://localhost:8000/**',route=>route.abort())
  await page.reload(); await page.waitForFunction(()=>window.__game?.scene.getScene('AppScene')?.persistence.lastLeaderboardOk===false)
  await key('Enter'); await waitState('P1'); await shot('offline')
- await key('j'); await waitState('P2'); check('Offline indicator and nonblocking progression')
+ await key('j'); await key('j'); await key('j'); await waitState('P2'); check('Offline indicator and nonblocking progression')
  assert.deepEqual(report.errors, [])
 } catch (error) {
  report.failure = error.message

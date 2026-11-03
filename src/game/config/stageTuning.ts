@@ -1,5 +1,5 @@
 /**
- * 舞台、鏡頭與 2.5D 縱深的調整參數；只改這個檔案即可。
+ * 舞台與鏡頭的調整參數；只改這個檔案即可。
  * 單位：world = 戰鬥座標；畫面像素 = world × worldZoom（1920×1080 邏輯畫面）。
  */
 export const STAGE_TUNING = {
@@ -12,17 +12,7 @@ export const STAGE_TUNING = {
   backgroundTravel: 480,
   /** 各層相對鏡頭的移動速度（畫面像素 / world）。0.9 = 與角色同速（影片含地板，角色會「踩在」地上）。 */
   parallax: { background: 0.9, middle: 0.6, foreground: 1.0 },
-  /** 2.5D 縱深。W = 往後（max 方向），S = 往前（min 方向，靠近玩家畫面）。 */
-  depth: {
-    min: -120, // 最前；越小越能往畫面下方走
-    max: 150, // 最後；過大角色會站到牆上
-    initial: 0, // 開場縱深
-    speed: 8, // 每 tick（24Hz）移動量
-    tolerance: 45, // 縱深差在此內才會推擠與命中
-    rise: 1, // 每 1 縱深在畫面上抬升的 world px（往後越高）
-    shrink: 0.0015, // 每 1 縱深縮小比例；負縱深會放大（-120 → 1.18 倍）
-  },
-  /** 同縱深兩人中心最小距離（world）。sprite 身體約 285 寬；調大需同時加長攻擊 hitboxOffset。 */
+  /** 兩人中心最小距離（world）。sprite 身體約 285 寬；調大需同時加長攻擊 hitboxOffset。 */
   pushWidth: 220,
   /** 角色中心離場地左右牆的最小距離（world）；約 sprite 半身寬，避免在場地邊緣被畫面切掉一半。 */
   wallMargin: 150,

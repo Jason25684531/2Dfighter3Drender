@@ -62,8 +62,8 @@ class HeroPreview extends Phaser.GameObjects.Container {
     this.add([this.stage, this.title, this.kind])
   }
 
-  /** stamp：READY＝已就緒；LOCKED＝已鎖定 Body、尚待拍照。 */
-  show(slot: Slot | undefined, stamp: 'READY' | 'LOCKED' | undefined, nickname = '', dim = false): void {
+  /** stamp：READY＝已就緒；LOCKED＝已鎖定 Body、尚待拍照；CPU＝單人模式的對手。 */
+  show(slot: Slot | undefined, stamp: 'READY' | 'LOCKED' | 'CPU' | undefined, nickname = '', dim = false): void {
     const key = `${slot?.index}|${stamp}|${nickname}|${dim}|${slot?.entry?.spriteId}|${slot?.entry?.type}|${slot?.entry?.heroTextureKey}`
     if (key === this.key) return
     const relock = Boolean(stamp) && this.key.split('|')[1] === 'undefined'
@@ -92,7 +92,7 @@ class HeroPreview extends Phaser.GameObjects.Container {
     this.pulse?.stop(); this.title.setAlpha(1)
     if (!slot && !reducedMotion) this.pulse = this.scene.tweens.add({ targets: this.title, alpha: 0.45, duration: 600, yoyo: true, repeat: -1 })
     if (stamp) {
-      this.stamp = this.scene.add.text(0, -250, stamp, { ...typography.title, fontSize: type.h1, color: colorHex(stamp === 'READY' ? 'statusLime' : 'resultGold'), stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.badge }).setOrigin(0.5).setRotation(-0.08)
+      this.stamp = this.scene.add.text(0, -250, stamp, { ...typography.title, fontSize: type.h1, color: colorHex(stamp === 'READY' ? 'statusLime' : stamp === 'CPU' ? 'enemyGlow' : 'resultGold'), stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.badge }).setOrigin(0.5).setRotation(-0.08)
       this.add(this.stamp)
     }
   }
@@ -165,12 +165,15 @@ class PlayerCursor extends Phaser.GameObjects.Container {
   private shared?: boolean
   private slide?: Phaser.Tweens.Tween
   private shakeTween?: Phaser.Tweens.Tween
+  /** 2P 游標在單人模式代表 CPU 對手，標籤改為 CPU。 */
+  readonly tag: Phaser.GameObjects.Text
   constructor(scene: Phaser.Scene, private readonly owner: PlayerSlotId) {
     super(scene, 0, 0)
     const id = identity[owner], left = owner === 'P1'
     this.glow = scene.add.graphics(); this.frame = scene.add.graphics()
     const tagX = left ? -p1.grid.cellWidth / 2 - 6 : p1.grid.cellWidth / 2 + 6, tagY = left ? -p1.grid.cellHeight / 2 - 14 : p1.grid.cellHeight / 2 + 14
-    const tag = scene.add.container(tagX, tagY, [scene.add.rectangle(0, 0, 34, 24, id.main), label(scene, 0, 0, id.tag, 'textPrimary').setOrigin(0.5)])
+    this.tag = label(scene, 0, 0, id.tag, 'textPrimary').setOrigin(0.5)
+    const tag = scene.add.container(tagX, tagY, [scene.add.rectangle(0, 0, 44, 24, id.main), this.tag])
     this.add([this.glow, this.frame, tag])
     if (!reducedMotion) this.tweens.push(scene.tweens.add({ targets: this.glow, alpha: 0.35, duration: p1.cursor.breatheMs, yoyo: true, repeat: -1 }))
   }
@@ -292,25 +295,31 @@ export class P1SelectView {
     const customizing = Boolean(model.owner)
     ;(['P1', 'P2'] as const).forEach((owner) => {
       const player = model.player(owner), hero = model.heroSlot(owner)
-      const stamp = model.owner === owner ? undefined : model.isReady(owner) ? 'READY' : player.locked !== undefined ? 'LOCKED' : undefined
+      const rival = owner === 'P2' ? model.rival : undefined
+      const stamp = rival ? 'CPU' : model.owner === owner ? undefined : model.isReady(owner) ? 'READY' : player.locked !== undefined ? 'LOCKED' : undefined
       this.heroes[owner].show(hero, stamp, model.isBody(owner) ? player.nickname.trim() : '', customizing && owner !== model.owner)
       const plate = this.plates[owner]
       if (plate) {
         const status = model.status(owner)
-        plate.status.setText(status === 'JOIN' ? 'PRESS ENTER TO JOIN' : status === 'WAITING' ? 'READY · WAITING' : status).setColor(colorHex(status === 'READY' || status === 'WAITING' ? 'statusLime' : status === 'CUSTOMIZE' ? 'resultGold' : 'textSecondary'))
+        const statusText = status === 'JOIN' ? 'PRESS ENTER TO JOIN' : status === 'WAITING' ? 'READY · WAITING' : status === 'OPPONENT' ? 'SELECT OPPONENT · 1P 選擇' : status === 'DIFFICULTY' ? `◀ ${rival?.difficulty} ▶ · 1P ← → 難度` : status === 'CPU_READY' ? `CPU READY · ${rival?.difficulty}` : status
+        plate.status.setText(statusText).setColor(colorHex(status === 'READY' || status === 'WAITING' || status === 'CPU_READY' ? 'statusLime' : status === 'CUSTOMIZE' || status === 'DIFFICULTY' ? 'resultGold' : status === 'OPPONENT' ? 'enemyGlow' : 'textSecondary'))
         plate.detail.setText(hero ? `${pad(hero.index)} · ${hero.entry?.displayName ?? 'EMPTY'} · ${slotKind(hero)}` : 'ENTER 加入 · 2P 角色由 CPU 操作')
       }
       const cursor = this.cursors[owner]
       if (cursor) {
-        cursor.setVisible(player.joined)
+        cursor.setVisible(player.joined || Boolean(rival)); cursor.tag.setText(rival ? 'CPU' : identity[owner].tag)
         const other = model.player(owner === 'P1' ? 'P2' : 'P1')
-        if (player.joined) cursor.place(player.locked ?? player.cursor, player.locked !== undefined, other.joined && (other.locked ?? other.cursor) === (player.locked ?? player.cursor))
+        if (rival) cursor.place(rival.cursor, model.phase !== 'OPPONENT', false)
+        else if (player.joined) cursor.place(player.locked ?? player.cursor, player.locked !== undefined, other.joined && (other.locked ?? other.cursor) === (player.locked ?? player.cursor))
       }
       this.slotViews.forEach((view) => { view.setReady(owner, player.joined && player.locked === view.slot.index && model.isReady(owner)); view.syncStatus() })
     })
+    if (model.phase !== 'GRID' && model.phase !== 'OPPONENT') this.hint?.setText('') // 拒絕提示只屬於選格階段
     const duo = model.player('P2').joined
     const commands = (owner: PlayerSlotId): string => {
       const player = model.player(owner), id = identity[owner]
+      if (owner === 'P1' && model.phase === 'OPPONENT') return `1P  ${id.keys} 選對手 · ${id.confirm} 確認 · ${id.back} 返回`
+      if (owner === 'P1' && (model.phase === 'DIFFICULTY' || (model.rival && model.phase === 'ALL_READY'))) return `1P  A D 難度 · ${id.confirm} 確認 · ${id.back} 返回`
       return !player.joined ? '2P  ENTER 加入' : player.locked !== undefined ? `${id.tag}  ${id.back} 解除鎖定` : `${id.tag}  ${id.keys} 移動 · ${id.confirm} 確認${owner === 'P2' ? ' · BACKSPACE 退出' : ''}`
     }
     this.keysP1?.setText(commands('P1'))
@@ -323,10 +332,11 @@ export class P1SelectView {
 
   feedback(owner: PlayerSlotId, feedback: SelectFeedback): void {
     if (feedback === 'REJECTED') {
-      this.cursors[owner]?.shake()
-      const slot = this.model.heroSlot(owner)
+      const rival = owner === 'P1' ? this.model.rival : undefined // 單人選對手時被拒絕的是對手游標
+      this.cursors[rival ? 'P2' : owner]?.shake()
+      const slot = this.model.heroSlot(rival ? 'P2' : owner)
       if (!this.hint) { this.hint = label(this.scene, 960, 444, '', 'resultGold', type.body).setOrigin(0.5); this.root.add(this.hint) }
-      this.hint.setText(slot?.type === 'EMPTY' ? 'EMPTY SLOT · 空位不可選取' : slot?.status === 'PROCESSING' ? 'PROCESSING · 處理中' : 'UNAVAILABLE · 暫不可用')
+      this.hint.setText(rival && slot?.index === this.model.player('P1').locked ? 'YOURSELF · 不可選擇自己' : slot?.type === 'EMPTY' ? 'EMPTY SLOT · 空位不可選取' : slot?.status === 'PROCESSING' ? 'PROCESSING · 處理中' : 'UNAVAILABLE · 暫不可用')
     }
     if (feedback === 'JOIN_HINT' && !reducedMotion) this.tweens.push(this.scene.tweens.add({ targets: this.heroes.P2, alpha: 0.55, duration: 90, yoyo: true }))
     if (feedback === 'NAME_REQUIRED') { this.nameHint?.setVisible(true); (this.nameInput?.node as HTMLInputElement | undefined)?.focus() }

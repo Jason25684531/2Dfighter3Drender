@@ -7,7 +7,7 @@ import { p6SubStateForRank, resolveMatchResult, type MatchResult } from '../matc
 import { resolveAiProfile } from '../config/aiProfiles'
 import type { LeaderboardEntry } from '../api/ApiTypes'
 import type { PlayerSlotId } from '../input/InputManager'
-import type { OpponentChoice } from '../select/OpponentSelectModel'
+import type { OpponentChoice } from '../select/P1SelectionModel'
 import type { ExperiencePersistence } from './ExperiencePersistence'
 import type { PlayerSelection } from './ExperienceContext'
 

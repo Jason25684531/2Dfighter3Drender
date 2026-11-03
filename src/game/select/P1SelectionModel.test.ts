@@ -17,7 +17,7 @@ describe('P1 selection model', () => {
     model.setGenerationState('FAILED'); expect(model.phase).toBe('FAILED')
     model.input('P2', 'CONFIRM'); expect(model.phase).toBe('FAILED')
     model.input('P1', 'CONFIRM'); expect(model.phase).toBe('PROCESSING')
-    model.completeProcessing(); expect(model.phase).toBe('ALL_READY'); expect(model.player('P1').generation).toBe('RUNTIME_READY')
+    model.completeProcessing(); expect(model.phase).toBe('OPPONENT'); expect(model.player('P1').generation).toBe('RUNTIME_READY')
   })
   it('rejects unavailable slots and invalid pointer indices', () => {
     const model = new P1SelectionModel()
@@ -67,10 +67,32 @@ describe('P1 selection model', () => {
     model.input('P1', 'BACK'); press(model, 'P1', 'NAV_RIGHT'); expect(model.heroSlot('P1')?.index).toBe(6)
     expect(model.heroSlot('P2')?.index).toBe(6)
   })
-  it('CASE A: solo normal pick goes straight to ALL_READY', () => {
+  it('CASE A: solo pick moves on to choosing the CPU opponent and difficulty on the same grid', () => {
     const model = new P1SelectionModel(); model.input('P1', 'CONFIRM')
-    expect(model.phase).toBe('ALL_READY'); expect(model.result()).toEqual({ P1: { characterId: 'preset-a' } })
-    model.input('P1', 'BACK'); expect(model.phase).toBe('GRID')
+    expect(model.phase).toBe('OPPONENT'); expect(model.rival).toEqual({ cursor: 6, difficulty: 'NORMAL' }); expect(model.status('P2')).toBe('OPPONENT')
+    expect(model.heroSlot('P2')?.entry?.displayName).toBe('KAEL'); expect(model.opponent()).toBeUndefined()
+    press(model, 'P1', 'NAV_RIGHT'); expect([model.rival?.cursor, model.player('P1').cursor]).toEqual([7, 5]) // 1P 方向鍵只移動對手游標
+    press(model, 'P1', 'CONFIRM'); expect(model.phase).toBe('DIFFICULTY')
+    press(model, 'P1', 'NAV_RIGHT'); expect(model.rival?.difficulty).toBe('HARD'); press(model, 'P1', 'NAV_RIGHT'); expect(model.rival?.difficulty).toBe('EASY')
+    press(model, 'P1', 'NAV_LEFT', 'CONFIRM')
+    expect(model.phase).toBe('ALL_READY'); expect(model.status('P2')).toBe('CPU_READY')
+    expect(model.result()).toEqual({ P1: { characterId: 'preset-a' } }); expect(model.opponent()).toEqual({ characterId: 'preset-c', difficulty: 'HARD' })
+  })
+  it('rejects own or empty slot as opponent and backs out step by step', () => {
+    const model = new P1SelectionModel(); model.input('P1', 'CONFIRM')
+    press(model, 'P1', 'NAV_LEFT'); expect(model.input('P1', 'CONFIRM')).toBe('REJECTED'); expect(model.phase).toBe('OPPONENT') // 05 是自己
+    press(model, 'P1', 'NAV_DOWN'); expect(model.input('P1', 'CONFIRM')).toBe('REJECTED') // 15 是空格
+    press(model, 'P1', 'NAV_UP', 'NAV_RIGHT', 'CONFIRM', 'CONFIRM'); expect(model.phase).toBe('ALL_READY')
+    press(model, 'P1', 'BACK'); expect(model.phase).toBe('DIFFICULTY')
+    press(model, 'P1', 'BACK'); expect([model.phase, model.rival?.cursor]).toEqual(['OPPONENT', 6])
+    press(model, 'P1', 'BACK'); expect([model.phase, model.rival, model.player('P1').locked]).toEqual(['GRID', undefined, undefined])
+  })
+  it('2P joining during the solo steps drops the CPU choice; leaving again returns to the opponent step', () => {
+    const model = new P1SelectionModel(); model.input('P1', 'CONFIRM'); press(model, 'P1', 'CONFIRM')
+    expect(model.input('P2', 'NAV_LEFT')).toBe('JOIN_HINT')
+    model.input('P2', 'CONFIRM')
+    expect([model.phase, model.rival, model.player('P2').cursor, model.isReady('P1')]).toEqual(['GRID', undefined, 6, true])
+    model.input('P2', 'BACK'); expect([model.phase, model.rival?.cursor]).toEqual(['OPPONENT', 6])
   })
   it('CASE B: solo custom needs a name, supports retake, and readies after mock processing', () => {
     const model = new P1SelectionModel(); toSlot(model, 'P1', 3); model.input('P1', 'CONFIRM')
@@ -79,7 +101,7 @@ describe('P1 selection model', () => {
     model.setNickname('P1', '  Kazu  '); model.input('P1', 'CONFIRM'); expect(model.phase).toBe('REVIEW')
     model.input('P1', 'BACK'); expect(model.phase).toBe('CUSTOMIZE')
     press(model, 'P1', 'CONFIRM', 'CONFIRM'); model.completeProcessing()
-    expect(model.phase).toBe('ALL_READY'); expect(model.result()).toEqual({ P1: { characterId: 'body-03', nickname: 'Kazu' } })
+    expect(model.phase).toBe('OPPONENT'); expect(model.result()).toEqual({ P1: { characterId: 'body-03', nickname: 'Kazu' } })
   })
   it('CASE C and D: only the custom player captures while the other selection is kept', () => {
     for (const custom of ['P1', 'P2'] as const) {
@@ -113,9 +135,9 @@ describe('P1 selection model', () => {
     model.input('P1', 'CONFIRM'); model.input('P2', 'CONFIRM')
     expect(model.result()).toEqual({ P1: { characterId: 'preset-a' }, P2: { characterId: 'preset-a' } })
   })
-  it('re-opens the grid when 2P joins during ALL_READY and advances when 2P leaves', () => {
-    const model = new P1SelectionModel(); model.input('P1', 'CONFIRM'); expect(model.phase).toBe('ALL_READY')
-    model.input('P2', 'CONFIRM'); expect(model.phase).toBe('GRID')
-    model.input('P2', 'BACK'); expect(model.phase).toBe('ALL_READY')
+  it('duo ALL_READY: back unlocks that player, re-confirm readies again', () => {
+    const model = new P1SelectionModel(); model.input('P2', 'CONFIRM'); toSlot(model, 'P2', 7); model.input('P1', 'CONFIRM'); model.input('P2', 'CONFIRM')
+    expect(model.phase).toBe('ALL_READY'); expect(model.opponent()).toBeUndefined()
+    model.input('P2', 'BACK'); expect(model.phase).toBe('GRID'); model.input('P2', 'CONFIRM'); expect(model.phase).toBe('ALL_READY')
   })
 })

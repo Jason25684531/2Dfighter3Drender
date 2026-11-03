@@ -74,37 +74,38 @@ try {
   check('P2 Back 回 P1 只解除 1P；改選一般角色後直接 ALL READY，不進拍照')
   await key('a'); await key('j'); assert.deepEqual(await s(s => [s.focusedStage, s.selectedStage]), [0, 0])
   await key('j'); assert.equal(await s(s => s.page), 'CONTROLS')
-  assert.match(await texts(), /Space 跳躍/)
+  assert.match(await texts(), /W 跳　S 蹲/); assert.doesNotMatch(await texts(), /Space/)
   await page.screenshot({ path: `${out}/04-controls.png` })
   await key('j'); assert.equal(await s(s => s.page), 'BATTLE')
 
   // 戰鬥：影片、HUD、24Hz、鏡頭與固定 HUD。
   await page.waitForFunction(() => window.prototypeScene.stage?.video?.isPlaying(), null, { timeout: 8000 })
   assert.equal(await s(s => s.stage.video.isMuted?.() ?? s.stage.video.video.muted), true)
-  assert.equal(await s(s => s.hud.timer.text), '60')
+  assert.equal(await s(s => s.hud.timer.value.text), '60')
   check('實驗室影片靜音循環播放，Timer 顯示真實 60 秒')
   await page.screenshot({ path: `${out}/05-battle-start.png` })
   const hp = values => s((s, values) => {
     const snapshot = s.match.getSnapshot(), [PLAYER, ENEMY] = [snapshot.world.fighters.PLAYER, snapshot.world.fighters.ENEMY]
-    s.hud.sync({ ...snapshot, world: { ...snapshot.world, fighters: { PLAYER: { ...PLAYER, currentHP: values[0] }, ENEMY: { ...ENEMY, currentHP: values[1] } } } })
-    return [s.hud.bars[0].scaleX, s.hud.lag[0].scaleX, s.hud.percentages[0].text]
+    // 原型與正式共用 HealthBar：主條 fill、延遲條 lag、數值 value。
+    s.hud.bars[0].setRatio(values[0] / 100, values[0])
+    return [s.hud.bars[0].fill.scaleX, s.hud.bars[0].lag.scaleX, s.hud.bars[0].value.text]
   }, values)
   await s(s => s.clock.pause())
   await hp([70, 100]); await wait(100)
   const mid = await hp([40, 100])
   assert.equal(mid[0], 0.4); assert.ok(mid[1] > 0.4, '延遲條仍在追趕')
   await wait(750)
-  assert.ok(Math.abs((await s(s => s.hud.lag[0].scaleX)) - 0.4) < 1e-6)
-  assert.deepEqual(await hp([100, 100]), [1, 1, '100%'])
+  assert.ok(Math.abs((await s(s => s.hud.bars[0].lag.scaleX)) - 0.4) < 1e-6)
+  assert.deepEqual(await hp([100, 100]), [1, 1, '100'])
   await s(s => s.clock.resume())
   check('血條 100→70→40：主條立即、延遲條 600ms 追至 40；回血兩條同步 100')
-  const hudBefore = await s(s => [s.hud.x, s.hud.y, s.hud.timer.x, s.hud.timer.y])
+  const hudBefore = await s(s => [s.hud.bars[0].x, s.hud.bars[0].y, s.hud.timer.x, s.hud.timer.y])
   const tick0 = await s(s => s.match.getSnapshot().world.tick)
   await page.keyboard.down('a'); await wait(3500); await page.keyboard.up('a')
   const cam = await s(s => {
     const zoom = s.world.scaleX, screen = a => s.world.x + a.x * zoom
     const edges = o => [o.x - o.displayWidth / 2, o.x + o.displayWidth / 2]
-    return { scroll: s.scroll, actors: s.actors.map(screen), bg: edges(s.stage.background), fg: s.stage.foreground ? edges(s.stage.foreground) : null, hud: [s.hud.x, s.hud.y, s.hud.timer.x, s.hud.timer.y], tick: s.match.getSnapshot().world.tick, player: s.match.getSnapshot().world.fighters.PLAYER.position }
+    return { scroll: s.scroll, actors: s.actors.map(screen), bg: edges(s.stage.background), fg: s.stage.foreground ? edges(s.stage.foreground) : null, hud: [s.hud.bars[0].x, s.hud.bars[0].y, s.hud.timer.x, s.hud.timer.y], tick: s.match.getSnapshot().world.tick, player: s.match.getSnapshot().world.fighters.PLAYER.position }
   })
   assert.ok(cam.scroll < -20 && cam.scroll >= -534, `scroll ${cam.scroll}`)
   assert.ok(cam.actors.every(x => x > 0 && x < 1920), `actors ${cam.actors}`)
@@ -167,7 +168,7 @@ try {
   // 影片失敗 fallback。
   const failed = await open({}, page => page.route('**/bg.mp4', route => route.abort()))
   await failed.s(s => s.show('BATTLE')); await wait(1500)
-  const fallback = await failed.s(s => [s.stage.background.texture.key, s.stage.background.visible, s.stage.video.visible, s.hud.timer.text])
+  const fallback = await failed.s(s => [s.stage.background.texture.key, s.stage.background.visible, s.stage.video.visible, s.hud.timer.value.text])
   assert.deepEqual(fallback.slice(0, 3), ['lab-poster', true, false]); assert.match(fallback[3], /^(59|60)$/)
   await failed.page.screenshot({ path: `${out}/09-video-fallback.png` })
   check('mp4 讀取失敗：poster 靜態背景，HUD 正常')
@@ -178,9 +179,8 @@ try {
   await calm.s(s => s.show('BATTLE')); await wait(300)
   await calm.page.keyboard.down('a'); await wait(1500); await calm.page.keyboard.up('a')
   const reduced = await calm.s(s => {
-    const snapshot = s.match.getSnapshot()
-    s.hud.sync({ ...snapshot, world: { ...snapshot.world, fighters: { ...snapshot.world.fighters, PLAYER: { ...snapshot.world.fighters.PLAYER, currentHP: 40 } } } })
-    return [s.reduced, s.scroll, s.stage.video.isPlaying(), s.hud.lag[0].scaleX]
+    s.hud.bars[0].setRatio(0.4, 40)
+    return [s.reduced, s.scroll, s.stage.video.isPlaying(), s.hud.bars[0].lag.scaleX]
   })
   assert.deepEqual([reduced[0], reduced[2], reduced[3]], [true, false, 0.4]); assert.ok(Math.abs(reduced[1]) <= 533.4) // 減少動態：鏡頭直接到位（無平滑），不停用
   check('Reduced motion：影片停止、鏡頭無平滑直接到位，延遲血條直接更新')

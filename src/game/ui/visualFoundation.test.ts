@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { aspectCover } from './tokens/layout'
-import { battleViewModel, endViewModel, loadingViewModel, presentationViewModel, leaderboardPanelModel, resultViewModel, stageSelectViewModel } from './ViewModels'
+import { battleAnnouncement, battleViewModel, endViewModel, finishAnnouncements, loadingViewModel, leaderboardPanelModel, resultViewModel, stageSelectViewModel } from './ViewModels'
 import { characterEntries, resolveStageAsset, testCharacterManifest, testStageManifest } from './assets/TestAssetManifest'
 import { ExperienceContext } from '../app/ExperienceContext'
 import { p6SubStateForRank } from '../match/ResultResolver'
@@ -25,7 +25,7 @@ describe('visual foundation', () => {
   it('uses uniform centered aspect cover', () => { const result = aspectCover(2752, 1536, 1920, 1080); expect(result.scale).toBeGreaterThan(0); expect(result.width).toBeGreaterThanOrEqual(1920); expect(result.height).toBeGreaterThanOrEqual(1080) })
   it('exposes four body templates and five featured characters', () => { expect(characterEntries().filter((entry) => entry.type === 'BODY_TEMPLATE')).toHaveLength(4); expect(characterEntries().filter((entry) => entry.type === 'FEATURED').map((entry) => entry.displayName)).toEqual(['ARIA', 'KAEL', 'RIVEN', 'KEVIN', 'CUSTOM01']) })
   it('resolves both centralized stage assets and safe fallback', () => { expect(testStageManifest.laboratory.url).toContain('/test-assets/stages/laboratory.png'); expect(testStageManifest['company-building'].url).toContain('/test-assets/stages/company-building.png'); expect(resolveStageAsset('missing').id).toBe('laboratory') })
-  it('keeps P2 and P3 view models presentation-only', () => { expect(stageSelectViewModel().stages).toHaveLength(2); expect(loadingViewModel().controls).toContain('GUARD') })
+  it('keeps P2 and P3 view models presentation-only', () => { expect(stageSelectViewModel().stages).toHaveLength(2); expect(loadingViewModel().progress).toBe(1) })
   it('stores setup selections without introducing backend fields', () => { const context = new ExperienceContext(); context.set({ players: { P1: { characterId: 'custom' } }, selectedStageId: 'company-building' }); expect(context.snapshot.players?.P1?.characterId).toBe('custom'); expect(context.snapshot.selectedStageId).toBe('company-building') })
   it('keeps backend rank mapping authoritative', () => { expect(p6SubStateForRank(3)).toBe('RANK_1_TO_6'); expect(p6SubStateForRank(12)).toBe('RANK_7_TO_19'); expect(p6SubStateForRank(20)).toBe('RANK_20'); expect(p6SubStateForRank(null)).toBe('NOT_RANKED') })
   it('projects backend leaderboard rows without sorting or recalculating rank', () => { const result = { outcome: 'WIN', title: 'CHAMPION', score: 100, maxPlayerCombo: 2, remainingPlayerHP: 80, playerRoundWins: 1, enemyRoundWins: 0, winner: 'PLAYER', finishReason: 'KO' } as never; const vm = resultViewModel(result, 7, 'RANK_7_TO_19', [{ rank: 7, match_id: 4, session_id: 9, nickname: 'PLAYER', score: 100, title: 'CHAMPION', remaining_hp: 80, max_combo: 2, finished_at: '' }], 9); expect(vm.rank).toBe(7); expect(vm.ranking).toEqual([{ rank: 7, name: 'PLAYER', score: 100, highlighted: true }]) })
@@ -65,8 +65,7 @@ describe('visual foundation', () => {
     expect(vm.character.id).toBe('preset-b')
     expect(vm.stage).toBe('COMPANY BUILDING')
     expect(vm.progress).toBe(0.4)
-    expect(vm.controls).toEqual(['MOVE', 'JUMP', 'PUNCH', 'KICK', 'GUARD'])
-    expect(Object.keys(vm).sort()).toEqual(['character', 'controls', 'enemyName', 'playerName', 'progress', 'stage'])
+    expect(Object.keys(vm).sort()).toEqual(['character', 'enemyName', 'playerName', 'progress', 'stage'])
     expect(loadingViewModel(testCharacterManifest.presetA, 'ROG_SAGA', 'LABORATORY', 2).progress).toBe(1)
   })
   it('keeps P5 and P6 layout projections outcome-aware for WIN, LOSE, and DRAW', () => {
@@ -75,9 +74,23 @@ describe('visual foundation', () => {
     ] as const
     for (const [outcome, headline] of outcomes) {
       const result = { outcome, title: 'TITLE', score: 80, maxPlayerCombo: 4, remainingPlayerHP: 30, playerRoundWins: 1, enemyRoundWins: 1, winner: null, finishReason: 'KO' } as never
-      expect(presentationViewModel(result)).toMatchObject({ outcome: headline, result: outcome })
+      expect(finishAnnouncements(result)[1].text).toBe(headline.replace('!', ''))
       expect(resultViewModel(result, 3, 'RANK_1_TO_6')).toMatchObject({ outcome, headline, score: 80, ranking: [] })
     }
+  })
+  it('maps every authoritative announce phase to one announcer message', () => {
+    const snap = (announce?: string, roundNumber = 2) => ({ announce, roundNumber }) as never
+    expect(battleAnnouncement(snap('ROUND'))).toEqual({ text: 'ROUND 2', tone: 'system' })
+    expect(battleAnnouncement(snap('READY'))?.text).toBe('READY?')
+    expect(battleAnnouncement(snap('FIGHT'))).toEqual({ text: 'FIGHT!', tone: 'player' })
+    expect(battleAnnouncement(snap('KO'))).toMatchObject({ text: 'K.O.', tone: 'danger', big: true })
+    expect(battleAnnouncement(snap('TIME_UP'))).toMatchObject({ text: 'TIME UP', tone: 'gold', big: true })
+    expect(battleAnnouncement(snap('OUTCOME'), { roundNumber: 1, winner: 'ENEMY' } as never)).toEqual({ text: 'YOU LOSE', tone: 'enemy', sub: 'ROUND 1' })
+    expect(battleAnnouncement(snap())).toBeUndefined()
+    const result = (outcome: string, finishReason: string) => ({ outcome, finishReason }) as never
+    expect(finishAnnouncements(result('WIN', 'KO')).map((a) => a.text)).toEqual(['K.O.', 'YOU WIN'])
+    expect(finishAnnouncements(result('DRAW', 'DRAW')).map((a) => a.text)).toEqual(['DRAW', 'DRAW'])
+    expect(finishAnnouncements(result('LOSE', 'TIME_UP'))[0].text).toBe('TIME UP')
   })
   it('does not invent P7 next-player data when the source is empty', () => {
     expect(endViewModel().nextPlayerName).toBeUndefined()

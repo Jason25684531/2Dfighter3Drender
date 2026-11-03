@@ -1,5 +1,6 @@
 import type { OwnedUiAction, PlayerSlotId } from '../input/InputManager'
 import type { PlayerSelection } from '../app/ExperienceContext'
+import { AI_PROFILE_IDS, DEFAULT_AI_PROFILE, type AiProfileId } from '../config/aiProfiles'
 import { bodyTemplates, characterEntries, type CharacterEntry, type SlotStatus, type SlotType } from '../ui/assets/TestAssetManifest'
 
 export const GRID_COLUMNS = 10
@@ -8,9 +9,10 @@ export const SLOT_COUNT = GRID_COLUMNS * GRID_ROWS
 export const NICKNAME_MAX = 16
 
 export type Slot = { index: number; type: SlotType; status?: SlotStatus; entry?: CharacterEntry }
-export type P1Phase = 'GRID' | 'CUSTOMIZE' | 'REVIEW' | 'PROCESSING' | 'FAILED' | 'ALL_READY'
+export type P1Phase = 'GRID' | 'OPPONENT' | 'DIFFICULTY' | 'CUSTOMIZE' | 'REVIEW' | 'PROCESSING' | 'FAILED' | 'ALL_READY'
 export type GenerationState = 'PHOTO_CONFIRMED' | 'REQUESTING' | 'PROCESSING' | 'API_READY' | 'DOWNLOADING' | 'DECODED' | 'RUNTIME_READY' | 'FAILED'
-export type PlayerStatus = 'JOIN' | 'SELECTING' | 'READY' | 'WAITING' | 'CUSTOMIZE'
+export type PlayerStatus = 'JOIN' | 'SELECTING' | 'READY' | 'WAITING' | 'CUSTOMIZE' | 'OPPONENT' | 'DIFFICULTY' | 'CPU_READY'
+export type OpponentChoice = { characterId: string; difficulty: AiProfileId }
 export type SelectFeedback = 'REJECTED' | 'JOIN_HINT' | 'NAME_REQUIRED'
 // photo：本機擷取的 dataURL，只存在記憶體、不進 result()／API。
 type PlayerState = { joined: boolean; cursor: number; locked?: number; nickname: string; customized: boolean; generation?: GenerationState; photo?: string }
@@ -50,6 +52,8 @@ export class P1SelectionModel {
   readonly slots: Slot[]
   phase: P1Phase = 'GRID'
   owner?: PlayerSlotId
+  /** 單人模式的 CPU 對手：1P 用自己的方向鍵移動；存在＝正在選或已選對手。 */
+  rival?: { cursor: number; difficulty: AiProfileId }
   private readonly state: Record<PlayerSlotId, PlayerState> = {
     P1: { joined: true, cursor: 5, nickname: '', customized: false },
     P2: { joined: false, cursor: 6, nickname: '', customized: false },
@@ -60,7 +64,7 @@ export class P1SelectionModel {
   player(id: PlayerSlotId): Readonly<PlayerState> { return this.state[id] }
   slot(index: number): Slot { return this.slots[index - 1] }
   /** Hero 顯示的格子：鎖定後固定，否則跟隨 Focus。 */
-  heroSlot(id: PlayerSlotId): Slot | undefined { const p = this.state[id]; return p.joined ? this.slot(p.locked ?? p.cursor) : undefined }
+  heroSlot(id: PlayerSlotId): Slot | undefined { const p = this.state[id]; return p.joined ? this.slot(p.locked ?? p.cursor) : id === 'P2' && this.rival ? this.slot(this.rival.cursor) : undefined }
   isBody(id: PlayerSlotId): boolean { const locked = this.state[id].locked; return locked !== undefined && this.slot(locked).type === 'BODY_TEMPLATE' }
   isReady(id: PlayerSlotId): boolean { const p = this.state[id]; return p.joined && p.locked !== undefined && (!this.isBody(id) || p.customized) }
   nicknameValid(id: PlayerSlotId): boolean { const length = this.state[id].nickname.trim().length; return length > 0 && length <= NICKNAME_MAX }
@@ -68,7 +72,7 @@ export class P1SelectionModel {
   setPhoto(id: PlayerSlotId, photo: string | undefined): void { this.state[id].photo = photo }
 
   status(id: PlayerSlotId): PlayerStatus {
-    if (!this.state[id].joined) return 'JOIN'
+    if (!this.state[id].joined) return this.rival ? this.phase === 'OPPONENT' || this.phase === 'DIFFICULTY' ? this.phase : 'CPU_READY' : 'JOIN'
     if (this.owner === id) return 'CUSTOMIZE'
     if (this.isReady(id)) return this.phase === 'GRID' || this.phase === 'ALL_READY' ? 'READY' : 'WAITING'
     return this.state[id].locked !== undefined ? 'WAITING' : 'SELECTING'
@@ -101,8 +105,9 @@ export class P1SelectionModel {
     const p = this.state[id]
     if (!p.joined) {
       if (id !== 'P2' || action !== 'CONFIRM') return 'JOIN_HINT'
-      p.joined = true; p.cursor = 6; this.phase = 'GRID'; return undefined
+      p.joined = true; p.cursor = 6; this.rival = undefined; this.phase = 'GRID'; return undefined
     }
+    if (this.rival && id === 'P1') return this.rivalInput(action)
     if (action === 'BACK') {
       if (p.locked !== undefined) { this.unlock(id); this.phase = 'GRID' }
       else if (id === 'P2' && this.phase === 'GRID') { p.joined = false; this.advance() }
@@ -139,11 +144,34 @@ export class P1SelectionModel {
     }))
   }
 
-  private unlock(id: PlayerSlotId): void { this.state[id].locked = undefined; this.state[id].customized = false; this.state[id].generation = undefined; this.state[id].photo = undefined }
+  private unlock(id: PlayerSlotId): void { if (id === 'P1') this.rival = undefined; this.state[id].locked = undefined; this.state[id].customized = false; this.state[id].generation = undefined; this.state[id].photo = undefined }
 
   private advance(): void {
     if (this.phase !== 'GRID' || players.some((id) => this.state[id].joined && this.state[id].locked === undefined)) return
     const next = this.queue()[0]
-    if (next) { this.owner = next; this.phase = 'CUSTOMIZE' } else this.phase = 'ALL_READY'
+    if (next) { this.owner = next; this.phase = 'CUSTOMIZE' } else if (this.state.P2.joined) this.phase = 'ALL_READY'
+    else { this.rival ??= { cursor: moveSlot(this.state.P1.locked as number, 'NAV_RIGHT'), difficulty: DEFAULT_AI_PROFILE.id }; this.phase = 'OPPONENT' }
+  }
+
+  /** 單人：OPPONENT（選格）→ DIFFICULTY（←→ 切換）→ ALL_READY；BACK 逐層退回，OPPONENT 再退即解除 1P 鎖定。 */
+  private rivalInput(action: OwnedUiAction): SelectFeedback | undefined {
+    const rival = this.rival as NonNullable<P1SelectionModel['rival']>
+    if (this.phase === 'OPPONENT') {
+      if (action === 'BACK') { this.unlock('P1'); this.phase = 'GRID' }
+      else if (action !== 'CONFIRM') rival.cursor = moveSlot(rival.cursor, action)
+      else if (!confirmable(this.slot(rival.cursor)) || rival.cursor === this.state.P1.locked) return 'REJECTED'
+      else this.phase = 'DIFFICULTY'
+    } else if (this.phase === 'DIFFICULTY') {
+      if (action === 'BACK') this.phase = 'OPPONENT'
+      else if (action === 'CONFIRM') this.phase = 'ALL_READY'
+      else if (action === 'NAV_LEFT' || action === 'NAV_RIGHT') rival.difficulty = AI_PROFILE_IDS[(AI_PROFILE_IDS.indexOf(rival.difficulty) + (action === 'NAV_RIGHT' ? 1 : AI_PROFILE_IDS.length - 1)) % AI_PROFILE_IDS.length]
+    } else if (this.phase === 'ALL_READY' && action === 'BACK') this.phase = 'DIFFICULTY'
+    return undefined
+  }
+
+  /** 單人且已全員 ready 時的對手選擇；雙人時對手外觀來自 2P。 */
+  opponent(): OpponentChoice | undefined {
+    const entry = this.rival && this.phase === 'ALL_READY' ? this.slot(this.rival.cursor).entry : undefined
+    return entry && this.rival ? { characterId: entry.id, difficulty: this.rival.difficulty } : undefined
   }
 }

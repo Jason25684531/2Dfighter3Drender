@@ -11,7 +11,11 @@ import { GameClock, FIXED_STEP_MS } from '../time/GameClock'
 import { combatMapping, menuMapping, resolveDemo, semanticAnimation, type Semantic } from './OperationMapping'
 import { stageCamera, worldX, WORLD_ZOOM } from '../ui/stage/StageCamera'
 import { ARENA_WIDTH } from '../config/stageTuning'
-import { PrototypeHud } from './PrototypeHud'
+import { registerImpactFx } from '../ui/vfx/ImpactFx'
+import { Announcer, HealthBar, HexTimer, RoundDiamonds } from '../ui/VisualComponents'
+import { battleViewModel, finishAnnouncements } from '../ui/ViewModels'
+import { resolveMatchResult } from '../match/ResultResolver'
+import { ATTACK_ACTIONS, type AttackAction } from '../input/ControlProfile'
 import { StageParallax } from '../ui/stage/StageParallax'
 
 export type DemoPage = 'P1' | 'P2' | 'CONTROLS' | 'BATTLE' | 'INPUT'
@@ -34,7 +38,8 @@ export class ExperiencePrototypeScene extends BootScene {
   private view?: P1SelectView
   private root?: Phaser.GameObjects.Container
   private stage?: StageParallax
-  private hud?: PrototypeHud
+  // 與正式 P4 相同的 HUD 元件。
+  private hud?: { bars: HealthBar[]; rounds: RoundDiamonds[]; timer: HexTimer; announcer: Announcer }
   private world?: Phaser.GameObjects.Container
   private actors: TemporarySpriteRenderer[] = []
   private demoActors: Phaser.GameObjects.Sprite[] = []
@@ -46,7 +51,7 @@ export class ExperiencePrototypeScene extends BootScene {
   private readonly dialog = document.querySelector<HTMLDialogElement>('#pause-dialog')!
 
   async create(): Promise<void> {
-    registerSheetAnimations(this)
+    registerSheetAnimations(this); registerImpactFx(this)
     window.addEventListener('keydown', this.keydown)
     window.addEventListener('keyup', this.keyup)
     window.addEventListener('blur', this.blur)
@@ -72,8 +77,8 @@ export class ExperiencePrototypeScene extends BootScene {
     else if (page === 'P2') this.renderP2()
     else if (page === 'CONTROLS') {
       this.text(960, 200, '即將進入既有 CPU 戰鬥', 54)
-      this.text(960, 410, 'A / D 移動　Space 跳躍　J 攻擊　K 防禦', 40)
-      this.text(960, 520, '2P 選擇只決定 CPU 外觀。新四種攻擊請到「操作展示」體驗。', 28)
+      this.text(960, 410, 'A / D 移動　W 跳　S 蹲　F U G I 攻擊　K 防禦', 40)
+      this.text(960, 520, '2P 選擇只決定 CPU 外觀。鍵位與正式 P4 相同。', 28)
       this.text(960, 600, '每回合 60 秒 · 24Hz · 原型不送出分數', 28, '#f7cf82')
       this.button(760, 800, 'K 返回關卡', () => this.show('P2'))
       this.button(1160, 800, 'J 開始戰鬥', () => this.show('BATTLE'))
@@ -151,16 +156,23 @@ export class ExperiencePrototypeScene extends BootScene {
         const actor = new TemporarySpriteRenderer(this, entry?.type === 'BODY_TEMPLATE' ? 'kevin' : entry?.spriteId ?? 'kevin', i ? 0x8070ff : 0xff4560, 820)
         this.world!.add(actor); return actor
       })
-      this.hud = new PrototypeHud(this, owners.map(owner => this.playerName(owner)), this.reduced)
-      this.text(960, 1000, '既有 CPU 戰鬥：A/D 移動 · W/S 縱深 · Space 跳躍 · J 攻擊 · K 防禦 · Esc 暫停', 26).setDepth(100)
+      const hud = this.hud = { bars: [new HealthBar(this, 560, 0xe5172f).setPosition(230, 112), new HealthBar(this, 560, 0x7c3aed, true).setPosition(1130, 112)], rounds: [new RoundDiamonds(this).setPosition(250, 156), new RoundDiamonds(this, true).setPosition(1670, 156)], timer: new HexTimer(this).setPosition(960, 110), announcer: new Announcer(this) }
+      ;[...hud.bars, ...hud.rounds, hud.timer, hud.announcer].forEach((object) => this.add.existing(object.setDepth(100)))
+      owners.forEach((owner, i) => this.text(i ? 1690 : 230, 62, `${owner}${i ? ' / CPU' : ''}  ${this.playerName(owner)}`, 28).setOrigin(i, 0))
+      this.text(960, 1000, '正式鍵位：A/D 移動 · W 跳 · S 蹲 · F/U 輕重拳 · G/I 輕重腳 · K 防禦 · Esc 暫停', 26).setDepth(100)
       const sync = () => {
-        const snapshot = this.match.getSnapshot()
-        ;[snapshot.world.fighters.PLAYER, snapshot.world.fighters.ENEMY].forEach((fighter, i) => { this.actors[i].update(fighter, snapshot.world.tick) })
-        this.hud?.sync(snapshot)
+        const snapshot = this.match.getSnapshot(), vm = battleViewModel(snapshot, stages[this.selectedStage])
+        ;[snapshot.world.fighters.PLAYER, snapshot.world.fighters.ENEMY].forEach((fighter, i) => { this.actors[i].update(fighter, snapshot.world.tick, i ? undefined : { crouch: this.held.has(combatMapping.P1.crouch) }) })
+        hud.bars[0].setRatio(vm.playerHp / vm.maxHp, vm.playerHp); hud.bars[1].setRatio(vm.enemyHp / vm.maxHp, vm.enemyHp)
+        hud.rounds[0].setWins(vm.playerWins); hud.rounds[1].setWins(vm.enemyWins); hud.timer.updateTime(vm.timerSeconds, vm.round)
+        const done = this.match.getCompletedMatch(); hud.announcer.show(done ? finishAnnouncements(resolveMatchResult(done))[1] : undefined)
       }
       sync()
       this.unsubscribe = this.clock.subscribe(() => {
-        this.match.tick({ moveX: Number(this.held.has('KeyD')) - Number(this.held.has('KeyA')), moveZ: Number(this.held.has('KeyW')) - Number(this.held.has('KeyS')), jumpPressed: this.pressed.has('Space'), attackPressed: this.pressed.has('KeyJ'), guardHeld: this.held.has('KeyK') })
+        // 與正式相同的目標鍵位（OperationMapping.combatMapping.P1）。
+        const keys = combatMapping.P1, kinds: Record<AttackAction, string> = { LIGHT_PUNCH: keys.lightPunch, HEAVY_PUNCH: keys.heavyPunch, LIGHT_KICK: keys.lightKick, HEAVY_KICK: keys.heavyKick }
+        const attack = ATTACK_ACTIONS.find((action) => this.pressed.has(kinds[action]))
+        this.match.tick({ moveX: Number(this.held.has(keys.right)) - Number(this.held.has(keys.left)), jumpPressed: this.pressed.has(keys.jump), attackPressed: Boolean(attack), attack, guardHeld: this.held.has('KeyK') })
         this.pressed.clear(); sync()
       })
       this.clock.reset(); this.clock.start()
@@ -199,7 +211,7 @@ export class ExperiencePrototypeScene extends BootScene {
     if (this.paused) { if (['Escape', 'Enter', 'KeyJ', 'KeyK', 'Backspace'].includes(event.code)) { event.preventDefault(); this.setPaused(false) }; return }
     if (event.code === 'Escape') { event.preventDefault(); this.setPaused(true); return }
     if ((event.target as HTMLElement)?.matches('button') && ['Enter', 'Space'].includes(event.code)) return
-    const relevant = [...Object.keys(menuMapping.P1), ...Object.keys(menuMapping.P2), ...Object.values(combatMapping.P1), ...Object.values(combatMapping.P2), 'Space']
+    const relevant = [...Object.keys(menuMapping.P1), ...Object.keys(menuMapping.P2), ...Object.values(combatMapping.P1), ...Object.values(combatMapping.P2)]
     if (!relevant.includes(event.code)) return
     event.preventDefault()
     if (!this.held.has(event.code)) this.pressed.add(event.code)
@@ -237,7 +249,7 @@ export class ExperiencePrototypeScene extends BootScene {
   private clearPage(): void {
     this.held.clear(); this.pressed.clear(); this.clock.stop(); this.unsubscribe?.(); this.unsubscribe = undefined
     this.view?.destroy(); this.view = undefined; this.root = undefined
-    this.hud?.destroy(); this.hud = undefined; this.stage?.destroy(); this.stage = undefined
+    this.hud = undefined; this.stage?.destroy(); this.stage = undefined
     this.children.removeAll(true); this.time.removeAllEvents(); this.tweens.killAll()
     this.world = undefined; this.actors = []; this.demoActors = []; this.demoLabels = []; this.semanticKeys = ['', '']; this.manual = undefined; this.scroll = 0
   }

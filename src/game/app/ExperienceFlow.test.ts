@@ -20,7 +20,7 @@ describe('ExperienceFlow', () => {
   it('completes a match and replays to P2 with clean match state, keeping the opponent', () => {
     const flow = new ExperienceFlow(); flow.opponent = { characterId: 'preset-c', difficulty: 'HARD' }; playToEnd(flow)
     expect(flow.ui.navigation.dispatch('REPLAY')).toBe(true); expect(flow.app.getCurrentState()).toBe(AppState.SETUP)
-    expect(flow.match.getSnapshot().matchState).toBe('READY'); expect(flow.result).toBeUndefined(); expect(flow.opponent?.difficulty).toBe('HARD')
+    expect(flow.match.getSnapshot().matchState).toBe('READY'); expect(flow.result).toBeUndefined(); expect(flow.opponent?.difficulty).toBe('HARD'); expect(flow.ui.substates.get(AppState.SETUP)).toBe('DEFAULT')
   })
 
   it('finishes to clean P0 and ends the session', () => {

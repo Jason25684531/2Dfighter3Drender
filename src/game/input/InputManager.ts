@@ -8,14 +8,11 @@ export type InputAction = UIAction | GameplayAction
 
 export type InputSnapshot = {
   moveX: number
-  moveZ: number
   jumpPressed: boolean
-  jumpHeld: boolean
   attackPressed: boolean
-  attackHeld: boolean
   guardHeld: boolean
-  // 以下只供呈現解析；Combat intent 只讀上面的欄位。
   attack?: AttackAction
+  // 蹲只供呈現解析，Combat 沒有蹲。
   crouchHeld: boolean
 }
 
@@ -51,7 +48,7 @@ const ownerDefaults: Record<PlayerSlotId, OwnerKeys> = {
 }
 const defaultGamepad: Record<InputAction, readonly number[]> = {
   NAV_UP: [12], NAV_DOWN: [13], NAV_LEFT: [14], NAV_RIGHT: [15], CONFIRM: [0], BACK: [1], OPEN_MENU: [9],
-  MOVE_LEFT: [14], MOVE_RIGHT: [15], MOVE_UP: [12], MOVE_DOWN: [13], JUMP: [0], CROUCH: [6], LIGHT_PUNCH: [2], HEAVY_PUNCH: [3], LIGHT_KICK: [4], HEAVY_KICK: [5], GUARD: [7], PAUSE: [9],
+  MOVE_LEFT: [14], MOVE_RIGHT: [15], JUMP: [0, 12], CROUCH: [13], LIGHT_PUNCH: [2], HEAVY_PUNCH: [3], LIGHT_KICK: [4], HEAVY_KICK: [5], GUARD: [7], PAUSE: [9],
 }
 
 const isUi = (action: InputAction): action is UIAction => (UI_ACTIONS as readonly string[]).includes(action)
@@ -142,12 +139,9 @@ export class InputManager {
     })
     this.keyPressed.clear(); this.keyReleased.clear()
     this.lastMoveX = moveX
-    // ponytail: 縱深只讀數位方向（鍵盤／D-pad），類比搖桿 Y 軸等實體手把測試後再加。
-    this.lastMoveZ = Number(keyboardHeld('MOVE_UP') || padHeld('MOVE_UP')) - Number(keyboardHeld('MOVE_DOWN') || padHeld('MOVE_DOWN'))
   }
 
   private lastMoveX = 0
-  private lastMoveZ = 0
   private normalizeAxis(value: number): number {
     const magnitude = Math.min(1, Math.abs(value)); if (magnitude <= this.config.deadzone) return 0
     return Math.sign(value) * ((magnitude - this.config.deadzone) / (1 - this.config.deadzone))
@@ -162,6 +156,6 @@ export class InputManager {
   consumeGameplaySnapshot(): InputSnapshot {
     const pressed = (action: GameplayAction): boolean => this.pendingGameplay.delete(action)
     const jumpPressed = pressed('JUMP'), attack = ATTACK_ACTIONS.filter(pressed)[0]
-    return { moveX: this.lastMoveX, moveZ: this.lastMoveZ, jumpPressed, jumpHeld: this.getActionState('JUMP').held, attackPressed: Boolean(attack), attackHeld: ATTACK_ACTIONS.some((action) => this.getActionState(action).held), guardHeld: this.getActionState('GUARD').held, attack, crouchHeld: this.getActionState('CROUCH').held }
+    return { moveX: this.lastMoveX, jumpPressed, attackPressed: Boolean(attack), guardHeld: this.getActionState('GUARD').held, attack, crouchHeld: this.getActionState('CROUCH').held }
   }
 }

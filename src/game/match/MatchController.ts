@@ -10,12 +10,14 @@ export const INTRO_ROUND_TICKS = { first: 36, later: 24 }
 export const INTRO_READY_TICKS = 36
 export const INTRO_FIGHT_TICKS = 24
 export const INTRO_OUTCOME_TICKS = 36
-export type IntroPhase = 'OUTCOME' | 'ROUND' | 'READY' | 'FIGHT'
+// 非最後一回合結束後停留播報 K.O.／TIME UP（約 1.5 秒）；只在 intro 開啟時。
+export const ROUND_CALL_TICKS = 36
+export type Announce = 'KO' | 'TIME_UP' | 'OUTCOME' | 'ROUND' | 'READY' | 'FIGHT'
 export type MatchOptions = { intro?: boolean }
 export type P4SubState = 'NORMAL' | 'COMBO' | 'DANGER' | 'LAST_10_SECONDS'
 export type CompletedMatch = { winner: FighterId | null; finishReason: FinishReason; playerRoundWins: number; enemyRoundWins: number; remainingPlayerHP: number; maxPlayerCombo: number }
 export type RoundSummary = { roundIndex: number; roundNumber: number; winner: FighterId | null; finishReason: FinishReason; playerHP: number; enemyHP: number; maxCombo: number; durationTicks: number }
-export type MatchSnapshot = { matchState: MatchState; roundNumber: number; playerRoundWins: number; enemyRoundWins: number; remainingTicks: number; winner?: FighterId; finishReason?: FinishReason; drawRetries: number; maxPlayerCombo: number; introPhase?: IntroPhase; world: CombatSnapshot }
+export type MatchSnapshot = { matchState: MatchState; roundNumber: number; playerRoundWins: number; enemyRoundWins: number; remainingTicks: number; winner?: FighterId; finishReason?: FinishReason; drawRetries: number; maxPlayerCombo: number; announce?: Announce; world: CombatSnapshot }
 export const p4SubStateFor = (remainingTicks: number, playerHP: number, maxHP: number, combo: number): P4SubState => remainingTicks <= 240 ? 'LAST_10_SECONDS' : playerHP <= maxHP * 0.25 ? 'DANGER' : combo >= 2 ? 'COMBO' : 'NORMAL'
 
 
@@ -39,6 +41,7 @@ export class MatchController {
   private introReadyTicks = 0
   private introRoundTicks = 0
   private fightFlash = 0
+  private callRemaining = 0
   private readonly config: CombatConfig
   private readonly intro: boolean
 
@@ -48,9 +51,9 @@ export class MatchController {
   setAiProfile(profile: AiProfile): void { this.enemyAi = new EnemyAI(this.config, profile) }
 
   start(): void { this.resetMatch(); this.startRound() }
-  resetMatch(): void { this.world.reset(); this.ai.reset(); this.matchState = 'READY'; this.roundNumber = 1; this.playerRoundWins = 0; this.enemyRoundWins = 0; this.remainingTicks = ROUND_TICKS; this.winner = undefined; this.finishReason = undefined; this.drawRetries = 0; this.maxPlayerCombo = 0; this.roundMaxCombo = 0; this.roundWinner = undefined; this.roundSummaries.length = 0; this.roundStartTick = 0; this.introRemaining = 0; this.introReadyTicks = 0; this.fightFlash = 0 }
+  resetMatch(): void { this.world.reset(); this.ai.reset(); this.matchState = 'READY'; this.roundNumber = 1; this.playerRoundWins = 0; this.enemyRoundWins = 0; this.remainingTicks = ROUND_TICKS; this.winner = undefined; this.finishReason = undefined; this.drawRetries = 0; this.maxPlayerCombo = 0; this.roundMaxCombo = 0; this.roundWinner = undefined; this.roundSummaries.length = 0; this.roundStartTick = 0; this.introRemaining = 0; this.introReadyTicks = 0; this.fightFlash = 0; this.callRemaining = 0 }
   tick(playerIntent: FighterIntent = NEUTRAL_INTENT): void {
-    if (this.matchState === 'ROUND_END') { this.startPendingRound(); return }
+    if (this.matchState === 'ROUND_END') { if (this.callRemaining > 0) this.callRemaining -= 1; else this.startPendingRound(); return }
     if (this.matchState === 'READY' && this.introRemaining > 0) { this.introRemaining -= 1; if (this.introRemaining === 0) { this.matchState = 'FIGHTING'; this.fightFlash = INTRO_FIGHT_TICKS } return }
     if (this.matchState !== 'FIGHTING') return
     if (this.fightFlash > 0) this.fightFlash -= 1
@@ -60,8 +63,11 @@ export class MatchController {
     else if (this.remainingTicks <= 0) this.resolveRound(player.currentHP === enemy.currentHP ? null : player.currentHP > enemy.currentHP ? 'PLAYER' : 'ENEMY', 'TIME_UP')
   }
 
-  getSnapshot(): MatchSnapshot { return { matchState: this.matchState, roundNumber: this.roundNumber, playerRoundWins: this.playerRoundWins, enemyRoundWins: this.enemyRoundWins, remainingTicks: this.remainingTicks, winner: this.winner, finishReason: this.finishReason, drawRetries: this.drawRetries, maxPlayerCombo: this.maxPlayerCombo, introPhase: this.introPhase(), world: this.world.getSnapshot() } }
-  private introPhase(): IntroPhase | undefined { return this.matchState === 'READY' && this.introRemaining > 0 ? (this.introRemaining > this.introRoundTicks + this.introReadyTicks ? 'OUTCOME' : this.introRemaining > this.introReadyTicks ? 'ROUND' : 'READY') : this.matchState === 'FIGHTING' && this.fightFlash > 0 ? 'FIGHT' : undefined }
+  getSnapshot(): MatchSnapshot { return { matchState: this.matchState, roundNumber: this.roundNumber, playerRoundWins: this.playerRoundWins, enemyRoundWins: this.enemyRoundWins, remainingTicks: this.remainingTicks, winner: this.winner, finishReason: this.finishReason, drawRetries: this.drawRetries, maxPlayerCombo: this.maxPlayerCombo, announce: this.announce(), world: this.world.getSnapshot() } }
+  private announce(): Announce | undefined {
+    if (this.matchState === 'ROUND_END' && this.intro) return this.roundSummaries.at(-1)?.finishReason === 'KO' ? 'KO' : 'TIME_UP'
+    return this.matchState === 'READY' && this.introRemaining > 0 ? (this.introRemaining > this.introRoundTicks + this.introReadyTicks ? 'OUTCOME' : this.introRemaining > this.introReadyTicks ? 'ROUND' : 'READY') : this.matchState === 'FIGHTING' && this.fightFlash > 0 ? 'FIGHT' : undefined
+  }
   getCompletedMatch(): CompletedMatch | undefined {
     if (this.matchState !== 'MATCH_END' || !this.finishReason) return undefined
     return { winner: this.winner ?? null, finishReason: this.finishReason, playerRoundWins: this.playerRoundWins, enemyRoundWins: this.enemyRoundWins, remainingPlayerHP: this.world.getFighter('PLAYER').currentHP, maxPlayerCombo: this.maxPlayerCombo }
@@ -77,7 +83,7 @@ export class MatchController {
   private resolveRound(roundWinner: FighterId | null, reason: FinishReason): void {
     const player = this.world.getFighter('PLAYER'); const enemy = this.world.getFighter('ENEMY')
     this.roundSummaries.push({ roundIndex: this.roundSummaries.length + 1, roundNumber: this.roundNumber, winner: roundWinner, finishReason: reason, playerHP: player.currentHP, enemyHP: enemy.currentHP, maxCombo: this.roundMaxCombo, durationTicks: this.world.getSnapshot().tick - this.roundStartTick })
-    this.matchState = 'ROUND_END'; this.roundWinner = roundWinner
+    this.matchState = 'ROUND_END'; this.roundWinner = roundWinner; this.callRemaining = this.intro ? ROUND_CALL_TICKS : 0
     if (roundWinner === null) { this.drawRetries += 1; if (this.drawRetries > 2) { this.winner = undefined; this.finishReason = 'DRAW'; this.matchState = 'MATCH_END' }; return }
     this.drawRetries = 0; if (roundWinner === 'PLAYER') this.playerRoundWins += 1; else this.enemyRoundWins += 1
     if (this.playerRoundWins >= 2 || this.enemyRoundWins >= 2) { this.winner = roundWinner; this.finishReason = reason; this.matchState = 'MATCH_END' }

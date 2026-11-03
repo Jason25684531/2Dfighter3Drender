@@ -1,4 +1,5 @@
 import { DEFAULT_COMBAT_CONFIG, NEUTRAL_INTENT as neutral, type CombatConfig, type CombatSnapshot, type FighterIntent } from '../combat/CombatWorld'
+import { ATTACK_ACTIONS } from '../input/ControlProfile'
 import { DEFAULT_AI_PROFILE, type AiProfile } from '../config/aiProfiles'
 
 // 難度與行為參數在 config/aiProfiles.ts。
@@ -25,10 +26,8 @@ export class EnemyAI {
   private guardedAttack = 0
   private guarding = false
   private readonly attackDistance: number
-  private readonly depthAlign: number
   constructor(config: CombatConfig = DEFAULT_COMBAT_CONFIG, private readonly profile: AiProfile = DEFAULT_AI_PROFILE) {
     this.attackDistance = config.attack.hitboxOffset + config.attack.hitboxWidth / 2 + config.fighterWidth / 2 - config.walkSpeed
-    this.depthAlign = (config.depth?.tolerance ?? Infinity) / 2
   }
   reset(): void {
     this.rng = mulberry32(AI_SEED); this.tickCount = 0; this.cooldown = 0; this.retreat = 0; this.committed = false; this.stance = 'HOLD'
@@ -41,7 +40,7 @@ export class EnemyAI {
     if (this.wasAttacking) { this.wasAttacking = false; this.retreat = p.retreatTicks }
     this.tickCount += 1
     if (this.cooldown > 0) this.cooldown -= 1
-    const dx = player.x - enemy.x, dist = Math.abs(dx), dir = Math.sign(dx) || 1, dz = player.z - enemy.z
+    const dx = player.x - enemy.x, dist = Math.abs(dx), dir = Math.sign(dx) || 1
     // 玩家出招：每一招只擲一次是否防禦。
     if (player.attackPhase !== 'NONE' && dist <= this.attackDistance + 60) {
       if (player.attackId !== this.guardedAttack) { this.guardedAttack = player.attackId; this.guarding = this.rng() < p.guardChance }
@@ -54,12 +53,11 @@ export class EnemyAI {
       else this.stance = stances[Math.floor(this.rng() * stances.length)]
     }
     if (this.committed) {
-      // 先對齊縱深再出招，否則打不到另一條縱深上的玩家。
-      const moveZ = Math.abs(dz) > this.depthAlign ? Math.sign(dz) : 0
-      if (dist > this.attackDistance || moveZ) return { ...neutral, moveX: dist > this.attackDistance ? dir : 0, moveZ }
+      if (dist > this.attackDistance) return { ...neutral, moveX: dir }
       if (this.cooldown > 0) return neutral
       this.committed = false; this.cooldown = p.attackCooldownTicks
-      return { ...neutral, attackPressed: true }
+      // 種類輪替只看 tick，不消耗 rng，出招時機與既有序列不變。
+      return { ...neutral, attackPressed: true, attack: ATTACK_ACTIONS[this.tickCount % ATTACK_ACTIONS.length] }
     }
     if (dist > this.attackDistance + p.spacingMax) return { ...neutral, moveX: dir }
     if (dist < this.attackDistance + p.spacingMin) return { ...neutral, moveX: -dir }

@@ -15,9 +15,10 @@ export type AiProfile = {
 }
 
 export const AI_PROFILES: Readonly<Record<AiProfileId, AiProfile>> = {
-  EASY: { id: 'EASY', spacingMin: 60, spacingMax: 260, aggression: 0.25, guardChance: 0.1, retreatTicks: 18, attackCooldownTicks: 24, decisionTicks: 16 },
-  NORMAL: { id: 'NORMAL', spacingMin: 40, spacingMax: 220, aggression: 0.45, guardChance: 0.3, retreatTicks: 10, attackCooldownTicks: 12, decisionTicks: 10 },
-  HARD: { id: 'HARD', spacingMin: 20, spacingMax: 160, aggression: 0.7, guardChance: 0.5, retreatTicks: 5, attackCooldownTicks: 6, decisionTicks: 6 },
+  // 2026-11-03 調降：防禦機率、撤退時間與間距帶都縮小，玩家較容易打中 NPC。
+  EASY: { id: 'EASY', spacingMin: 30, spacingMax: 180, aggression: 0.25, guardChance: 0.05, retreatTicks: 10, attackCooldownTicks: 24, decisionTicks: 16 },
+  NORMAL: { id: 'NORMAL', spacingMin: 20, spacingMax: 150, aggression: 0.45, guardChance: 0.15, retreatTicks: 6, attackCooldownTicks: 12, decisionTicks: 10 },
+  HARD: { id: 'HARD', spacingMin: 10, spacingMax: 120, aggression: 0.7, guardChance: 0.3, retreatTicks: 4, attackCooldownTicks: 6, decisionTicks: 6 },
 }
 export const AI_PROFILE_IDS: readonly AiProfileId[] = ['EASY', 'NORMAL', 'HARD']
 export const DEFAULT_AI_PROFILE: AiProfile = AI_PROFILES.NORMAL

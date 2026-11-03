@@ -50,16 +50,17 @@ describe('temporary sprite presentation', () => {
     const world = new CombatWorld(), fighter = world.getFighter('PLAYER'), before = JSON.stringify(world.getSnapshot())
     const attacking = { ...fighter, state: 'ATTACK' as const, attackPhase: 'ACTIVE' as const }, air = { ...attacking, grounded: false }
     const sheet = (f: typeof fighter, context?: Parameters<typeof resolvePresentation>[1]) => { const p = resolvePresentation(f, context); return [p, sheetUrl('body01', presentationSheet[p], sheetAnimations.find(a => a.key === presentationSheet[p])!.filename).split('/').at(-1)] }
-    expect(sheet(attacking, { attack: 'LIGHT_PUNCH' })).toEqual(['PUNCH_LIGHT', '08_Punch_Light.png'])
-    expect(sheet(air, { attack: 'LIGHT_PUNCH' })).toEqual(['PUNCH_AIR', '10_Punch_Jump.png'])
-    expect(sheet(attacking, { attack: 'LIGHT_PUNCH', crouch: true })).toEqual(['PUNCH_CROUCH', '11_Punch_Crouch.png'])
-    expect(sheet(attacking, { attack: 'HEAVY_PUNCH' })).toEqual(['PUNCH_HEAVY', '09_Punch_Heavy.png'])
-    expect(sheet(air, { attack: 'HEAVY_PUNCH' })[0]).toBe('PUNCH_AIR')
-    expect(sheet(attacking, { attack: 'LIGHT_KICK' })).toEqual(['KICK_LIGHT', '12_Kick_Light.png'])
-    expect(sheet(attacking, { attack: 'HEAVY_KICK' })).toEqual(['KICK_HEAVY', '13_Kick_Heavy.png'])
-    expect(sheet(air, { attack: 'HEAVY_KICK' })).toEqual(['KICK_AIR', '14_Kick_Jump.png'])
-    expect(sheet(attacking, { attack: 'HEAVY_KICK', crouch: true })).toEqual(['KICK_CROUCH', '15_Kick_Crounch.png'])
-    expect(resolvePresentation(attacking)).toBe('PUNCH_LIGHT') // CPU 沒有語意時沿用輕拳
+    expect(sheet({ ...attacking, attack: 'LIGHT_PUNCH' })).toEqual(['PUNCH_LIGHT', '08_Punch_Light.png'])
+    expect(sheet({ ...air, attack: 'LIGHT_PUNCH' })).toEqual(['PUNCH_AIR', '10_Punch_Jump.png'])
+    expect(sheet({ ...attacking, attack: 'LIGHT_PUNCH' }, { crouch: true })).toEqual(['PUNCH_CROUCH', '11_Punch_Crouch.png'])
+    expect(sheet({ ...attacking, attack: 'HEAVY_PUNCH' })).toEqual(['PUNCH_HEAVY', '09_Punch_Heavy.png'])
+    expect(sheet({ ...air, attack: 'HEAVY_PUNCH' })[0]).toBe('PUNCH_AIR')
+    expect(sheet({ ...attacking, attack: 'LIGHT_KICK' })).toEqual(['KICK_LIGHT', '12_Kick_Light.png'])
+    expect(sheet({ ...attacking, attack: 'HEAVY_KICK' })).toEqual(['KICK_HEAVY', '13_Kick_Heavy.png'])
+    expect(sheet({ ...air, attack: 'HEAVY_KICK' })).toEqual(['KICK_AIR', '14_Kick_Jump.png'])
+    expect(sheet({ ...attacking, attack: 'HEAVY_KICK' }, { crouch: true })).toEqual(['KICK_CROUCH', '15_Kick_Crounch.png'])
+    expect(resolvePresentation(attacking)).toBe('PUNCH_LIGHT') // 預設招式為輕拳
+    expect(resolvePresentation({ ...attacking, attack: 'HEAVY_KICK' })).toBe('KICK_HEAVY') // 敵方也直接讀快照
     expect([resolvePresentation({ ...fighter, state: 'GUARD' }), resolvePresentation({ ...fighter, state: 'HIT_STUN' }), resolvePresentation(fighter, { crouch: true }), resolvePresentation({ ...fighter, state: 'WALK' }, { crouch: true })]).toEqual(['BLOCK', 'PRONE', 'CROUCH', 'MOVE'])
     expect(JSON.stringify(world.getSnapshot())).toBe(before)
   })

@@ -1,12 +1,14 @@
-import type { MatchSnapshot } from '../match/MatchController'
+import type { MatchSnapshot, RoundSummary } from '../match/MatchController'
 import type { MatchResult, P6SubState } from '../match/ResultResolver'
 import type { LeaderboardEntry } from '../api/ApiTypes'
 import { testCharacterManifest, testStageManifest, type CharacterEntry, type StageId } from './assets/TestAssetManifest'
 
 export type P2StageSelectViewModel = { heading: string; stages: { id: StageId; label: string; url: string }[]; selectedStageId: StageId }
-export type P3LoadingViewModel = { character: CharacterEntry; playerName: string; enemyName: string; stage: string; progress: number; controls: string[] }
+export type P3LoadingViewModel = { character: CharacterEntry; playerName: string; enemyName: string; stage: string; progress: number }
 export type BattleViewModel = { stageId: StageId; playerName: string; enemyName: string; playerHp: number; enemyHp: number; maxHp: number; timerSeconds: number; round: number; playerWins: number; enemyWins: number; combo: number; danger: boolean; lastTenSeconds: boolean; player: MatchSnapshot['world']['fighters']['PLAYER']; enemy: MatchSnapshot['world']['fighters']['ENEMY'] }
-export type PresentationViewModel = { headline: string; outcome: string; result?: 'WIN' | 'LOSE' | 'DRAW' }
+export type AnnouncerTone = 'system' | 'player' | 'enemy' | 'danger' | 'gold'
+/** big：K.O.／TIME UP 用最大字級。 */
+export type Announcement = { text: string; sub?: string; tone: AnnouncerTone; big?: boolean }
 export type ResultStatistic = { label: string; value: string | number }
 export type ResultRow = { rank: number; name: string; score: number; highlighted?: boolean }
 export type ResultViewModel = { outcome: string; headline: string; title: string; score: number; rank: number | null; substate: P6SubState; statistics: ResultStatistic[]; ranking: ResultRow[]; newRecord: boolean }
@@ -16,7 +18,7 @@ export type EndViewModel = { nextPlayerName?: string; nextPlayerLabel?: string }
 
 export const stageSelectViewModel = (selectedStageId: StageId = 'laboratory'): P2StageSelectViewModel => ({ heading: 'SELECT STAGE', stages: Object.values(testStageManifest), selectedStageId })
 
-export const loadingViewModel = (character: CharacterEntry = testCharacterManifest.presetA, enemyName = 'ROG_SAGA', stage = 'LABORATORY', progress = 1, playerName = character.displayName): P3LoadingViewModel => ({ character, playerName, enemyName, stage, progress: Math.max(0, Math.min(1, progress)), controls: ['MOVE', 'JUMP', 'PUNCH', 'KICK', 'GUARD'] })
+export const loadingViewModel = (character: CharacterEntry = testCharacterManifest.presetA, enemyName = 'ROG_SAGA', stage = 'LABORATORY', progress = 1, playerName = character.displayName): P3LoadingViewModel => ({ character, playerName, enemyName, stage, progress: Math.max(0, Math.min(1, progress)) })
 
 export const battleViewModel = (snapshot: MatchSnapshot, stageId: StageId, playerName = 'ROG_Player', enemyName = 'ROG_SAGA'): BattleViewModel => {
   const player = snapshot.world.fighters.PLAYER; const enemy = snapshot.world.fighters.ENEMY; const maxHp = 100
@@ -30,10 +32,20 @@ export const resultViewModel = (result: MatchResult, rank: number | null, substa
   return { outcome: result.outcome, headline: result.outcome === 'WIN' ? 'YOU WIN!' : result.outcome === 'LOSE' ? 'YOU LOSE!' : 'DRAW!', title: result.title, score: result.score, rank, substate, newRecord: rank === 1, statistics: [{ label: 'MAX COMBO', value: result.maxPlayerCombo }, { label: 'PLAYER HP', value: result.remainingPlayerHP }, { label: 'ROUNDS WON', value: result.playerRoundWins }], ranking }
 }
 
-export const presentationViewModel = (result?: MatchResult): PresentationViewModel => {
-  if (!result) return { headline: '', outcome: '' }
-  return { headline: result.finishReason === 'TIME_UP' ? 'TIME UP' : result.finishReason === 'DRAW' ? 'DRAW' : 'K.O.', outcome: result.outcome === 'WIN' ? 'YOU WIN!' : result.outcome === 'LOSE' ? 'YOU LOSE!' : 'DRAW!', result: result.outcome }
+const outcomeOf = (winner: 'PLAYER' | 'ENEMY' | null | undefined): Announcement => winner === 'PLAYER' ? { text: 'YOU WIN', tone: 'player' } : winner === 'ENEMY' ? { text: 'YOU LOSE', tone: 'enemy' } : { text: 'DRAW', tone: 'system' }
+const CALLS: Record<'KO' | 'TIME_UP' | 'DRAW', Announcement> = { KO: { text: 'K.O.', tone: 'danger', big: true }, TIME_UP: { text: 'TIME UP', tone: 'gold', big: true }, DRAW: { text: 'DRAW', tone: 'system', big: true } }
+
+/** P4 播報：只讀 MatchController 快照；OUTCOME 讀上一回合摘要。 */
+export const battleAnnouncement = ({ announce, roundNumber }: MatchSnapshot, lastRound?: RoundSummary): Announcement | undefined => {
+  if (announce === 'KO' || announce === 'TIME_UP') return CALLS[announce]
+  if (announce === 'OUTCOME') return { ...outcomeOf(lastRound?.winner), sub: `ROUND ${lastRound?.roundNumber}` }
+  if (announce === 'ROUND') return { text: `ROUND ${roundNumber}`, tone: 'system' }
+  if (announce === 'READY') return { text: 'READY?', tone: 'system' }
+  if (announce === 'FIGHT') return { text: 'FIGHT!', tone: 'player' }
+  return undefined
 }
+/** P5 播報：結束方式（大字）＋勝負。 */
+export const finishAnnouncements = (result: MatchResult): [Announcement, Announcement] => [CALLS[result.finishReason], outcomeOf(result.outcome === 'WIN' ? 'PLAYER' : result.outcome === 'LOSE' ? 'ENEMY' : null)]
 
 export const endViewModel = (nextPlayerName?: string): EndViewModel => ({ nextPlayerName: nextPlayerName || undefined, nextPlayerLabel: nextPlayerName ? `NEXT  /  ${nextPlayerName}` : undefined })
 

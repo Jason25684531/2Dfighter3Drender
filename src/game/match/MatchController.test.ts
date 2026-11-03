@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CombatWorld, type CombatConfig, type FighterIntent } from '../combat/CombatWorld'
 import { EnemyAI } from './EnemyAI'
-import { INTRO_FIGHT_TICKS, INTRO_OUTCOME_TICKS, INTRO_READY_TICKS, INTRO_ROUND_TICKS, MatchController, p4SubStateFor, ROUND_TICKS } from './MatchController'
+import { INTRO_FIGHT_TICKS, INTRO_OUTCOME_TICKS, INTRO_READY_TICKS, INTRO_ROUND_TICKS, MatchController, ROUND_CALL_TICKS, p4SubStateFor, ROUND_TICKS } from './MatchController'
 import { FIXED_STEP_MS, GameClock } from '../time/GameClock'
 import { resolveMatchResult } from './ResultResolver'
 
@@ -77,13 +77,13 @@ describe('EnemyAI and MatchController', () => {
 
 describe('MatchController round intro', () => {
   const press: FighterIntent = { ...neutral, attackPressed: true }
-  const phases = (match: MatchController, ticks: number): (string | undefined)[] => Array.from({ length: ticks }, () => { match.tick(); return match.getSnapshot().introPhase })
+  const phases = (match: MatchController, ticks: number): (string | undefined)[] => Array.from({ length: ticks }, () => { match.tick(); return match.getSnapshot().announce })
 
   it('freezes the first round through ROUND then READY, then shows FIGHT while fighting', () => {
     const match = new MatchController(closeConfig(100), { intro: true }); match.ai.getIntent = () => neutral; match.start()
     const seen = phases(match, INTRO_ROUND_TICKS.first + INTRO_READY_TICKS + 2)
     expect(seen[0]).toBe('ROUND'); expect(seen[INTRO_ROUND_TICKS.first - 1]).toBe('READY'); expect(match.getSnapshot().matchState).toBe('FIGHTING')
-    expect(match.getSnapshot().remainingTicks).toBeGreaterThan(ROUND_TICKS - 3); expect(match.getSnapshot().introPhase).toBe('FIGHT')
+    expect(match.getSnapshot().remainingTicks).toBeGreaterThan(ROUND_TICKS - 3); expect(match.getSnapshot().announce).toBe('FIGHT')
   })
 
   it('drops input pressed during the intro', () => {
@@ -96,14 +96,28 @@ describe('MatchController round intro', () => {
     const match = new MatchController(closeConfig(100), { intro: true }); match.ai.getIntent = () => neutral; match.start()
     phases(match, INTRO_ROUND_TICKS.first + INTRO_READY_TICKS + INTRO_FIGHT_TICKS)
     for (let i = 0; i < 400 && match.getSnapshot().matchState !== 'ROUND_END'; i += 1) match.tick(press)
-    expect(match.getSnapshot().matchState).toBe('ROUND_END'); match.tick()
+    expect(match.getSnapshot().matchState).toBe('ROUND_END'); expect(match.getSnapshot().announce).toBe('KO')
+    const held = match.getSnapshot().world
+    const calls = Array.from({ length: ROUND_CALL_TICKS }, () => { match.tick(press); return match.getSnapshot() })
+    expect(calls.every((snap) => snap.matchState === 'ROUND_END' && snap.announce === 'KO')).toBe(true)
+    expect(calls.at(-1)?.world).toEqual(held) // 停留期間不推進模擬
+    match.tick()
     expect(match.getRoundSummaries().at(-1)?.winner).toBe('PLAYER')
     const seen = phases(match, INTRO_OUTCOME_TICKS + INTRO_ROUND_TICKS.later)
     expect(seen[0]).toBe('OUTCOME'); expect(seen[INTRO_OUTCOME_TICKS - 2]).toBe('OUTCOME'); expect(seen[INTRO_OUTCOME_TICKS]).toBe('ROUND'); expect(seen).not.toContain('READY')
     expect(match.getSnapshot().matchState).toBe('FIGHTING'); expect(match.getSnapshot().remainingTicks).toBe(ROUND_TICKS)
   })
 
+  it('calls TIME UP after a timed-out round and does not hold after the final round', () => {
+    const match = new MatchController(closeConfig(100), { intro: true }); match.ai.getIntent = () => neutral; match.start()
+    for (let i = 0; i < 5000 && match.getSnapshot().matchState !== 'ROUND_END'; i += 1) match.tick()
+    expect(match.getSnapshot().announce).toBe('TIME_UP')
+    const fast = new MatchController(closeConfig(100), { intro: true }); fast.ai.getIntent = () => neutral; fast.start()
+    for (let i = 0; i < 5000 && fast.getSnapshot().matchState !== 'MATCH_END'; i += 1) fast.tick(press)
+    expect(fast.getSnapshot().matchState).toBe('MATCH_END'); expect(fast.getSnapshot().announce).toBeUndefined()
+  })
+
   it('has no intro unless enabled', () => {
-    const match = new MatchController(closeConfig(100)); match.start(); expect(match.getSnapshot().matchState).toBe('FIGHTING'); expect(match.getSnapshot().introPhase).toBeUndefined()
+    const match = new MatchController(closeConfig(100)); match.start(); expect(match.getSnapshot().matchState).toBe('FIGHTING'); expect(match.getSnapshot().announce).toBeUndefined()
   })
 })

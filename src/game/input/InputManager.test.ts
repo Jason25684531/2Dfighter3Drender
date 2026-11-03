@@ -1,3 +1,4 @@
+import { intentFromInput } from '../combat/CombatWorld'
 import { describe, expect, it, vi } from 'vitest'
 import { AppState } from '../state/AppState'
 import { AppStateMachine } from '../state/AppStateMachine'
@@ -26,7 +27,7 @@ describe('InputManager', () => {
     const blur = target.addEventListener.mock.calls.find(([type]) => type === 'blur')![1]
     input.handleKeyDown('KeyD'); input.handleKeyDown('KeyF'); input.handleKeyDown('Enter'); input.update()
     blur(); input.update()
-    expect(input.consumeGameplaySnapshot()).toMatchObject({ moveX: 0, attackPressed: false, attackHeld: false })
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ moveX: 0, attackPressed: false })
     expect(input.getActionState('LIGHT_PUNCH')).toEqual({ pressed: false, held: false, released: true })
     expect(input.consumeUiActions()).toEqual([])
     input.handleKeyDown('KeyF'); input.update()
@@ -44,7 +45,7 @@ describe('InputManager', () => {
     input.update([pad]); input.consumeGameplaySnapshot(); input.consumeUiActions()
     target.addEventListener.mock.calls.find(([type]) => type === 'blur')![1]()
     input.update([pad])
-    expect(input.consumeGameplaySnapshot()).toMatchObject({ jumpPressed: false, jumpHeld: true })
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ jumpPressed: false })
     expect(input.consumeUiActions()).toEqual([])
   })
 
@@ -60,8 +61,8 @@ describe('InputManager', () => {
   it('buffers a complete attack press between ticks and consumes it once', () => {
     const input = new InputManager()
     input.handleKeyDown('KeyF'); input.handleKeyUp('KeyF'); input.update()
-    expect(input.consumeGameplaySnapshot()).toMatchObject({ attackPressed: true, attackHeld: false })
-    expect(input.consumeGameplaySnapshot()).toMatchObject({ attackPressed: false, attackHeld: false })
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ attackPressed: true })
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ attackPressed: false })
   })
 
   it('normalizes gamepad inputs, deadzones analog, and merges devices deterministically', () => {
@@ -97,15 +98,14 @@ describe('InputManager', () => {
     const custom = new InputManager({ owners: { P1: { CONFIRM: ['Space'] } } }); custom.handleKeyDown('Space'); custom.handleKeyDown('KeyJ')
     expect(custom.consumeOwnedUiActions()).toEqual([{ owner: 'P1', action: 'CONFIRM' }])
   })
-  it('maps default P1 combat keys (WASD / Space X / F U G I / Esc) to semantic actions only', () => {
+  it('maps default P1 combat keys (A D / W jump / S crouch / F U G I / Esc) to semantic actions only', () => {
     const input = new InputManager()
     const tap = (code: string) => { input.handleKeyDown(code); input.update(); const snapshot = input.consumeGameplaySnapshot(); input.handleKeyUp(code); input.update(); return snapshot }
     expect(tap('KeyF')).toMatchObject({ attackPressed: true, attack: 'LIGHT_PUNCH' })
     expect(tap('KeyU').attack).toBe('HEAVY_PUNCH'); expect(tap('KeyG').attack).toBe('LIGHT_KICK'); expect(tap('KeyI').attack).toBe('HEAVY_KICK')
-    expect(tap('Space')).toMatchObject({ jumpPressed: true, attackPressed: false })
-    input.handleKeyDown('KeyX'); input.update(); expect(input.consumeGameplaySnapshot().crouchHeld).toBe(true); input.handleKeyUp('KeyX')
-    // W/S 是縱深，不是跳／蹲。
-    expect(tap('KeyW')).toMatchObject({ moveZ: 1, jumpPressed: false }); expect(tap('KeyS')).toMatchObject({ moveZ: -1, crouchHeld: false })
+    expect(tap('KeyW')).toMatchObject({ jumpPressed: true, attackPressed: false }); expect(tap('KeyW')).not.toHaveProperty('moveZ')
+    input.handleKeyDown('KeyS'); input.update(); expect(input.consumeGameplaySnapshot().crouchHeld).toBe(true); input.handleKeyUp('KeyS'); input.update()
+    expect(intentFromInput(tap('KeyI'))).toMatchObject({ attackPressed: true, attack: 'HEAVY_KICK' })
     input.handleKeyDown('Escape'); input.update(); expect(input.consumePause()).toBe(true); expect(input.consumePause()).toBe(false)
     // 戰鬥鍵不是選單鍵：F 不會變成 CONFIRM。
     input.consumeUiActions(); input.handleKeyDown('KeyF'); input.update(); expect(input.consumeUiActions()).toEqual([])

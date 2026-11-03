@@ -8,14 +8,14 @@ const cfg = DEFAULT_COMBAT_CONFIG
 const attackDistance = cfg.attack.hitboxOffset + cfg.attack.hitboxWidth / 2 + cfg.fighterWidth / 2 - cfg.walkSpeed
 
 // 玩家靜止，敵人用 profile 跑 ticks；回傳攻擊起手 tick 與「在攻擊距離外」的 tick 數。
-const simulate = (profile: AiProfile, ticks = 600): { attacks: number[]; far: number } => {
-  const world = new CombatWorld(); const ai = new EnemyAI(cfg, profile); const attacks: number[] = []; let far = 0, t = 0
-  world.subscribe((event) => { if (event.type === 'ATTACK_STARTED' && event.attacker === 'ENEMY') attacks.push(t) })
+const simulate = (profile: AiProfile, ticks = 600): { attacks: number[]; kinds: string[]; far: number } => {
+  const world = new CombatWorld(); const ai = new EnemyAI(cfg, profile); const attacks: number[] = [], kinds: string[] = []; let far = 0, t = 0
+  world.subscribe((event) => { if (event.type === 'ATTACK_STARTED' && event.attacker === 'ENEMY') { attacks.push(t); kinds.push(event.attack) } })
   for (t = 1; t <= ticks; t += 1) {
     const snap = world.getSnapshot(); if (Math.abs(snap.fighters.PLAYER.x - snap.fighters.ENEMY.x) > attackDistance) far += 1
     world.tick(neutral, ai.getIntent(snap))
   }
-  return { attacks, far }
+  return { attacks, kinds, far }
 }
 
 describe('EnemyAI profiles', () => {
@@ -41,6 +41,11 @@ describe('EnemyAI profiles', () => {
     const world = new CombatWorld(); const snaps = Array.from({ length: 80 }, () => world.getSnapshot())
     const run = (ai: EnemyAI): FighterIntent[] => snaps.map((snap) => ai.getIntent(snap))
     const a = new EnemyAI(); const first = run(a); expect(run(new EnemyAI())).toEqual(first); a.reset(); expect(run(a)).toEqual(first)
+  })
+
+  it('varies attack kinds deterministically', () => {
+    const a = simulate(AI_PROFILES.HARD), b = simulate(AI_PROFILES.HARD)
+    expect(new Set(a.kinds).size).toBeGreaterThan(1); expect(a.kinds).toEqual(b.kinds); expect(a.attacks).toEqual(b.attacks)
   })
 
   it('returns a neutral intent while stunned or attacking', () => {

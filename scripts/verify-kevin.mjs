@@ -60,7 +60,7 @@ try {
     return { results, nextFrame: Number(renderer.image.frame.name), facing: renderer.scaleX, unchanged: before === JSON.stringify(s.flow.match.getSnapshot()) }
   })
   assert.deepEqual(projections.results.map(item => item.key), ['kevin-idle', 'kevin-walk', 'kevin-jump', 'kevin-guard', 'kevin-prone', 'kevin-attack'])
-  assert(projections.results.every(item => item.size === 128)); assert.equal(projections.nextFrame, 1); assert.ok(projections.facing < 0) // 縱深縮放使 |scaleX| < 1; assert(projections.unchanged)
+  assert(projections.results.every(item => item.size === 128)); assert.equal(projections.nextFrame, 1); assert.equal(projections.facing, -1); assert(projections.unchanged) // 無縱深縮放，只鏡像
   await key('Escape'); await page.keyboard.down('k') // K＝防禦
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').battlePlayer.image.texture.key === 'kevin-guard')
   await page.screenshot({ path: `${out}/battle.png` })

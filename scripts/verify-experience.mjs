@@ -74,9 +74,10 @@ try {
   assert.equal(await s(s => s.p1Model.phase), 'PROCESSING')
   assert.equal(await s(s => s.p1View.media), undefined, '離開 Capture 後 webcam 已釋放')
   check('Retake 重新開啟相機；Confirm 進 Mock Processing，相機 track 已停止')
-  await waitState('P2', 10000)
-  // 1P：選對手 → NEXT → 選場景 → CONFIRM
-  await key('Enter'); await key('Enter'); await key('Enter'); await key('Enter'); await waitState('P3')
+  // 1P：拍照完成後在同頁選對手 → 難度，再到 P2 選場景 → CONFIRM
+  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').p1Model?.phase === 'OPPONENT', null, { timeout: 10000 })
+  await key('j'); await key('j'); await waitState('P2', 10000)
+  await key('Enter'); await key('Enter'); await waitState('P3')
   assert.equal(await s(s => s.playerSpriteId()), 'body01')
   await key('Enter'); await waitState('P4')
   assert.match(await s(s => s.battlePlayer.image.texture.key), /^body01-/)

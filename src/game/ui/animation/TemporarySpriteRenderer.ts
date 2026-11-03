@@ -4,10 +4,6 @@ import { fighterSilhouette } from '../VisualComponents'
 import { uiTokens } from '../tokens/uiTokens'
 import { presentationSheet, resolvePresentation, spriteActionFor, spriteDisplayHeight, spriteFrameFor, spriteOriginY, spriteTextureFrame, spriteTextureKey, type Presentation, type PresentationContext, type SpriteAction, type SpriteId } from './TemporarySpriteManifest'
 import { isSheetSprite } from './SheetSpriteManifest'
-import { STAGE_TUNING } from '../../config/stageTuning'
-
-// 2.5D 抬升／縮放比例在 config/stageTuning.ts 調整。
-const { rise: DEPTH_RISE, shrink: DEPTH_SHRINK } = STAGE_TUNING.depth
 
 export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private readonly shadow: Phaser.GameObjects.Ellipse
@@ -19,9 +15,8 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private actionStartTick = 0
   private attackId = 0
   private lastTick?: number
-  // y＝畫面上的身體位置（含縱深抬升），ground＝影子所在地面，scale＝縱深縮放。
-  private previousPosition = { x: 0, y: 0, ground: 0, scale: 1 }
-  private currentPosition = { x: 0, y: 0, ground: 0, scale: 1 }
+  private previousPosition = { x: 0, y: 0 }
+  private currentPosition = { x: 0, y: 0 }
   private direction = 1
 
   constructor(scene: Phaser.Scene, private readonly spriteId: SpriteId | undefined, fallbackColor: number, private readonly floorY: number) {
@@ -40,7 +35,7 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   }
 
   update(fighter: FighterSnapshot, tick: number, context?: PresentationContext): void {
-    const rise = fighter.z * DEPTH_RISE, position = { x: fighter.x, y: fighter.y - rise, ground: this.floorY - rise, scale: 1 - fighter.z * DEPTH_SHRINK }
+    const position = { x: fighter.x, y: fighter.y }
     this.previousPosition = tick === (this.lastTick ?? -2) + 1 ? this.currentPosition : position
     this.currentPosition = position; this.lastTick = tick; this.direction = fighter.facing === 'LEFT' ? -1 : 1
     this.renderAt(1)
@@ -59,8 +54,7 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
 
   renderAt(alpha: number): void {
     const lerp = (key: keyof typeof this.currentPosition): number => this.previousPosition[key] + (this.currentPosition[key] - this.previousPosition[key]) * alpha
-    const scale = lerp('scale')
-    this.setPosition(lerp('x'), lerp('y')); this.setScale(this.direction * scale, scale)
-    this.shadow.setY((lerp('ground') - this.y) / scale + 5)
+    this.setPosition(lerp('x'), lerp('y')); this.setScale(this.direction, 1)
+    this.shadow.setY(this.floorY - this.y + 5)
   }
 }

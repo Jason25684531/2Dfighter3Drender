@@ -5,8 +5,8 @@ import { colorHex, uiTokens } from '../tokens/uiTokens'
 import { typography } from '../tokens/typography'
 
 const { colors } = uiTokens
-// 分組間距：移動（含縱深）／跳蹲／拳／腳／防禦與暫停。
-const rowY = (i: number): number => 200 + i * 52 + [4, 6, 8, 10, RESET_ROW].filter((start) => i >= start).length * 14
+// 分組間距：移動／跳蹲／拳／腳／防禦與暫停。
+const rowY = (i: number): number => 200 + i * 52 + [2, 4, 6, 8, RESET_ROW].filter((start) => i >= start).length * 14
 
 /** P1 操作設定面板；開啟期間獨占鍵盤（capture），按鍵不會流到 InputManager 或 Phaser。 */
 export class ControlsPanel {
