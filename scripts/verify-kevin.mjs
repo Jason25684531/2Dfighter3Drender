@@ -38,7 +38,7 @@ try {
   frames.slice(1).forEach((frame, i) => assert.equal(frame, (frames[i] + 1) % 16))
   await page.screenshot({ path: `${out}/select.png` })
   check('Slot 08 selects KEVIN; Hero idle plays every frame in order')
-  await key('Enter'); await key('ArrowRight'); await key('ArrowRight'); await key('Enter'); await key('j')
+  await key('Enter'); await key('ArrowRight'); await key('ArrowRight'); await key('Enter'); await key('f')
   await waitState('P2'); await key('Enter'); await waitState('P3')
   assert.deepEqual(await scene(s => [s.playerSpriteId(), s.enemySpriteId()]), ['kevin', 'kevin'])
   const previews = await scene(s => s.screen.list.filter(child => child.texture?.key === 'kevin-idle').map(image => ({ playing: image.anims.isPlaying, width: image.frame.width, flipped: image.flipX })))

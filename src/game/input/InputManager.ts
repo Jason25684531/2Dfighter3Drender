@@ -13,6 +13,7 @@ export type InputSnapshot = {
   attack?: AttackAction
   // 蹲只供呈現解析，Combat 沒有蹲。
   crouchHeld: boolean
+  guardHeld: boolean
 }
 
 export type InputState = { pressed: boolean; held: boolean; released: boolean }
@@ -40,10 +41,10 @@ const defaults: Record<InputAction, readonly string[]> = {
   CONFIRM: ['Enter'], BACK: ['Escape'], OPEN_MENU: ['KeyM'],
   ...combatKeys(DEFAULT_KEYBOARD_BINDINGS.P1),
 }
-/** 1P 選單鍵跟著自訂戰鬥鍵：跳／蹲／左右＝上下左右；確認／返回固定 J／K，被方向鍵佔用時改用輕拳／重拳鍵。 */
+/** 1P 選單鍵跟著自訂戰鬥鍵：跳／蹲／左右＝上下左右；確認＝輕拳（攻擊）鍵；返回固定 K，K 已被佔用時改用重拳鍵。 */
 export const p1MenuKeys = (b: Bindings): OwnerKeys => {
-  const directions = [b.JUMP, b.CROUCH, b.MOVE_LEFT, b.MOVE_RIGHT]
-  return { NAV_UP: [b.JUMP], NAV_DOWN: [b.CROUCH], NAV_LEFT: [b.MOVE_LEFT], NAV_RIGHT: [b.MOVE_RIGHT], CONFIRM: [directions.includes('KeyJ') ? b.LIGHT_PUNCH : 'KeyJ'], BACK: [directions.includes('KeyK') ? b.HEAVY_PUNCH : 'KeyK'] }
+  const taken = [b.JUMP, b.CROUCH, b.MOVE_LEFT, b.MOVE_RIGHT, b.LIGHT_PUNCH]
+  return { NAV_UP: [b.JUMP], NAV_DOWN: [b.CROUCH], NAV_LEFT: [b.MOVE_LEFT], NAV_RIGHT: [b.MOVE_RIGHT], CONFIRM: [b.LIGHT_PUNCH], BACK: [taken.includes('KeyK') ? b.HEAVY_PUNCH : 'KeyK'] }
 }
 // P1 選角的雙玩家鍵位；與上方未標記鍵位並存，不取代任何既有行為。
 export const DEFAULT_OWNER_KEYS: Record<PlayerSlotId, OwnerKeys> = {
@@ -52,7 +53,7 @@ export const DEFAULT_OWNER_KEYS: Record<PlayerSlotId, OwnerKeys> = {
 }
 const defaultGamepad: Record<InputAction, readonly number[]> = {
   NAV_UP: [12], NAV_DOWN: [13], NAV_LEFT: [14], NAV_RIGHT: [15], CONFIRM: [0], BACK: [1], OPEN_MENU: [9],
-  MOVE_LEFT: [14], MOVE_RIGHT: [15], JUMP: [12], CROUCH: [13], LIGHT_PUNCH: [2], HEAVY_PUNCH: [3], LIGHT_KICK: [0], HEAVY_KICK: [1], PAUSE: [9],
+  MOVE_LEFT: [14], MOVE_RIGHT: [15], JUMP: [12], CROUCH: [13], LIGHT_PUNCH: [2], HEAVY_PUNCH: [3], LIGHT_KICK: [0], HEAVY_KICK: [1], GUARD: [5], PAUSE: [9],
 }
 
 const isUi = (action: InputAction): action is UIAction => (UI_ACTIONS as readonly string[]).includes(action)
@@ -160,6 +161,6 @@ export class InputManager {
   consumeGameplaySnapshot(): InputSnapshot {
     const pressed = (action: GameplayAction): boolean => this.pendingGameplay.delete(action)
     const jumpPressed = pressed('JUMP'), attack = ATTACK_ACTIONS.filter(pressed)[0]
-    return { moveX: this.lastMoveX, jumpPressed, attackPressed: Boolean(attack), attack, crouchHeld: this.getActionState('CROUCH').held }
+    return { moveX: this.lastMoveX, jumpPressed, attackPressed: Boolean(attack), attack, crouchHeld: this.getActionState('CROUCH').held, guardHeld: this.getActionState('GUARD').held }
   }
 }

@@ -1,12 +1,13 @@
 import Phaser from 'phaser'
 import { actionLabel, COMBAT_ACTIONS, combinationRows, keyLabel, RESET_ROW, type ControlsEditor } from '../../input/ControlProfile'
+import { p1MenuKeys } from '../../input/InputManager'
 import { ActionButton, AngularPanel } from '../VisualComponents'
 import { colorHex, uiTokens } from '../tokens/uiTokens'
 import { typography } from '../tokens/typography'
 
 const { colors } = uiTokens
 // 分組間距：移動／跳蹲／拳／腳／防禦與暫停。
-const rowY = (i: number): number => 200 + i * 52 + [2, 4, 6, 8, RESET_ROW].filter((start) => i >= start).length * 14
+const rowY = (i: number): number => 200 + i * 48 + [2, 4, 6, 8, RESET_ROW].filter((start) => i >= start).length * 14
 
 /** P1 操作設定面板；開啟期間獨占鍵盤（capture），按鍵不會流到 InputManager 或 Phaser。 */
 export class ControlsPanel {
@@ -14,6 +15,7 @@ export class ControlsPanel {
   private readonly rows: Array<{ focus: Phaser.GameObjects.Rectangle; key: Phaser.GameObjects.Text }> = []
   private readonly message: Phaser.GameObjects.Text
   private readonly combos: Phaser.GameObjects.Text[]
+  private readonly hint: Phaser.GameObjects.Text
   private dialog?: Phaser.GameObjects.Container
 
   constructor(private readonly scene: Phaser.Scene, private readonly editor: ControlsEditor, private readonly onClose: () => void) {
@@ -30,10 +32,11 @@ export class ControlsPanel {
       this.root.add([focus, name, key]); this.rows.push({ focus, key })
     })
     // 組合操作：唯讀，隨綁定更新。
-    this.combos = [0, 1, 2].map((i) => scene.add.text(560, 790 + i * 40, '', { ...typography.note, color: colorHex('textSecondary') }).setOrigin(0, 0.5))
+    this.combos = [0, 1, 2].map((i) => scene.add.text(560, 805 + i * 40, '', { ...typography.note, color: colorHex('textSecondary') }).setOrigin(0, 0.5))
     this.root.add(this.combos)
     this.message = scene.add.text(960, 960, '', { ...typography.instruction, color: colorHex('resultGold') }).setOrigin(0.5)
-    this.root.add([this.message, scene.add.text(960, 1030, '↑↓ / W S 選擇 · ENTER / J 改鍵 · ESC / K 返回', typography.note).setOrigin(0.5)])
+    this.hint = scene.add.text(960, 1030, '', typography.note).setOrigin(0.5)
+    this.root.add([this.message, this.hint])
     window.addEventListener('keydown', this.onKey, true)
     this.sync()
   }
@@ -44,12 +47,14 @@ export class ControlsPanel {
     event.preventDefault(); event.stopPropagation()
     if (event.repeat) return
     const { editor } = this, code = event.code, dialog = editor.state === 'CONFLICT' || editor.state === 'CONFIRM_RESET'
+    // 選單鍵跟著目前（含剛改的）鍵位，與其他畫面同一規則。
+    const k = p1MenuKeys(editor.bindings), is = (...codes: (readonly string[] | undefined)[]): boolean => codes.some((list) => list?.includes(code))
     if (editor.state === 'LISTENING_FOR_KEY') editor.capture(code)
-    else if (['ArrowUp', 'KeyW'].includes(code) && !dialog) editor.move(-1)
-    else if (['ArrowDown', 'KeyS'].includes(code) && !dialog) editor.move(1)
-    else if (['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD'].includes(code) && dialog) editor.move(1)
-    else if (['Enter', 'KeyJ', 'Space'].includes(code)) editor.activate()
-    else if (['Escape', 'KeyK', 'Backspace'].includes(code) && editor.back()) { this.onClose(); return }
+    else if (is(['ArrowUp'], k.NAV_UP) && !dialog) editor.move(-1)
+    else if (is(['ArrowDown'], k.NAV_DOWN) && !dialog) editor.move(1)
+    else if (is(['ArrowLeft', 'ArrowRight'], k.NAV_LEFT, k.NAV_RIGHT) && dialog) editor.move(1)
+    else if (is(['Enter', 'Space'], k.CONFIRM)) editor.activate()
+    else if (is(['Escape', 'Backspace'], k.BACK) && editor.back()) { this.onClose(); return }
     this.sync()
   }
 
@@ -60,6 +65,8 @@ export class ControlsPanel {
       focus.setVisible(editor.focus === i)
       key.setText(i === RESET_ROW ? '' : listening ? 'PRESS A KEY...' : `[ ${keyLabel(editor.bindings[COMBAT_ACTIONS[i]])} ]`).setColor(colorHex(listening ? 'resultGold' : 'textPrimary'))
     })
+    const k = p1MenuKeys(editor.bindings), label = (codes?: readonly string[]): string => keyLabel(codes?.[0] ?? '')
+    this.hint.setText(`↑↓ / ${label(k.NAV_UP)} ${label(k.NAV_DOWN)} 選擇 · ENTER / ${label(k.CONFIRM)} 改鍵 · ESC / ${label(k.BACK)} 返回`)
     combinationRows(editor.bindings).forEach(({ label, keys }, i) => this.combos[i].setText(`${label}　${keys}`))
     this.message.setText(editor.state === 'CONFIRM_RESET' ? '' : editor.message)
     this.dialog?.destroy(true); this.dialog = undefined

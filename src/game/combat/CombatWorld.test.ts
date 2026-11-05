@@ -209,24 +209,42 @@ describe('CombatWorld', () => {
     expect(types).toEqual(['ATTACK_STARTED', 'HIT', 'BLOCK']); expect(world.getFighter('ENEMY').currentHP).toBe(100)
   })
 
-  it('knocks down on heavy hits and the third combo hit, then wakes up invulnerable', () => {
+  it('blocks with the held guard button even while pressing forward, standing still in GUARD', () => {
+    const world = new CombatWorld(closeConfig()), types: string[] = []
+    world.subscribe((event) => types.push(event.type))
+    tick(world) // 先讓推擠把兩人分開
+    const x = world.getFighter('ENEMY').x
+    tick(world, neutral, { ...neutral, guard: true, moveX: -1 })
+    expect(world.getFighter('ENEMY')).toMatchObject({ state: 'GUARD', x })
+    tick(world, { ...neutral, attackPressed: true }, { ...neutral, guard: true, moveX: -1 })
+    for (let i = 0; i < 6; i += 1) tick(world, neutral, { ...neutral, guard: true, moveX: -1 })
+    expect(types).toContain('BLOCK'); expect(world.getFighter('ENEMY').currentHP).toBe(100)
+  })
+
+  it('knocks down on the 2nd heavy or 3rd light hit (counted separately), then wakes up invulnerable', () => {
     const config = closeConfig(), world = new CombatWorld({ ...config, attack: { ...config.attack, hitStunTicks: 20 } }), types: string[] = []
     world.subscribe((e) => types.push(e.type))
     const swing = (attack?: 'HEAVY_PUNCH'): void => { tick(world, { ...neutral, attackPressed: true, attack }); while (world.getFighter('PLAYER').attackPhase !== 'NONE') tick(world) }
-    swing(); swing()
+    expect(KNOCKDOWN.downTicks).toBe(12)
+    swing('HEAVY_PUNCH'); swing(); swing()
+    expect(world.getFighter('ENEMY').state).toBe('HIT_STUN')
     expect(world.getFighter('ENEMY').state).toBe('HIT_STUN')
     swing()
     expect(world.getFighter('ENEMY').state).toBe('KNOCKDOWN'); expect(types).toContain('KNOCKDOWN')
     const hp = world.getFighter('ENEMY').currentHP
     swing()
     expect(world.getFighter('ENEMY').currentHP).toBe(hp)
-    while (world.getFighter('ENEMY').knockdownTicks > 1) tick(world, neutral, { ...neutral, attackPressed: true })
-    tick(world)
-    expect(types).toContain('WAKE_UP'); expect(world.getFighter('ENEMY').attackPhase).toBe('NONE')
-    expect(world.getFighter('ENEMY').invulnerableTicks).toBe(KNOCKDOWN.invulnerableTicks)
+    // 倒地只 0.5 秒，可能在上一下 swing 期間就起身。
+    while (!types.includes('WAKE_UP')) tick(world, neutral, { ...neutral, attackPressed: true })
+    expect(world.getFighter('ENEMY').attackPhase).toBe('NONE')
+    expect(world.getFighter('ENEMY').invulnerableTicks).toBeGreaterThan(0)
     swing()
     expect(world.getFighter('ENEMY').currentHP).toBe(hp)
     while (world.getFighter('ENEMY').invulnerableTicks > 0) tick(world)
+    // 起身歸零：之前的重擊不累計。
+    swing('HEAVY_PUNCH')
+    expect(world.getFighter('ENEMY').state).toBe('HIT_STUN')
+    while (world.getFighter('ENEMY').hitStunTicks > 0) tick(world)
     swing('HEAVY_PUNCH')
     expect(world.getFighter('ENEMY').state).toBe('KNOCKDOWN')
     world.reset()

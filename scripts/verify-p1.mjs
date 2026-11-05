@@ -32,8 +32,8 @@ try {
  const capture = async (owner, name) => {
    await waitPhase('CUSTOMIZE'); assert.equal(await scene(s => s.p1Model.owner), owner)
    await page.locator('input').fill(name); await page.keyboard.press('Enter')
-   await key(owner === 'P1' ? 'j' : 'Enter'); await waitPhase('REVIEW')
-   await key(owner === 'P1' ? 'j' : 'Enter')
+   await key(owner === 'P1' ? 'f' : 'Enter'); await waitPhase('REVIEW')
+   await key(owner === 'P1' ? 'f' : 'Enter')
    await page.waitForFunction(owner => { const s = window.__game.scene.getScene('AppScene'); return s.p1Model.isReady(owner) }, owner)
  }
  await page.goto(base); await page.waitForFunction(() => window.__game?.scene.getScene('AppScene')?.persistence.lastLeaderboardOk === true)
@@ -59,23 +59,23 @@ try {
  assert(await scene(s => s.screen === s.__screen && s.p1View.heroes.P1 === s.__hero))
  check('Join/leave, independent owners, EMPTY rejection, persistent grid and heroes')
  // 單人：鎖定後在同頁選對手（OPPONENT）→ 難度（DIFFICULTY）→ ALL READY；返回逐層退回。
- await key('j'); await waitPhase('OPPONENT'); await key('j'); await waitPhase('DIFFICULTY'); await key('j'); await waitPhase('ALL_READY')
+ await key('f'); await waitPhase('OPPONENT'); await key('f'); await waitPhase('DIFFICULTY'); await key('f'); await waitPhase('ALL_READY')
  await key('k'); await waitPhase('DIFFICULTY'); await key('k'); await waitPhase('OPPONENT'); await key('k'); await waitPhase('GRID')
- await key('j'); await key('j'); await key('j'); await waitState('P2'); check('CASE A：選角→對手→難度同頁完成，ALL READY 可逐層取消')
- await home(); await start(); await key('a'); await key('j'); await waitPhase('CUSTOMIZE')
+ await key('f'); await key('f'); await key('f'); await waitState('P2'); check('CASE A：選角→對手→難度同頁完成，ALL READY 可逐層取消')
+ await home(); await start(); await key('a'); await key('f'); await waitPhase('CUSTOMIZE')
  await page.locator('input').fill('WASDJK Kevin'); await page.keyboard.press('Enter')
  assert.equal(await scene(s => s.p1Model.player('P1').cursor), 4)
- await key('j'); await waitPhase('REVIEW'); await key('k'); await waitPhase('CUSTOMIZE')
+ await key('f'); await waitPhase('REVIEW'); await key('k'); await waitPhase('CUSTOMIZE')
  assert.equal(await page.locator('input').inputValue(), 'WASDJK Kevin')
- await capture('P1', 'Kevin'); await waitPhase('OPPONENT'); await key('j'); await key('j'); await waitState('P2'); check('CASE B, typing isolation and RETAKE retains name')
+ await capture('P1', 'Kevin'); await waitPhase('OPPONENT'); await key('f'); await key('f'); await waitState('P2'); check('CASE B, typing isolation and RETAKE retains name')
  for (const custom of ['P1', 'P2']) {
    await home(); await start(); await key('Enter')
    if (custom === 'P1') await key('a'); else { await key('ArrowLeft'); await key('ArrowLeft') }
-   await key('j'); await key('Enter'); await capture(custom, custom === 'P1' ? 'Kevin' : 'CPU Kevin'); await waitState('P2')
+   await key('f'); await key('Enter'); await capture(custom, custom === 'P1' ? 'Kevin' : 'CPU Kevin'); await waitState('P2')
    assert.equal(await scene(s => Object.keys(s.flow.players).length), 2)
    check(custom === 'P1' ? 'CASE C' : 'CASE D')
  }
- await home(); await start(); await key('Enter'); await key('a'); await key('ArrowLeft'); await key('ArrowLeft'); await key('j'); await key('Enter')
+ await home(); await start(); await key('Enter'); await key('a'); await key('ArrowLeft'); await key('ArrowLeft'); await key('f'); await key('Enter')
  await capture('P1', 'Kevin'); await waitPhase('CUSTOMIZE'); await page.locator('input').focus(); await page.keyboard.press('Escape'); await key('Backspace'); await waitPhase('GRID')
  assert(await scene(s => s.p1Model.isReady('P1') && !s.p1Model.isReady('P2')))
  await key('Enter'); await capture('P2', 'Rival'); await waitState('P2'); check('CASE E with second-owner Back preserving first READY')
@@ -114,17 +114,17 @@ try {
  check('Measured two-hero frame times; headless observation, not kiosk acceptance')
  await home(); await start(); await scene(s => { s.lastActivity = s.time.now - 51000 }); await scene(s => new Promise(r=>s.events.once('postupdate',r)))
  assert.match(await scene(s => s.idleLabel.text), /倒數/); await scene(s => { s.lastActivity = s.time.now - 61000 }); await waitState('P0'); await settle()
- await start(); await key('a'); await key('j'); await waitPhase('CUSTOMIZE'); await page.keyboard.press('Escape'); await key('Escape')
+ await start(); await key('a'); await key('f'); await waitPhase('CUSTOMIZE'); await page.keyboard.press('Escape'); await key('Escape')
  assert(await scene(s => s.p1View.exitOpen)); await key('Escape'); assert.equal(await scene(s => s.p1View.exitOpen), false)
  await key('Escape'); await key('ArrowRight'); await key('Enter'); await waitPhase('GRID')
- await key('j'); await waitPhase('CUSTOMIZE'); await scene(s => { s.lastActivity = s.time.now - 91000 }); await waitPhase('GRID')
+ await key('f'); await waitPhase('CUSTOMIZE'); await scene(s => { s.lastActivity = s.time.now - 91000 }); await waitPhase('GRID')
  assert.equal(await page.locator('input').count(),0); check('Idle countdown, 60s/90s timeouts, Esc confirmation and DOM cleanup')
  // Exercise the failure contract without adding a production failure shortcut.
- await key('j'); await captureFailure()
+ await key('f'); await captureFailure()
  async function captureFailure() {
-   await waitPhase('CUSTOMIZE'); await page.locator('input').fill('Kevin'); await page.keyboard.press('Enter'); await key('j'); await key('j'); await waitPhase('PROCESSING')
+   await waitPhase('CUSTOMIZE'); await page.locator('input').fill('Kevin'); await page.keyboard.press('Enter'); await key('f'); await key('f'); await waitPhase('PROCESSING')
    await scene(s => { s.p1Model.setGenerationState('FAILED'); s.syncP1() }); await waitPhase('FAILED'); await shot('failed')
-   await key('j'); await page.waitForFunction(()=>window.__game.scene.getScene('AppScene').p1Model.isReady('P1')); await waitPhase('OPPONENT'); await key('j'); await key('j'); await waitState('P2')
+   await key('f'); await page.waitForFunction(()=>window.__game.scene.getScene('AppScene').p1Model.isReady('P1')); await waitPhase('OPPONENT'); await key('f'); await key('f'); await waitState('P2')
  }
  check('FAILED retry completes; leaving a phase cancels its previous timer')
  await key('Enter'); await waitState('P3')
@@ -141,7 +141,7 @@ try {
  await page.unroute('http://localhost:8000/**'); await page.route('http://localhost:8000/**',route=>route.abort())
  await page.reload(); await page.waitForFunction(()=>window.__game?.scene.getScene('AppScene')?.persistence.lastLeaderboardOk===false)
  await key('Enter'); await waitState('P1'); await shot('offline')
- await key('j'); await key('j'); await key('j'); await waitState('P2'); check('Offline indicator and nonblocking progression')
+ await key('f'); await key('f'); await key('f'); await waitState('P2'); check('Offline indicator and nonblocking progression')
  assert.deepEqual(report.errors, [])
 } catch (error) {
  report.failure = error.message

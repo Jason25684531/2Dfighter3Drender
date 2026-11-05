@@ -21,7 +21,7 @@ try {
   const waitState = (prefix, timeout = 10000) => page.waitForFunction((p) => window.__game.scene.getScene('AppScene').appStateMachine.getCurrentState().startsWith(p), prefix, { timeout })
   const model = () => s((s) => ({ phase: s.p1Model?.phase, rival: s.p1Model?.rival, locked: s.p1Model?.player('P1').locked, p2: s.p1Model?.player('P2').joined }))
   // P0 → P1 → 1P 鎖定 05（ARIA）→ 對手階段
-  const toOpponent = async () => { await key('Enter'); await waitState('P1'); await page.waitForTimeout(600); await page.screenshot({ path: `${out}/00-p1-grid.png` }); await key('j'); assert.equal((await model()).phase, 'OPPONENT') }
+  const toOpponent = async () => { await key('Enter'); await waitState('P1'); await page.waitForTimeout(600); await page.screenshot({ path: `${out}/00-p1-grid.png` }); await key('f'); assert.equal((await model()).phase, 'OPPONENT') }
   const texts = () => s((s) => { const out = []; const walk = (o) => { if (o.type === 'Text' && o.visible) out.push(o.text); (o.list ?? []).forEach(walk) }; s.children.list.forEach(walk); return out })
   const waitAnnounce = (text, timeout = 10000) => page.waitForFunction((t) => { const a = window.__game.scene.getScene('AppScene').battleView.announcer; return a?.visible && a.label.text === t }, text, { timeout })
   const world = (fn) => s((s, code) => new Function('w', `return (${code})(w)`)(s.flow.match.world), fn.toString())
@@ -40,23 +40,23 @@ try {
   assert.deepEqual((await model()).rival, { cursor: 6, difficulty: 'NORMAL' }); assert.match(await state(), /^P1/)
   assert.ok((await texts()).some((t) => t.startsWith('SELECT OPPONENT'))); assert.ok((await texts()).includes('CPU'))
   await page.screenshot({ path: `${out}/02-opponent.png` })
-  await key('a'); await key('j'); assert.equal((await model()).phase, 'OPPONENT'); assert.ok((await texts()).some((t) => t.startsWith('YOURSELF')))
+  await key('a'); await key('f'); assert.equal((await model()).phase, 'OPPONENT'); assert.ok((await texts()).some((t) => t.startsWith('YOURSELF')))
   check('鎖定角色後直接在同一格子選對手（敵方色 CPU 游標），選自己被拒絕')
-  await key('d'); await key('d'); await key('j'); assert.equal((await model()).phase, 'DIFFICULTY')
+  await key('d'); await key('d'); await key('f'); assert.equal((await model()).phase, 'DIFFICULTY')
   await key('d'); assert.equal((await model()).rival.difficulty, 'HARD'); await page.screenshot({ path: `${out}/03-difficulty.png` })
   await key('k'); assert.deepEqual([(await model()).phase, (await model()).rival.cursor], ['OPPONENT', 7])
   await key('k'); assert.deepEqual([(await model()).phase, (await model()).locked], ['GRID', undefined])
   check('對手 → 難度（← → 切換）；K 逐層返回：難度→對手→解除 1P 鎖定')
-  await key('j'); await key('Enter'); assert.deepEqual([(await model()).phase, (await model()).rival, (await model()).p2], ['GRID', undefined, true])
+  await key('f'); await key('Enter'); assert.deepEqual([(await model()).phase, (await model()).rival, (await model()).p2], ['GRID', undefined, true])
   await key('Backspace'); assert.deepEqual([(await model()).phase, (await model()).rival?.cursor], ['OPPONENT', 6])
   check('2P 中途 ENTER 加入捨棄 CPU 選擇；2P 退出回到選對手')
-  await key('j'); await key('j'); await waitState('P2'); assert.equal(await sub(), 'DEFAULT')
+  await key('f'); await key('f'); await waitState('P2'); assert.equal(await sub(), 'DEFAULT')
   assert.equal(await s((s) => s.flow.opponent?.characterId), 'preset-b'); await page.screenshot({ path: `${out}/04-stage.png` })
   await key('Escape'); await waitState('P1'); assert.equal((await model()).phase, 'GRID')
   check('確認 NORMAL 後 ALL READY 直接到 P2 選場景（無對手頁）；P2 BACK 回 P1')
 
   // 3 選 RIVEN／HARD 進戰鬥
-  await key('j'); await key('d'); await key('j'); await key('d'); await key('j'); await waitState('P2')
+  await key('f'); await key('d'); await key('f'); await key('d'); await key('f'); await waitState('P2')
   assert.equal(await s((s) => s.enemyName()), 'RIVEN')
   await s((s) => s.confirmStage()); await waitState('P3')
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').loadingReady === true, null, { timeout: 15000 })

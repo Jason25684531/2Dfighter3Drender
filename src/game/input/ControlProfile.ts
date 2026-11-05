@@ -1,7 +1,7 @@
 import type { PlayerSlotId } from './InputManager'
 
-// 防禦由戰鬥邏輯依後方向判斷。
-export const COMBAT_ACTIONS = ['MOVE_LEFT', 'MOVE_RIGHT', 'JUMP', 'CROUCH', 'LIGHT_PUNCH', 'HEAVY_PUNCH', 'LIGHT_KICK', 'HEAVY_KICK', 'PAUSE'] as const
+// 防禦：按住 GUARD 鍵，或按住後方向。
+export const COMBAT_ACTIONS = ['MOVE_LEFT', 'MOVE_RIGHT', 'JUMP', 'CROUCH', 'LIGHT_PUNCH', 'HEAVY_PUNCH', 'LIGHT_KICK', 'HEAVY_KICK', 'GUARD', 'PAUSE'] as const
 export type CombatAction = (typeof COMBAT_ACTIONS)[number]
 export type AttackAction = Extract<CombatAction, 'LIGHT_PUNCH' | 'HEAVY_PUNCH' | 'LIGHT_KICK' | 'HEAVY_KICK'>
 export const ATTACK_ACTIONS: readonly AttackAction[] = ['LIGHT_PUNCH', 'HEAVY_PUNCH', 'LIGHT_KICK', 'HEAVY_KICK']
@@ -11,8 +11,8 @@ export type ControlProfiles = Record<PlayerSlotId, Bindings>
 // 以 KeyboardEvent.code 綁定實體鍵位，不受鍵盤語系影響。
 // P2 profile 只是資料：2P 目前是 CPU，沒有任何地方讀它控制角色。
 export const DEFAULT_KEYBOARD_BINDINGS: ControlProfiles = {
-  P1: { MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', PAUSE: 'Escape' },
-  P2: { MOVE_LEFT: 'ArrowLeft', MOVE_RIGHT: 'ArrowRight', JUMP: 'ArrowUp', CROUCH: 'ArrowDown', LIGHT_PUNCH: 'Numpad1', HEAVY_PUNCH: 'Numpad2', LIGHT_KICK: 'Numpad4', HEAVY_KICK: 'Numpad5', PAUSE: 'Escape' },
+  P1: { MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', GUARD: 'KeyC', PAUSE: 'Escape' },
+  P2: { MOVE_LEFT: 'ArrowLeft', MOVE_RIGHT: 'ArrowRight', JUMP: 'ArrowUp', CROUCH: 'ArrowDown', LIGHT_PUNCH: 'Numpad1', HEAVY_PUNCH: 'Numpad2', LIGHT_KICK: 'Numpad4', HEAVY_KICK: 'Numpad5', GUARD: 'Numpad3', PAUSE: 'Escape' },
 }
 export const CONTROLS_STORAGE_KEY = 'exp2.controls.v3'
 
@@ -29,7 +29,7 @@ export const combinationRows = (bindings: Bindings): { label: string; keys: stri
   return [
     { label: 'CROUCH ATTACK 蹲攻擊', keys: `${keyLabel(bindings.CROUCH)} + ${attacks}` },
     { label: 'AIR ATTACK 空中攻擊', keys: `${keyLabel(bindings.JUMP)} + ${attacks}` },
-    { label: 'GUARD 防禦', keys: `HOLD BACK ${keyLabel(bindings.MOVE_LEFT)} / ${keyLabel(bindings.MOVE_RIGHT)}` },
+    { label: 'GUARD 防禦', keys: `${keyLabel(bindings.GUARD)} / HOLD BACK ${keyLabel(bindings.MOVE_LEFT)} / ${keyLabel(bindings.MOVE_RIGHT)}` },
   ]
 }
 
@@ -49,12 +49,13 @@ const validBindings = (value: unknown): value is Bindings => {
 type Store = Pick<Storage, 'getItem' | 'setItem'>
 const browserStore = (): Store | undefined => { try { return globalThis.localStorage } catch { return undefined } }
 
-/** 缺少、損壞、版本不符或不完整時，該玩家退回預設。 */
+/** 缺少、損壞、版本不符或無效時，該玩家退回預設；舊存檔缺的新動作（如 GUARD）以預設補齊。 */
 export const loadProfiles = (store = browserStore()): ControlProfiles => {
   let saved: { version?: unknown; profiles?: Partial<Record<PlayerSlotId, unknown>> } = {}
   try { saved = JSON.parse(store?.getItem(CONTROLS_STORAGE_KEY) ?? '{}') ?? {} } catch { /* 損壞 → 預設 */ }
   const profiles = saved.version === 3 ? saved.profiles ?? {} : {}
-  return { P1: validBindings(profiles.P1) ? { ...profiles.P1 } : { ...DEFAULT_KEYBOARD_BINDINGS.P1 }, P2: validBindings(profiles.P2) ? { ...profiles.P2 } : { ...DEFAULT_KEYBOARD_BINDINGS.P2 } }
+  const pick = (id: PlayerSlotId): Bindings => { const merged = { ...DEFAULT_KEYBOARD_BINDINGS[id], ...(profiles[id] && typeof profiles[id] === 'object' ? profiles[id] : {}) }; return validBindings(merged) ? merged : { ...DEFAULT_KEYBOARD_BINDINGS[id] } }
+  return { P1: pick('P1'), P2: pick('P2') }
 }
 /** 不完整或重複鍵的 profile 不寫入。 */
 export const saveProfiles = (profiles: ControlProfiles, store = browserStore()): boolean => {

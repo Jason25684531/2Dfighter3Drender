@@ -151,7 +151,7 @@ export class AppScene extends Phaser.Scene {
       if (this.boardPanel && actions.some((action) => action === 'BACK' || action === 'CONFIRM')) this.closeBoard()
     } else if (!typing && visualState === AppState.READY && this.p1Model) {
       // P1 由 1P/2P 擁有者鍵位操作；未標記輸入只保留 Esc（選角中返回標題）。
-      if (this.p1View?.exitOpen) this.p1View.handleExit(actions)
+      if (this.p1View?.exitOpen) this.p1View.handleExit([...actions, ...owned.filter(({ owner }) => owner === 'P1').map(({ action }) => action)])
       else if (actions.includes('BACK')) {
         if (this.p1Model.owner) this.p1View?.confirmExit(() => { this.p1Model?.abortCustomize(); this.syncP1() })
         else this.ui.navigation.dispatch('BACK')
@@ -223,7 +223,7 @@ export class AppScene extends Phaser.Scene {
     const begin = (): void => { this.appStateMachine.transitionTo(AppState.READY) }
     start.on('pointerup', () => { this.audio?.ui('CONFIRM'); begin() }); board.on('pointerup', () => { this.audio?.ui('CONFIRM'); this.openBoard() })
     this.screen?.add([start, board]); this.register('p0', 'p0-start', start, begin); this.register('p0', 'p0-board', board, () => this.openBoard()); this.ui.focus.activate('p0', 'p0-start')
-    this.screen?.add(this.label('ENTER 確認 · ← → 切換 · P 播放開頭動畫 · C 操作設定', 960, 960, uiTokens.type.label))
+    this.screen?.add(this.label(`${keyLabel(this.controls.P1.LIGHT_PUNCH)} / ENTER 確認 · ← → 切換 · P 播放開頭動畫 · C 操作設定`, 960, 960, uiTokens.type.label))
   }
   /** 首頁排行榜：開啟時才查詢；回應晚於關閉（序號不符）即丟棄。 */
   private openBoard(): void {
@@ -342,7 +342,7 @@ export class AppScene extends Phaser.Scene {
     const controls = new AngularPanel(this, 1030, 294, uiTokens.colors.panelRaised).setPosition(620, 865)
     controls.add(this.add.text(-465, -120, 'CONTROLS ・ 操作說明', typography.secondaryAction))
     const key = (...actions: CombatAction[]): string => actions.map((action) => keyLabel(this.controls.P1[action])).join(' ')
-    controls.add(this.add.text(475, -112, `${key('CROUCH')} 蹲 · ← 後退＝防禦 · ${key('PAUSE')} 暫停`, typography.note).setOrigin(1, 0))
+    controls.add(this.add.text(475, -112, `${key('CROUCH')} 蹲 · ${key('GUARD')}／← 後退＝防禦 · ${key('PAUSE')} 暫停`, typography.note).setOrigin(1, 0))
     const bindings = [['MOVE', key('MOVE_LEFT', 'MOVE_RIGHT'), '← →'], ['JUMP', key('JUMP'), '↑'], ['PUNCH', key('LIGHT_PUNCH', 'HEAVY_PUNCH'), 'X Y'], ['KICK', key('LIGHT_KICK', 'HEAVY_KICK'), 'A B']]
     bindings.forEach(([action, keyboard, pad], i) => {
       const x = -455 + (i % 2) * 500, y = -25 + Math.floor(i / 2) * 104
@@ -565,7 +565,7 @@ export class AppScene extends Phaser.Scene {
     if (this.attract) { this.stopAttract(); this.attractInputConsumed = true; return }
     this.noteActivity()
     if (event.code === 'KeyP') this.playAttract()
-    else if (event.code === 'KeyC' && !this.attract) this.controlsPanel = new ControlsPanel(this, new ControlsEditor(this.controls, (profiles) => { saveProfiles(profiles); this.inputManager.setCombatBindings(profiles.P1) }), () => this.closeControls())
+    else if (event.code === 'KeyC' && !this.attract) this.controlsPanel = new ControlsPanel(this, new ControlsEditor(this.controls, (profiles) => { saveProfiles(profiles); this.inputManager.setCombatBindings(profiles.P1) }), () => { this.closeControls(); this.render(AppState.IDLE) }) // 重繪 P0：提示鍵名跟著新鍵位
   }
   private closeControls(): void { this.controlsPanel?.destroy(); this.controlsPanel = undefined; this.noteActivity() }
   /** 開頭動畫：播完或輸入後回 P0 並重新計算閒置。 */

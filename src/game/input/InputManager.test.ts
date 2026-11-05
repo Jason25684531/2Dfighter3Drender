@@ -88,14 +88,14 @@ describe('InputManager', () => {
     ;[AppState.READY, AppState.SETUP, AppState.LOADING, AppState.BATTLE].forEach((state) => app.transitionTo(state))
     input.handleKeyDown('Escape'); input.update(); input.consumeUiActions().forEach((action) => nav.dispatch(action)); expect(nav.isOverlayOpen()).toBe(true)
   })
-  it('tags P1 (WASD/J/K) and P2 (arrows/Enter/Backspace) actions without changing the unowned stream', () => {
+  it('tags P1 (WASD/F/K) and P2 (arrows/Enter/Backspace) actions without changing the unowned stream', () => {
     const input = new InputManager()
-    ;['KeyW', 'KeyJ', 'KeyK', 'ArrowLeft', 'Enter', 'Backspace'].forEach((code) => input.handleKeyDown(code))
+    ;['KeyW', 'KeyF', 'KeyK', 'ArrowLeft', 'Enter', 'Backspace'].forEach((code) => input.handleKeyDown(code))
     input.handleKeyDown('KeyW')
     expect(input.consumeOwnedUiActions()).toEqual([{ owner: 'P1', action: 'NAV_UP' }, { owner: 'P1', action: 'CONFIRM' }, { owner: 'P1', action: 'BACK' }, { owner: 'P2', action: 'NAV_LEFT' }, { owner: 'P2', action: 'CONFIRM' }, { owner: 'P2', action: 'BACK' }])
     expect(input.consumeOwnedUiActions()).toEqual([])
     input.update(); expect(input.consumeUiActions().sort()).toEqual(['CONFIRM', 'NAV_LEFT'])
-    const custom = new InputManager({ owners: { P1: { CONFIRM: ['Space'] } } }); custom.handleKeyDown('Space'); custom.handleKeyDown('KeyJ')
+    const custom = new InputManager({ owners: { P1: { CONFIRM: ['Space'] } } }); custom.handleKeyDown('Space'); custom.handleKeyDown('KeyF')
     expect(custom.consumeOwnedUiActions()).toEqual([{ owner: 'P1', action: 'CONFIRM' }])
   })
   it('maps default P1 combat keys (A D / W jump / S crouch / F U G I / Esc) to semantic actions only', () => {
@@ -111,11 +111,11 @@ describe('InputManager', () => {
     input.consumeUiActions(); input.handleKeyDown('KeyF'); input.update(); expect(input.consumeUiActions()).toEqual([])
     expect(input.lastCombatInput).toEqual({ code: 'KeyF', action: 'LIGHT_PUNCH' })
   })
-  it('reports backward as movement without a guard input', () => {
+  it('reports backward as movement and C as a held guard', () => {
     const input = new InputManager()
     input.handleKeyDown('KeyA'); input.update()
-    expect(input.consumeGameplaySnapshot()).toMatchObject({ moveX: -1 })
-    input.handleKeyDown('KeyK'); input.update(); expect(input.consumeGameplaySnapshot()).not.toHaveProperty('guardHeld')
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ moveX: -1, guardHeld: false })
+    input.handleKeyDown('KeyC'); input.update(); expect(intentFromInput(input.consumeGameplaySnapshot())).toMatchObject({ guard: true })
   })
   it('maps the four face buttons to attacks and only D-pad up to jump', () => {
     for (const [button, attack] of [[2, 'LIGHT_PUNCH'], [3, 'HEAVY_PUNCH'], [0, 'LIGHT_KICK'], [1, 'HEAVY_KICK']] as const) {
@@ -125,18 +125,19 @@ describe('InputManager', () => {
     const input = new InputManager(), buttons = Array.from({ length: 13 }, (_, index) => ({ pressed: index === 12 }))
     input.update([{ buttons }]); expect(input.consumeGameplaySnapshot()).toMatchObject({ jumpPressed: true, attackPressed: false })
   })
-  it('rebinds Light Punch from F to Q without touching menu or owner keys', () => {
+  it('rebinds Light Punch from F to Q and moves the P1 confirm key with it', () => {
     const input = new InputManager()
     input.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS.P1, LIGHT_PUNCH: 'KeyQ' })
     input.handleKeyDown('KeyF'); input.update(); expect(input.consumeGameplaySnapshot().attackPressed).toBe(false)
     input.handleKeyDown('KeyQ'); input.update(); expect(input.consumeGameplaySnapshot().attack).toBe('LIGHT_PUNCH')
-    input.handleKeyDown('KeyJ'); expect(input.consumeOwnedUiActions()).toContainEqual({ owner: 'P1', action: 'CONFIRM' })
+    // 確認鍵＝輕拳鍵，跟著改到 Q。
+    input.handleKeyDown('KeyQ'); expect(input.consumeOwnedUiActions()).toContainEqual({ owner: 'P1', action: 'CONFIRM' })
   })
   it('routes Player 1 menu input through the custom bindings', () => {
     const input = new InputManager()
-    input.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS.P1, MOVE_LEFT: 'KeyJ', JUMP: 'KeyT' })
-    for (const code of ['KeyJ', 'KeyT', 'KeyF', 'KeyW', 'KeyK']) { input.handleKeyDown(code); input.handleKeyUp(code) }
-    // J 被綁成左移 → 確認改用輕拳 F；W 不再是上。
+    input.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS.P1, MOVE_LEFT: 'KeyJ', JUMP: 'KeyT', LIGHT_PUNCH: 'KeyK' })
+    for (const code of ['KeyJ', 'KeyT', 'KeyK', 'KeyW', 'KeyU']) { input.handleKeyDown(code); input.handleKeyUp(code) }
+    // 確認＝輕拳（K）→ 返回改用重拳 U；W 不再是上。
     expect(input.consumeOwnedUiActions().filter(({ owner }) => owner === 'P1').map(({ action }) => action)).toEqual(['NAV_LEFT', 'NAV_UP', 'CONFIRM', 'BACK'])
   })
 })

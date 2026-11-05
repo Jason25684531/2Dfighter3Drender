@@ -16,6 +16,7 @@ export function resolveDemo(held: ReadonlySet<string>, facing: 'LEFT' | 'RIGHT',
     if (down('CROUCH')) return punch ? 'PUNCH_CROUCH' : 'KICK_CROUCH'
     return punch ? down('HEAVY_PUNCH') ? 'PUNCH_HEAVY' : 'PUNCH_LIGHT' : down('HEAVY_KICK') ? 'KICK_HEAVY' : 'KICK_LIGHT'
   }
+  if (down('GUARD')) return 'BLOCK'
   if (down('JUMP')) return 'JUMP'
   if (down('CROUCH')) return 'CROUCH'
   const direction = Number(down('MOVE_RIGHT')) - Number(down('MOVE_LEFT'))

@@ -23,9 +23,9 @@ try {
   await boot()
   await page.evaluate(() => localStorage.removeItem('exp2.controls.v3')); await boot()
   await key('c')
-  assert.deepEqual((await panel()).keys.slice(0, 10), ['[ A ]', '[ D ]', '[ W ]', '[ S ]', '[ F ]', '[ U ]', '[ G ]', '[ I ]', '[ ESC ]', ''])
+  assert.deepEqual((await panel()).keys.slice(0, 11), ['[ A ]', '[ D ]', '[ W ]', '[ S ]', '[ F ]', '[ U ]', '[ G ]', '[ I ]', '[ C ]', '[ ESC ]', ''])
   await page.screenshot({ path: `${out}/01-panel-defaults.png` })
-  check('P0 按 C 開啟操作設定，預設 A D / W 跳 S 蹲 / F U G I / ESC（無縱深列）')
+  check('P0 按 C 開啟操作設定，預設 A D / W 跳 S 蹲 / F U G I / C 防禦 / ESC（無縱深列）')
 
   for (let i = 0; i < 4; i++) await key('ArrowDown')
   await key('Enter'); assert.equal((await panel()).keys[4], 'PRESS A KEY...')
@@ -38,7 +38,7 @@ try {
   await key('Escape'); assert.equal(await binding('LIGHT_PUNCH'), 'KeyQ'); assert.equal((await panel()).state, 'SELECT_BINDING')
   check('Shift／F5 被拒絕，Escape 取消並保留原鍵')
 
-  await s(s => { s.controlsPanel.editor.focus = 8 }); await key('Enter'); await key('Escape')
+  await s(s => { s.controlsPanel.editor.focus = 9 }); await key('Enter'); await key('Escape')
   assert.equal(await binding('PAUSE'), 'Escape')
   check('改綁 Pause 時 Escape 仍是取消')
 
@@ -54,10 +54,10 @@ try {
   assert.deepEqual([await binding('JUMP'), await binding('LIGHT_PUNCH')], ['KeyQ', 'KeyW'])
   check('重新整理後設定仍在（localStorage exp2.controls.v3）')
 
-  await key('c'); await s(s => { s.controlsPanel.editor.focus = 9 }); await key('Enter')
+  await key('c'); await s(s => { s.controlsPanel.editor.focus = 10 }); await key('Enter')
   await page.screenshot({ path: `${out}/04-reset-confirm.png` })
   await key('Enter')
-  assert.deepEqual(await s(s => s.controls.P1), { MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', PAUSE: 'Escape' })
+  assert.deepEqual(await s(s => s.controls.P1), { MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', GUARD: 'KeyC', PAUSE: 'Escape' })
   await key('Escape')
   check('RESET TO DEFAULT 確認後回到 A D / W S / F U G I / ESC')
 
@@ -67,7 +67,7 @@ try {
 
   // 戰鬥：改 Light Punch=Q，實際送出 LIGHT_PUNCH；站立／空中／蹲姿與後退防禦。
   await page.evaluate(() => localStorage.setItem('exp2.controls.v1', JSON.stringify({ version: 1, profiles: { P1: {} } }))) // 舊版存檔應被忽略
-  await page.evaluate((p1) => localStorage.setItem('exp2.controls.v3', JSON.stringify({ version: 3, profiles: { P1: { ...p1, LIGHT_PUNCH: 'KeyQ' } } })), { MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', PAUSE: 'Escape' })
+  await page.evaluate((p1) => localStorage.setItem('exp2.controls.v3', JSON.stringify({ version: 3, profiles: { P1: { ...p1, LIGHT_PUNCH: 'KeyQ' } } })), { MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', GUARD: 'KeyC', PAUSE: 'Escape' })
   await boot('?inputDebug=1')
   await s(s => { s.flow.setPlayers({ P1: { characterId: 'preset-e' } }); ['P1_READY', 'P2_SETUP', 'P3_LOADING', 'P4_BATTLE'].forEach(state => s.appStateMachine.transitionTo(state)) })
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').appStateMachine.getCurrentState().startsWith('P4'))
@@ -119,6 +119,18 @@ try {
   await s(s => { s.flow.match.ai.getIntent = () => ({ moveX: 0, jumpPressed: false, attackPressed: false }) })
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').flow.match.world.getFighter('PLAYER').blockStunTicks === 0)
   check('holding back blocks an incoming attack')
+
+  // C（GUARD）：站定防禦，不靠後方向。
+  await s(s => { const w = s.flow.match.world; w.fighters.PLAYER.x = 1300; w.fighters.ENEMY.x = 1520; w.fighters.ENEMY.attackPhase = 'NONE' })
+  const guardHp = await s(s => s.flow.match.world.getFighter('PLAYER').currentHP)
+  await page.keyboard.down('c'); await page.keyboard.down('d')
+  await s(s => { s.flow.match.ai.getIntent = () => ({ moveX: 0, jumpPressed: false, attackPressed: true }) })
+  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').flow.match.world.getFighter('PLAYER').blockStunTicks > 0, null, { timeout: 5000 })
+  await s(s => { s.flow.match.ai.getIntent = () => ({ moveX: 0, jumpPressed: false, attackPressed: false }) })
+  assert.equal(await s(s => s.flow.match.world.getFighter('PLAYER').currentHP), guardHp)
+  await page.keyboard.up('d'); await page.keyboard.up('c')
+  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').flow.match.world.getFighter('PLAYER').blockStunTicks === 0)
+  check('按住 C（GUARD）即使按前也能防住攻擊、不扣血')
 
   // W 跳、S 蹲（純呈現），沒有縱深。
   await enemyFar(); const y0 = await s(s => s.battleView.player.y)

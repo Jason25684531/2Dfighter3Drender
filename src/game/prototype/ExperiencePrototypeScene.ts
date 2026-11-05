@@ -217,7 +217,7 @@ export class ExperiencePrototypeScene extends BootScene {
   private readonly keyup = (event: KeyboardEvent): void => { this.held.delete(event.code); if (this.page === 'INPUT' && !this.paused) this.updateDemo() }
   private readonly keydown = (event: KeyboardEvent): void => {
     if ((event.target as HTMLElement)?.matches('input, textarea, select, [contenteditable=true]') || event.isComposing) return
-    if (this.paused) { if (['Escape', 'Enter', 'KeyJ', 'KeyK', 'Backspace'].includes(event.code)) { event.preventDefault(); this.setPaused(false) }; return }
+    if (this.paused) { if (['Escape', 'Enter', 'Backspace'].includes(event.code) || ['CONFIRM', 'BACK'].includes(menuMapping.P1[event.code])) { event.preventDefault(); this.setPaused(false) }; return }
     if (event.code === 'Escape') { event.preventDefault(); this.setPaused(true); return }
     if ((event.target as HTMLElement)?.matches('button') && ['Enter', 'Space'].includes(event.code)) return
     const relevant = [...Object.keys(menuMapping.P1), ...Object.keys(menuMapping.P2), ...Object.values(combatMapping.P1), ...Object.values(combatMapping.P2)]

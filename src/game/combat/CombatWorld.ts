@@ -7,8 +7,8 @@ export type Facing = 'LEFT' | 'RIGHT'
 export type FighterState = 'IDLE' | 'WALK' | 'JUMP' | 'ATTACK' | 'GUARD' | 'HIT_STUN' | 'KNOCKDOWN'
 export type AttackPhase = 'NONE' | 'STARTUP' | 'ACTIVE' | 'RECOVERY'
 export type Aabb = { x: number; y: number; width: number; height: number }
-// attack：出招種類，決定招式資料（幀數、傷害、判定框）；省略視為輕拳。
-export type FighterIntent = { moveX: number; jumpPressed: boolean; attackPressed: boolean; attack?: AttackAction }
+// attack：出招種類，決定招式資料（幀數、傷害、判定框）；省略視為輕拳。guard：按住防禦鍵（後方向也能防）。
+export type FighterIntent = { moveX: number; jumpPressed: boolean; attackPressed: boolean; attack?: AttackAction; guard?: boolean }
 export const NEUTRAL_INTENT: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: false }
 
 export type CombatConfig = {
@@ -46,8 +46,8 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
   maxSeparation: STAGE_TUNING.maxSeparation,
 }
 
-// 24Hz：倒地 3 秒、起身無敵 1 秒；同一連段被打第 3 下倒地。
-export const KNOCKDOWN = { downTicks: 72, invulnerableTicks: 24, hits: 3 } as const
+// 24Hz：倒地 0.5 秒、起身無敵 1 秒；輕攻擊累計 3 下或重攻擊累計 2 下倒地（分開計，起身歸零）。
+export const KNOCKDOWN = { downTicks: 12, invulnerableTicks: 24, lightHits: 3, heavyHits: 2 } as const
 
 export type CombatEvent =
   | { type: 'JUMP'; fighter: FighterId }
@@ -64,14 +64,14 @@ type Fighter = {
   jumpBuffer: number; attackBuffer: number; bufferedAttack: AttackAction
   id: FighterId; x: number; y: number; vx: number; vy: number; facing: Facing; currentHP: number; grounded: boolean; state: FighterState
   hitStunTicks: number; blockStunTicks: number; pushTicks: number; pushVx: number; attackPhase: AttackPhase; attackTicks: number; attackId: number; attack: AttackAction; hitTargets: Set<FighterId>; combo: number; comboWindowTicks: number
-  knockdownTicks: number; invulnerableTicks: number; hitsTaken: number
+  knockdownTicks: number; invulnerableTicks: number; lightHits: number; heavyHits: number
 }
 
-export type FighterSnapshot = Omit<Fighter, 'hitTargets' | 'jumpBuffer' | 'attackBuffer' | 'bufferedAttack' | 'hitsTaken'>
+export type FighterSnapshot = Omit<Fighter, 'hitTargets' | 'jumpBuffer' | 'attackBuffer' | 'bufferedAttack' | 'lightHits' | 'heavyHits'>
 /** 外部命中判定（畫面輪廓）：回傳接觸點＝命中、null＝未命中、undefined＝無法判定而退回 AABB。 */
 export type HitTest = (attacker: FighterSnapshot, defender: FighterSnapshot) => { x: number; y: number } | null | undefined
 export type CombatSnapshot = { tick: number; fighters: Record<FighterId, FighterSnapshot> }
-export const intentFromInput = (input: InputSnapshot): FighterIntent => ({ moveX: input.moveX, jumpPressed: input.jumpPressed, attackPressed: input.attackPressed, attack: input.attack })
+export const intentFromInput = (input: InputSnapshot): FighterIntent => ({ moveX: input.moveX, jumpPressed: input.jumpPressed, attackPressed: input.attackPressed, attack: input.attack, guard: input.guardHeld })
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
 /** 兩框交集的中心＝接觸點。 */
@@ -94,7 +94,7 @@ export class CombatWorld {
   }
 
   private createFighter(id: FighterId): Fighter {
-    return { id, x: this.config.initialPositions[id], y: this.config.floorY, vx: 0, vy: 0, facing: id === 'PLAYER' ? 'RIGHT' : 'LEFT', currentHP: this.config.maxHp, grounded: true, state: 'IDLE', hitStunTicks: 0, blockStunTicks: 0, pushTicks: 0, pushVx: 0, attackPhase: 'NONE', attackTicks: 0, attackId: 0, attack: 'LIGHT_PUNCH', hitTargets: new Set(), combo: 0, comboWindowTicks: 0, knockdownTicks: 0, invulnerableTicks: 0, hitsTaken: 0, jumpBuffer: 0, attackBuffer: 0, bufferedAttack: 'LIGHT_PUNCH' }
+    return { id, x: this.config.initialPositions[id], y: this.config.floorY, vx: 0, vy: 0, facing: id === 'PLAYER' ? 'RIGHT' : 'LEFT', currentHP: this.config.maxHp, grounded: true, state: 'IDLE', hitStunTicks: 0, blockStunTicks: 0, pushTicks: 0, pushVx: 0, attackPhase: 'NONE', attackTicks: 0, attackId: 0, attack: 'LIGHT_PUNCH', hitTargets: new Set(), combo: 0, comboWindowTicks: 0, knockdownTicks: 0, invulnerableTicks: 0, lightHits: 0, heavyHits: 0, jumpBuffer: 0, attackBuffer: 0, bufferedAttack: 'LIGHT_PUNCH' }
   }
 
   subscribe(listener: (event: CombatEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener) }
@@ -147,7 +147,7 @@ export class CombatWorld {
     if (fighter.blockStunTicks > 0) { fighter.blockStunTicks -= 1; if (fighter.blockStunTicks === 0) fighter.state = 'IDLE' }
     if (fighter.invulnerableTicks > 0) fighter.invulnerableTicks -= 1
     // KO 倒地不起身：回合由 MatchController 結束。
-    if (fighter.knockdownTicks > 0 && fighter.currentHP > 0) { fighter.knockdownTicks -= 1; if (fighter.knockdownTicks === 0) { fighter.state = 'IDLE'; fighter.invulnerableTicks = KNOCKDOWN.invulnerableTicks; fighter.hitsTaken = 0; this.emit({ type: 'WAKE_UP', fighter: fighter.id }) } }
+    if (fighter.knockdownTicks > 0 && fighter.currentHP > 0) { fighter.knockdownTicks -= 1; if (fighter.knockdownTicks === 0) { fighter.state = 'IDLE'; fighter.invulnerableTicks = KNOCKDOWN.invulnerableTicks; fighter.lightHits = 0; fighter.heavyHits = 0; this.emit({ type: 'WAKE_UP', fighter: fighter.id }) } }
   }
 
   private applyIntent(fighter: Fighter, intent: FighterIntent, opponentId: FighterId): void {
@@ -161,6 +161,8 @@ export class CombatWorld {
     if (fighter.attackPhase !== 'NONE') return
     if (fighter.x < opponent.x) fighter.facing = 'RIGHT'; else if (fighter.x > opponent.x) fighter.facing = 'LEFT'
     if (fighter.attackBuffer > 0) { fighter.attackBuffer = 0; this.startAttack(fighter, fighter.bufferedAttack); return }
+    // 地面按住防禦鍵：站定擺防禦姿勢（不走、不跳）；出招優先。
+    if (intent.guard && fighter.grounded) { fighter.vx = 0; fighter.jumpBuffer = 0; fighter.state = 'GUARD'; return }
     if (fighter.jumpBuffer > 0 && fighter.grounded) { fighter.jumpBuffer = 0; fighter.vy = this.config.jumpVelocity; fighter.grounded = false; fighter.state = 'JUMP'; this.emit({ type: 'JUMP', fighter: fighter.id }) }
     fighter.vx = clamp(intent.moveX, -1, 1) * this.config.walkSpeed
     if (fighter.vx !== 0) fighter.state = 'WALK'; else if (fighter.grounded) fighter.state = 'IDLE'
@@ -213,13 +215,14 @@ export class CombatWorld {
       const move = this.move(attacker.attack)
       attacker.hitTargets.add(defenderId); this.emit({ type: 'HIT', attacker: attackerId, defender: defenderId, attackId: attacker.attackId, attack: attacker.attack, at })
       const direction = Math.sign(defender.x - attacker.x) || (attacker.facing === 'RIGHT' ? 1 : -1)
-      if (defender.grounded && defender.attackPhase === 'NONE' && defender.hitStunTicks === 0 && this.intents[defenderId].moveX * direction > 0) {
+      if (defender.grounded && defender.attackPhase === 'NONE' && defender.hitStunTicks === 0 && (this.intents[defenderId].guard || this.intents[defenderId].moveX * direction > 0)) {
         defender.blockStunTicks = move.blockStunTicks ?? 0; defender.state = 'GUARD'; defender.pushTicks = move.blockPushTicks ?? 0; defender.pushVx = direction * (move.blockPush ?? 0); this.freezeTicks = move.blockFreeze ?? 0
         this.emit({ type: 'BLOCK', attacker: attackerId, defender: defenderId, attackId: attacker.attackId }); return
       }
       defender.pushTicks = move.knockbackTicks ?? 0; defender.pushVx = direction * (move.knockback ?? 0); this.freezeTicks = move.hitFreeze ?? 0
-      const previousHP = defender.currentHP; defender.currentHP = Math.max(0, defender.currentHP - move.damage); defender.attackPhase = 'NONE'; defender.attackTicks = 0; defender.hitsTaken = attacker.comboWindowTicks > 0 ? defender.hitsTaken + 1 : 1; this.setCombo(attacker, attacker.comboWindowTicks > 0 ? attacker.combo + 1 : 1); attacker.comboWindowTicks = move.hitStunTicks; this.setCombo(defender, 0)
-      if (attacker.attack.startsWith('HEAVY') || defender.hitsTaken >= KNOCKDOWN.hits || defender.currentHP === 0) { defender.hitStunTicks = 0; defender.knockdownTicks = KNOCKDOWN.downTicks; defender.state = 'KNOCKDOWN'; this.emit({ type: 'KNOCKDOWN', fighter: defenderId }) }
+      const previousHP = defender.currentHP; defender.currentHP = Math.max(0, defender.currentHP - move.damage); defender.attackPhase = 'NONE'; defender.attackTicks = 0; this.setCombo(attacker, attacker.comboWindowTicks > 0 ? attacker.combo + 1 : 1); attacker.comboWindowTicks = move.hitStunTicks; this.setCombo(defender, 0)
+      if (attacker.attack.startsWith('HEAVY')) defender.heavyHits += 1; else defender.lightHits += 1
+      if (defender.heavyHits >= KNOCKDOWN.heavyHits || defender.lightHits >= KNOCKDOWN.lightHits || defender.currentHP === 0) { defender.hitStunTicks = 0; defender.knockdownTicks = KNOCKDOWN.downTicks; defender.state = 'KNOCKDOWN'; this.emit({ type: 'KNOCKDOWN', fighter: defenderId }) }
       else { defender.hitStunTicks = move.hitStunTicks; defender.state = 'HIT_STUN' }
       this.emit({ type: 'DAMAGE', attacker: attackerId, defender: defenderId, amount: previousHP - defender.currentHP, attackId: attacker.attackId }); this.emit({ type: 'HP_CHANGED', fighter: defenderId, currentHP: defender.currentHP, previousHP })
     })
