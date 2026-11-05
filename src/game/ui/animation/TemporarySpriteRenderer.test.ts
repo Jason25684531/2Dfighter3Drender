@@ -9,7 +9,6 @@ vi.mock('phaser', () => ({ default: { GameObjects: { Container: class {
   setScale(): void {}
   setPosition(x: number, y: number): void { this.x = x; this.y = y }
 } } } }))
-vi.mock('../VisualComponents', () => ({ fighterSilhouette: vi.fn() }))
 
 import { TemporarySpriteRenderer } from './TemporarySpriteRenderer'
 
@@ -17,7 +16,7 @@ describe('TemporarySpriteRenderer', () => {
   it('interpolates positions and shadow, snaps discontinuities, and freezes with the clock', () => {
     const shadow = { setY: vi.fn() }
     const scene = { add: { ellipse: () => shadow }, textures: { exists: () => false } }
-    const renderer = new TemporarySpriteRenderer(scene as never, undefined, 0, 820)
+    const renderer = new TemporarySpriteRenderer(scene as never, undefined, 820)
     const fighter = { ...new CombatWorld().getFighter('PLAYER'), x: 560 }
     renderer.update(fighter, 10); renderer.renderAt(0)
     expect([renderer.x, renderer.y]).toEqual([560, 820])
@@ -33,5 +32,16 @@ describe('TemporarySpriteRenderer', () => {
       renderer.update(fighter, tick); renderer.renderAt(0.25)
       expect([renderer.x, renderer.y]).toEqual([560, 820])
     }
+  })
+
+  it('blinks while invulnerable and restores full alpha afterwards', () => {
+    const alphas: number[] = []
+    const image = { height: 128, texture: { key: 'kevin-idle' }, frame: { name: 0 }, setOrigin() { return this }, setScale() { return this }, setTexture() { return this }, setAlpha(a: number) { alphas.push(a); return this } }
+    const scene = { add: { ellipse: () => ({ setY: vi.fn() }), image: () => image }, textures: { exists: () => true } }
+    const renderer = new TemporarySpriteRenderer(scene as never, 'kevin', 820)
+    const fighter = new CombatWorld().getFighter('PLAYER')
+    for (let tick = 0; tick < 4; tick += 1) renderer.update({ ...fighter, invulnerableTicks: 5 }, tick)
+    renderer.update(fighter, 4)
+    expect(alphas).toEqual([1, 1, 0.35, 0.35, 1])
   })
 })

@@ -3,7 +3,7 @@ import { CombatWorld, DEFAULT_COMBAT_CONFIG, type FighterIntent } from '../comba
 import { AI_PROFILES, DEFAULT_AI_PROFILE, resolveAiProfile, type AiProfile } from '../config/aiProfiles'
 import { EnemyAI } from './EnemyAI'
 
-const neutral: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: false, guardHeld: false }
+const neutral: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: false }
 const cfg = DEFAULT_COMBAT_CONFIG
 const attackDistance = cfg.attack.hitboxOffset + cfg.attack.hitboxWidth / 2 + cfg.fighterWidth / 2 - cfg.walkSpeed
 
@@ -51,5 +51,29 @@ describe('EnemyAI profiles', () => {
   it('returns a neutral intent while stunned or attacking', () => {
     const snap = new CombatWorld().getSnapshot(); snap.fighters.ENEMY.state = 'HIT_STUN'; expect(new EnemyAI().getIntent(snap)).toEqual(neutral)
     const attacking = new CombatWorld().getSnapshot(); attacking.fighters.ENEMY.attackPhase = 'ACTIVE'; expect(new EnemyAI().getIntent(attacking)).toEqual(neutral)
+  })
+  it('holds away from the attacker when it decides to guard', () => {
+    const world = new CombatWorld({ ...cfg, initialPositions: { PLAYER: 1300, ENEMY: 1520 } })
+    world.tick({ ...neutral, attackPressed: true }, neutral)
+    const ai = new EnemyAI(cfg, { ...AI_PROFILES.NORMAL, guardChance: 1 })
+    const guard = ai.getIntent(world.getSnapshot())
+    expect(guard.moveX).toBe(1)
+    for (let i = 0; i < 3; i++) world.tick(neutral, guard)
+    expect(world.getFighter('ENEMY').currentHP).toBe(100)
+    expect(world.getFighter('ENEMY').state).toBe('GUARD')
+  })
+  it('closes in until the silhouette reach says the attack connects', () => {
+    const world = new CombatWorld({ ...cfg, initialPositions: { PLAYER: 1300, ENEMY: 1600 } }), profile = { ...DEFAULT_AI_PROFILE, aggression: 1, attackCooldownTicks: 0 }
+    expect(world.reaches('ENEMY', 'LIGHT_PUNCH')).toBeUndefined()
+    world.setHitTest(() => null); expect(world.reaches('ENEMY', 'LIGHT_PUNCH')).toBe(false)
+    // AABB 距離內（300 < attackDistance），但輪廓說打不到 → 繼續前進；打得到 → 出手。
+    expect(new EnemyAI(cfg, profile).getIntent(world.getSnapshot(), () => false)).toMatchObject({ moveX: -1, attackPressed: false })
+    expect(new EnemyAI(cfg, profile).getIntent(world.getSnapshot(), () => true)).toMatchObject({ attackPressed: true })
+  })
+
+  it('never attacks a knocked-down or invulnerable player', () => {
+    const snapshot = new CombatWorld().getSnapshot(), ai = new EnemyAI(cfg, { ...DEFAULT_AI_PROFILE, aggression: 1 })
+    const player = { ...snapshot.fighters.PLAYER, x: snapshot.fighters.ENEMY.x - attackDistance + 20 }
+    for (const down of [{ knockdownTicks: 40 }, { invulnerableTicks: 10 }]) for (let i = 0; i < 60; i += 1) expect(ai.getIntent({ ...snapshot, fighters: { ...snapshot.fighters, PLAYER: { ...player, ...down } } }).attackPressed).toBe(false)
   })
 })

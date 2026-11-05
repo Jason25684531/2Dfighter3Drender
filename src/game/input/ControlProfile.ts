@@ -1,7 +1,7 @@
 import type { PlayerSlotId } from './InputManager'
 
-// 可改鍵的戰鬥語意動作；GUARD 是獨立按鍵（按住即防禦），往後只是移動。
-export const COMBAT_ACTIONS = ['MOVE_LEFT', 'MOVE_RIGHT', 'JUMP', 'CROUCH', 'LIGHT_PUNCH', 'HEAVY_PUNCH', 'LIGHT_KICK', 'HEAVY_KICK', 'GUARD', 'PAUSE'] as const
+// 防禦由戰鬥邏輯依後方向判斷。
+export const COMBAT_ACTIONS = ['MOVE_LEFT', 'MOVE_RIGHT', 'JUMP', 'CROUCH', 'LIGHT_PUNCH', 'HEAVY_PUNCH', 'LIGHT_KICK', 'HEAVY_KICK', 'PAUSE'] as const
 export type CombatAction = (typeof COMBAT_ACTIONS)[number]
 export type AttackAction = Extract<CombatAction, 'LIGHT_PUNCH' | 'HEAVY_PUNCH' | 'LIGHT_KICK' | 'HEAVY_KICK'>
 export const ATTACK_ACTIONS: readonly AttackAction[] = ['LIGHT_PUNCH', 'HEAVY_PUNCH', 'LIGHT_KICK', 'HEAVY_KICK']
@@ -11,10 +11,10 @@ export type ControlProfiles = Record<PlayerSlotId, Bindings>
 // 以 KeyboardEvent.code 綁定實體鍵位，不受鍵盤語系影響。
 // P2 profile 只是資料：2P 目前是 CPU，沒有任何地方讀它控制角色。
 export const DEFAULT_KEYBOARD_BINDINGS: ControlProfiles = {
-  P1: { MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', GUARD: 'KeyK', PAUSE: 'Escape' },
-  P2: { MOVE_LEFT: 'ArrowLeft', MOVE_RIGHT: 'ArrowRight', JUMP: 'ArrowUp', CROUCH: 'ArrowDown', LIGHT_PUNCH: 'Numpad1', HEAVY_PUNCH: 'Numpad2', LIGHT_KICK: 'Numpad4', HEAVY_KICK: 'Numpad5', GUARD: 'Numpad6', PAUSE: 'Escape' },
+  P1: { MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', PAUSE: 'Escape' },
+  P2: { MOVE_LEFT: 'ArrowLeft', MOVE_RIGHT: 'ArrowRight', JUMP: 'ArrowUp', CROUCH: 'ArrowDown', LIGHT_PUNCH: 'Numpad1', HEAVY_PUNCH: 'Numpad2', LIGHT_KICK: 'Numpad4', HEAVY_KICK: 'Numpad5', PAUSE: 'Escape' },
 }
-export const CONTROLS_STORAGE_KEY = 'exp2.controls.v2'
+export const CONTROLS_STORAGE_KEY = 'exp2.controls.v3'
 
 export const actionLabel = (action: CombatAction): string => action.replace('_', ' ')
 const symbols: Record<string, string> = {
@@ -22,6 +22,16 @@ const symbols: Record<string, string> = {
   Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backquote: '`',
 }
 export const keyLabel = (code: string): string => symbols[code] ?? code.replace(/^Key|^Digit/, '').replace(/^Numpad/, 'NUM ').toUpperCase()
+
+/** 組合操作（唯讀）：由目前綁定推導，不能單獨改鍵。 */
+export const combinationRows = (bindings: Bindings): { label: string; keys: string }[] => {
+  const attacks = ATTACK_ACTIONS.map((action) => keyLabel(bindings[action])).join(' / ')
+  return [
+    { label: 'CROUCH ATTACK 蹲攻擊', keys: `${keyLabel(bindings.CROUCH)} + ${attacks}` },
+    { label: 'AIR ATTACK 空中攻擊', keys: `${keyLabel(bindings.JUMP)} + ${attacks}` },
+    { label: 'GUARD 防禦', keys: `HOLD BACK ${keyLabel(bindings.MOVE_LEFT)} / ${keyLabel(bindings.MOVE_RIGHT)}` },
+  ]
+}
 
 // 修飾鍵單獨不可綁；Tab/F1–F12 等會觸發瀏覽器或系統行為（焦點、重新整理、全螢幕、開發者工具）。
 export const keyProblem = (code: string): string | undefined => {
@@ -43,13 +53,13 @@ const browserStore = (): Store | undefined => { try { return globalThis.localSto
 export const loadProfiles = (store = browserStore()): ControlProfiles => {
   let saved: { version?: unknown; profiles?: Partial<Record<PlayerSlotId, unknown>> } = {}
   try { saved = JSON.parse(store?.getItem(CONTROLS_STORAGE_KEY) ?? '{}') ?? {} } catch { /* 損壞 → 預設 */ }
-  const profiles = saved.version === 2 ? saved.profiles ?? {} : {}
+  const profiles = saved.version === 3 ? saved.profiles ?? {} : {}
   return { P1: validBindings(profiles.P1) ? { ...profiles.P1 } : { ...DEFAULT_KEYBOARD_BINDINGS.P1 }, P2: validBindings(profiles.P2) ? { ...profiles.P2 } : { ...DEFAULT_KEYBOARD_BINDINGS.P2 } }
 }
 /** 不完整或重複鍵的 profile 不寫入。 */
 export const saveProfiles = (profiles: ControlProfiles, store = browserStore()): boolean => {
   if (!validBindings(profiles.P1) || !validBindings(profiles.P2)) return false
-  try { store?.setItem(CONTROLS_STORAGE_KEY, JSON.stringify({ version: 2, profiles })); return Boolean(store) } catch { return false }
+  try { store?.setItem(CONTROLS_STORAGE_KEY, JSON.stringify({ version: 3, profiles })); return Boolean(store) } catch { return false }
 }
 
 export type EditorState = 'SELECT_BINDING' | 'LISTENING_FOR_KEY' | 'CONFLICT' | 'CONFIRM_RESET'

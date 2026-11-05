@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { actionLabel, COMBAT_ACTIONS, keyLabel, RESET_ROW, type ControlsEditor } from '../../input/ControlProfile'
+import { actionLabel, COMBAT_ACTIONS, combinationRows, keyLabel, RESET_ROW, type ControlsEditor } from '../../input/ControlProfile'
 import { ActionButton, AngularPanel } from '../VisualComponents'
 import { colorHex, uiTokens } from '../tokens/uiTokens'
 import { typography } from '../tokens/typography'
@@ -13,6 +13,7 @@ export class ControlsPanel {
   private readonly root: Phaser.GameObjects.Container
   private readonly rows: Array<{ focus: Phaser.GameObjects.Rectangle; key: Phaser.GameObjects.Text }> = []
   private readonly message: Phaser.GameObjects.Text
+  private readonly combos: Phaser.GameObjects.Text[]
   private dialog?: Phaser.GameObjects.Container
 
   constructor(private readonly scene: Phaser.Scene, private readonly editor: ControlsEditor, private readonly onClose: () => void) {
@@ -28,8 +29,11 @@ export class ControlsPanel {
       const key = scene.add.text(1360, y, '', { ...typography.secondaryAction, fontSize: uiTokens.type.body }).setOrigin(1, 0.5)
       this.root.add([focus, name, key]); this.rows.push({ focus, key })
     })
+    // 組合操作：唯讀，隨綁定更新。
+    this.combos = [0, 1, 2].map((i) => scene.add.text(560, 790 + i * 40, '', { ...typography.note, color: colorHex('textSecondary') }).setOrigin(0, 0.5))
+    this.root.add(this.combos)
     this.message = scene.add.text(960, 960, '', { ...typography.instruction, color: colorHex('resultGold') }).setOrigin(0.5)
-    this.root.add([this.message, scene.add.text(960, 1010, '↑↓ / W S 選擇 · ENTER / J 改鍵 · ESC / K 返回', typography.note).setOrigin(0.5)])
+    this.root.add([this.message, scene.add.text(960, 1030, '↑↓ / W S 選擇 · ENTER / J 改鍵 · ESC / K 返回', typography.note).setOrigin(0.5)])
     window.addEventListener('keydown', this.onKey, true)
     this.sync()
   }
@@ -56,6 +60,7 @@ export class ControlsPanel {
       focus.setVisible(editor.focus === i)
       key.setText(i === RESET_ROW ? '' : listening ? 'PRESS A KEY...' : `[ ${keyLabel(editor.bindings[COMBAT_ACTIONS[i]])} ]`).setColor(colorHex(listening ? 'resultGold' : 'textPrimary'))
     })
+    combinationRows(editor.bindings).forEach(({ label, keys }, i) => this.combos[i].setText(`${label}　${keys}`))
     this.message.setText(editor.state === 'CONFIRM_RESET' ? '' : editor.message)
     this.dialog?.destroy(true); this.dialog = undefined
     if (editor.state !== 'CONFLICT' && editor.state !== 'CONFIRM_RESET') return

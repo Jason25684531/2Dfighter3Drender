@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CONTROLS_STORAGE_KEY, ControlsEditor, DEFAULT_KEYBOARD_BINDINGS, keyLabel, keyProblem, loadProfiles, RESET_ROW, saveProfiles, type ControlProfiles } from './ControlProfile'
+import { COMBAT_ACTIONS, combinationRows, CONTROLS_STORAGE_KEY, ControlsEditor, DEFAULT_KEYBOARD_BINDINGS, keyLabel, keyProblem, loadProfiles, RESET_ROW, saveProfiles, type ControlProfiles } from './ControlProfile'
 
 const memory = (value?: string) => { const data = new Map<string, string>(value === undefined ? [] : [[CONTROLS_STORAGE_KEY, value]]); return { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, v: string) => { data.set(key, v) } } }
 const editor = (store = memory()) => new ControlsEditor(loadProfiles(store), (profiles: ControlProfiles) => saveProfiles(profiles, store))
@@ -7,7 +7,7 @@ const focus = (e: ControlsEditor, action: number) => { e.focus = action; e.activ
 
 describe('control profiles', () => {
   it('defaults P1 to A D / W S / F U G I / Esc and keeps a separate P2 profile', () => {
-    expect(loadProfiles(memory()).P1).toEqual({ MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', GUARD: 'KeyK', PAUSE: 'Escape' })
+    expect(loadProfiles(memory()).P1).toEqual({ MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', PAUSE: 'Escape' })
     expect(loadProfiles(memory()).P2.LIGHT_PUNCH).toBe('Numpad1')
     expect(['KeyA', 'ArrowLeft', 'Escape', 'Space', 'Numpad1', 'Digit3'].map(keyLabel)).toEqual(['A', '←', 'ESC', 'SPACE', 'NUM 1', '3'])
   })
@@ -16,10 +16,10 @@ describe('control profiles', () => {
     focus(e, 4); e.capture('KeyQ')
     expect(e.message).toBe('SAVED'); expect(e.bindings.LIGHT_PUNCH).toBe('KeyQ')
     expect(loadProfiles(store).P1.LIGHT_PUNCH).toBe('KeyQ')
-    expect(JSON.parse(store.getItem(CONTROLS_STORAGE_KEY)!).version).toBe(2)
+    expect(JSON.parse(store.getItem(CONTROLS_STORAGE_KEY)!).version).toBe(3)
   })
   it('falls back to defaults for corrupted, wrong-version, incomplete, or duplicate data and refuses to save them', () => {
-    for (const bad of ['{not json', JSON.stringify({ version: 1, profiles: { P1: { ...DEFAULT_KEYBOARD_BINDINGS.P1, JUMP: 'KeyZ' } } }), JSON.stringify({ version: 2, profiles: { P1: { MOVE_LEFT: 'KeyA' } } }), JSON.stringify({ version: 2, profiles: { P1: { ...DEFAULT_KEYBOARD_BINDINGS.P1, JUMP: 'KeyF' } } })])
+    for (const bad of ['{not json', JSON.stringify({ version: 2, profiles: { P1: { ...DEFAULT_KEYBOARD_BINDINGS.P1, JUMP: 'KeyZ' } } }), JSON.stringify({ version: 3, profiles: { P1: { MOVE_LEFT: 'KeyA' } } }), JSON.stringify({ version: 3, profiles: { P1: { ...DEFAULT_KEYBOARD_BINDINGS.P1, JUMP: 'KeyF' } } })])
       expect(loadProfiles(memory(bad))).toEqual(DEFAULT_KEYBOARD_BINDINGS)
     const store = memory()
     expect(saveProfiles({ ...DEFAULT_KEYBOARD_BINDINGS, P1: { ...DEFAULT_KEYBOARD_BINDINGS.P1, JUMP: 'KeyF' } }, store)).toBe(false)
@@ -36,7 +36,7 @@ describe('control profiles', () => {
     const e = editor()
     focus(e, 2); e.capture('KeyF'); e.move(1); e.activate()
     expect([e.state, e.bindings.JUMP, e.bindings.LIGHT_PUNCH]).toEqual(['SELECT_BINDING', 'KeyW', 'KeyF'])
-    focus(e, 9); e.capture('Escape'); expect([e.state, e.bindings.PAUSE]).toEqual(['SELECT_BINDING', 'Escape'])
+    focus(e, 8); e.capture('Escape'); expect([e.state, e.bindings.PAUSE]).toEqual(['SELECT_BINDING', 'Escape'])
     focus(e, 0)
     for (const code of ['ShiftLeft', 'ControlRight', 'AltLeft', 'MetaLeft', 'Tab', 'F5', 'F12']) { e.capture(code); expect(e.bindings.MOVE_LEFT).toBe('KeyA') }
     expect(e.state).toBe('LISTENING_FOR_KEY'); expect(e.message).toMatch(/RESERVED/)
@@ -51,5 +51,12 @@ describe('control profiles', () => {
     focus(e, RESET_ROW); e.activate()
     expect(e.bindings).toEqual(DEFAULT_KEYBOARD_BINDINGS.P1); expect(loadProfiles(store).P1).toEqual(DEFAULT_KEYBOARD_BINDINGS.P1)
     expect(e.bindings).not.toBe(DEFAULT_KEYBOARD_BINDINGS.P1)
+  })
+  it('derives the combination list from current bindings', () => {
+    const e = editor()
+    e.focus = COMBAT_ACTIONS.indexOf('LIGHT_PUNCH'); e.activate(); e.capture('KeyQ')
+    expect(combinationRows(e.bindings).map((row) => row.keys)).toEqual(['S + Q / U / G / I', 'W + Q / U / G / I', 'HOLD BACK A / D'])
+    e.focus = RESET_ROW; e.activate(); e.activate()
+    expect(combinationRows(e.bindings)[0].keys).toBe('S + F / U / G / I')
   })
 })

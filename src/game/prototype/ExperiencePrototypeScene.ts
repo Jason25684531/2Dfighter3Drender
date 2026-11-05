@@ -6,17 +6,21 @@ import type { OwnedUiAction, PlayerSlotId } from '../input/InputManager'
 import { characterEntry, stageTextureKey, testStageManifest, type StageId } from '../ui/assets/TestAssetManifest'
 import { registerSheetAnimations } from '../ui/animation/SheetSpriteManifest'
 import { TemporarySpriteRenderer } from '../ui/animation/TemporarySpriteRenderer'
+import { createSpriteHitTest } from '../ui/animation/SpriteHitTest'
 import { MatchController } from '../match/MatchController'
 import { GameClock, FIXED_STEP_MS } from '../time/GameClock'
 import { combatMapping, menuMapping, resolveDemo, semanticAnimation, type Semantic } from './OperationMapping'
-import { stageCamera, worldX, WORLD_ZOOM } from '../ui/stage/StageCamera'
 import { ARENA_WIDTH } from '../config/stageTuning'
 import { registerImpactFx } from '../ui/vfx/ImpactFx'
 import { Announcer, HealthBar, HexTimer, RoundDiamonds } from '../ui/VisualComponents'
 import { battleViewModel, finishAnnouncements } from '../ui/ViewModels'
 import { resolveMatchResult } from '../match/ResultResolver'
-import { ATTACK_ACTIONS, type AttackAction } from '../input/ControlProfile'
-import { StageParallax } from '../ui/stage/StageParallax'
+import { ATTACK_ACTIONS } from '../input/ControlProfile'
+import { BattleStage } from '../ui/stage/BattleStage'
+import { GameAudio } from '../audio/GameAudio'
+import { combatCues } from '../audio/AudioCues'
+import type { CombatEvent } from '../combat/CombatWorld'
+import { outcomeFor } from '../ui/animation/TemporarySpriteManifest'
 
 export type DemoPage = 'P1' | 'P2' | 'CONTROLS' | 'BATTLE' | 'INPUT'
 const owners = ['P1', 'P2'] as const
@@ -29,7 +33,6 @@ export class ExperiencePrototypeScene extends BootScene {
   readonly clock = new GameClock()
   readonly held = new Set<string>()
   readonly pressed = new Set<string>()
-  scroll = 0
   paused = false
   staticStage = false
   selectedStage = 0
@@ -37,9 +40,10 @@ export class ExperiencePrototypeScene extends BootScene {
   readonly reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
   private view?: P1SelectView
   private root?: Phaser.GameObjects.Container
-  private stage?: StageParallax
-  // 與正式 P4 相同的 HUD 元件。
-  private hud?: { bars: HealthBar[]; rounds: RoundDiamonds[]; timer: HexTimer; announcer: Announcer }
+  private stage?: BattleStage
+  private audio?: GameAudio
+  private combatUnsubscribe?: () => void
+  private combatEvents: CombatEvent[] = []
   private world?: Phaser.GameObjects.Container
   private actors: TemporarySpriteRenderer[] = []
   private demoActors: Phaser.GameObjects.Sprite[] = []
@@ -51,12 +55,13 @@ export class ExperiencePrototypeScene extends BootScene {
   private readonly dialog = document.querySelector<HTMLDialogElement>('#pause-dialog')!
 
   async create(): Promise<void> {
+    this.audio = new GameAudio(this)
     registerSheetAnimations(this); registerImpactFx(this)
     window.addEventListener('keydown', this.keydown)
     window.addEventListener('keyup', this.keyup)
     window.addEventListener('blur', this.blur)
     this.events.once('shutdown', () => {
-      this.clearPage()
+      this.clearPage(); this.audio?.destroy(); this.audio = undefined
       window.removeEventListener('keydown', this.keydown); window.removeEventListener('keyup', this.keyup); window.removeEventListener('blur', this.blur)
     })
     this.show('P1')
@@ -77,7 +82,7 @@ export class ExperiencePrototypeScene extends BootScene {
     else if (page === 'P2') this.renderP2()
     else if (page === 'CONTROLS') {
       this.text(960, 200, '即將進入既有 CPU 戰鬥', 54)
-      this.text(960, 410, 'A / D 移動　W 跳　S 蹲　F U G I 攻擊　K 防禦', 40)
+      this.text(960, 410, 'A / D 移動　W 跳　S 蹲　F U G I 攻擊　後退＝防禦', 40)
       this.text(960, 520, '2P 選擇只決定 CPU 外觀。鍵位與正式 P4 相同。', 28)
       this.text(960, 600, '每回合 60 秒 · 24Hz · 原型不送出分數', 28, '#f7cf82')
       this.button(760, 800, 'K 返回關卡', () => this.show('P2'))
@@ -109,7 +114,7 @@ export class ExperiencePrototypeScene extends BootScene {
     const phase = this.model.phase, who = this.model.owner
     const feedback = this.model.input(owner, action)
     this.refreshSelection(phase !== this.model.phase && this.model.phase !== 'ALL_READY' || who !== this.model.owner)
-    if (feedback) this.view?.feedback(owner, feedback)
+    if (feedback && feedback !== 'CONFIRMED') this.view?.feedback(owner, feedback)
   }
   private playerName(owner: PlayerSlotId): string {
     const selection = this.model.result()[owner]
@@ -136,43 +141,47 @@ export class ExperiencePrototypeScene extends BootScene {
   }
   private backToSelect(): void { this.model.input('P1', 'BACK'); this.show('P1') }
   private renderArena(input: boolean): void {
-    this.stage = new StageParallax(this, stages[this.selectedStage], this.reduced, this.add.container().setDepth(-30), this.add.container().setDepth(20))
+    this.stage = new BattleStage(this, this.add.container().setDepth(-30), stages[this.selectedStage], this.reduced)
     this.stage.setStatic(this.staticStage)
-    this.world = this.add.container(worldX(0), 82).setScale(WORLD_ZOOM)
+    this.world = this.stage.world
     if (input) {
       this.demoActors = owners.map((_, i) => {
         const actor = this.add.sprite(ARENA_WIDTH / 2 + (i ? 400 : -400), 820, 'kevin-idle', 0).setOrigin(0.5, 0.9).setScale(3.2).setFlipX(Boolean(i))
         this.world!.add(actor); return actor
       })
+      this.match.world.setHitTest(createSpriteHitTest(this, { PLAYER: this.actors[0], ENEMY: this.actors[1] }, () => ({ crouch: this.held.has(combatMapping.P1.CROUCH) })))
       this.demoLabels = owners.map((owner, i) => this.text(i ? 1440 : 480, 270, `${owner} IDLE`, 32, i ? '#b5a2ff' : '#ff6576'))
       this.text(960, 100, '動作語意展示 / 無傷害、無勝負', 48)
       this.text(960, 990, '1P: ADWS · F/U/G/I　　2P: 方向鍵 · Numpad 1/2/4/5', 28)
       this.updateDemo()
     } else {
       this.match.start()
-      this.actors = owners.map((owner, i) => {
+      this.audio?.loop('amb-cheer')
+      this.combatUnsubscribe = this.match.world.subscribe(event => this.combatEvents.push(event))
+      this.actors = owners.map((owner) => {
         const selection = this.model.result()[owner]
         const entry = characterEntry(selection?.characterId)
-        const actor = new TemporarySpriteRenderer(this, entry?.type === 'BODY_TEMPLATE' ? 'kevin' : entry?.spriteId ?? 'kevin', i ? 0x8070ff : 0xff4560, 820)
+        const actor = new TemporarySpriteRenderer(this, entry?.type === 'BODY_TEMPLATE' ? 'kevin' : entry?.spriteId ?? 'kevin', 820)
         this.world!.add(actor); return actor
       })
-      const hud = this.hud = { bars: [new HealthBar(this, 560, 0xe5172f).setPosition(230, 112), new HealthBar(this, 560, 0x7c3aed, true).setPosition(1130, 112)], rounds: [new RoundDiamonds(this).setPosition(250, 156), new RoundDiamonds(this, true).setPosition(1670, 156)], timer: new HexTimer(this).setPosition(960, 110), announcer: new Announcer(this) }
+      const hud = { bars: [new HealthBar(this, 560, 0xe5172f).setPosition(230, 112), new HealthBar(this, 560, 0x7c3aed, true).setPosition(1130, 112)], rounds: [new RoundDiamonds(this).setPosition(250, 156), new RoundDiamonds(this, true).setPosition(1670, 156)], timer: new HexTimer(this).setPosition(960, 110), announcer: new Announcer(this) }
       ;[...hud.bars, ...hud.rounds, hud.timer, hud.announcer].forEach((object) => this.add.existing(object.setDepth(100)))
       owners.forEach((owner, i) => this.text(i ? 1690 : 230, 62, `${owner}${i ? ' / CPU' : ''}  ${this.playerName(owner)}`, 28).setOrigin(i, 0))
-      this.text(960, 1000, '正式鍵位：A/D 移動 · W 跳 · S 蹲 · F/U 輕重拳 · G/I 輕重腳 · K 防禦 · Esc 暫停', 26).setDepth(100)
+      this.text(960, 1000, '正式鍵位：A/D 移動 · W 跳 · S 蹲 · F/U 輕重拳 · G/I 輕重腳 · 後退＝防禦 · Esc 暫停', 26).setDepth(100)
       const sync = () => {
         const snapshot = this.match.getSnapshot(), vm = battleViewModel(snapshot, stages[this.selectedStage])
-        ;[snapshot.world.fighters.PLAYER, snapshot.world.fighters.ENEMY].forEach((fighter, i) => { this.actors[i].update(fighter, snapshot.world.tick, i ? undefined : { crouch: this.held.has(combatMapping.P1.crouch) }) })
+        ;[snapshot.world.fighters.PLAYER, snapshot.world.fighters.ENEMY].forEach((fighter, i) => { const outcome = outcomeFor(fighter.id, snapshot.matchState, this.match.getRoundSummaries().at(-1)?.winner); this.actors[i].update(fighter, snapshot.world.tick, i ? { outcome } : { crouch: this.held.has(combatMapping.P1.CROUCH), outcome }) })
         hud.bars[0].setRatio(vm.playerHp / vm.maxHp, vm.playerHp); hud.bars[1].setRatio(vm.enemyHp / vm.maxHp, vm.enemyHp)
         hud.rounds[0].setWins(vm.playerWins); hud.rounds[1].setWins(vm.enemyWins); hud.timer.updateTime(vm.timerSeconds, vm.round)
         const done = this.match.getCompletedMatch(); hud.announcer.show(done ? finishAnnouncements(resolveMatchResult(done))[1] : undefined)
       }
       sync()
       this.unsubscribe = this.clock.subscribe(() => {
-        // 與正式相同的目標鍵位（OperationMapping.combatMapping.P1）。
-        const keys = combatMapping.P1, kinds: Record<AttackAction, string> = { LIGHT_PUNCH: keys.lightPunch, HEAVY_PUNCH: keys.heavyPunch, LIGHT_KICK: keys.lightKick, HEAVY_KICK: keys.heavyKick }
-        const attack = ATTACK_ACTIONS.find((action) => this.pressed.has(kinds[action]))
-        this.match.tick({ moveX: Number(this.held.has(keys.right)) - Number(this.held.has(keys.left)), jumpPressed: this.pressed.has(keys.jump), attackPressed: Boolean(attack), attack, guardHeld: this.held.has('KeyK') })
+        // 已儲存的 P1 鍵位（OperationMapping.combatMapping）。
+        const keys = combatMapping.P1
+        const attack = ATTACK_ACTIONS.find((action) => this.pressed.has(keys[action]))
+        this.match.tick({ moveX: Number(this.held.has(keys.MOVE_RIGHT)) - Number(this.held.has(keys.MOVE_LEFT)), jumpPressed: this.pressed.has(keys.JUMP), attackPressed: Boolean(attack), attack })
+        this.audio?.playSequence(combatCues(this.combatEvents.splice(0)))
         this.pressed.clear(); sync()
       })
       this.clock.reset(); this.clock.start()
@@ -194,7 +203,7 @@ export class ExperiencePrototypeScene extends BootScene {
   setPaused(value: boolean): void {
     if (this.paused === value) return
     this.paused = value; this.held.clear(); this.pressed.clear()
-    this.stage?.pause(value); this.time.paused = value; this.input.enabled = !value
+    this.stage?.pause(value); if (value) this.audio?.pauseLoop(); else this.audio?.resumeLoop(); this.time.paused = value; this.input.enabled = !value
     if (value) {
       this.clock.pause(); this.tweens.pauseAll(); this.anims.pauseAll()
       this.focusReturn = document.activeElement as HTMLElement
@@ -240,17 +249,16 @@ export class ExperiencePrototypeScene extends BootScene {
     if (actors.length !== 2) return
     if (this.page === 'INPUT' && !this.manual) this.demoActors.forEach((actor, i) => {
       const binding = combatMapping[owners[i]]
-      actor.x = Phaser.Math.Clamp(actor.x + (Number(this.held.has(binding.right)) - Number(this.held.has(binding.left))) * Math.min(delta, 50) * 0.4, 60, ARENA_WIDTH - 60)
+      actor.x = Phaser.Math.Clamp(actor.x + (Number(this.held.has(binding.MOVE_RIGHT)) - Number(this.held.has(binding.MOVE_LEFT))) * Math.min(delta, 50) * 0.4, 60, ARENA_WIDTH - 60)
     })
-    this.scroll = stageCamera(this.scroll, actors[0].x, actors[1].x, this.reduced ? Infinity : delta / 1000)
-    this.world.x = worldX(this.scroll)
-    this.stage?.move(this.scroll)
+    this.stage?.follow(actors[0].x, actors[1].x, this.reduced ? Infinity : delta / 1000)
   }
   private clearPage(): void {
+    this.match.world.setHitTest(undefined); this.combatUnsubscribe?.(); this.combatUnsubscribe = undefined; this.combatEvents = []; this.audio?.stopLoop()
     this.held.clear(); this.pressed.clear(); this.clock.stop(); this.unsubscribe?.(); this.unsubscribe = undefined
     this.view?.destroy(); this.view = undefined; this.root = undefined
-    this.hud = undefined; this.stage?.destroy(); this.stage = undefined
+    this.stage?.destroy(); this.stage = undefined
     this.children.removeAll(true); this.time.removeAllEvents(); this.tweens.killAll()
-    this.world = undefined; this.actors = []; this.demoActors = []; this.demoLabels = []; this.semanticKeys = ['', '']; this.manual = undefined; this.scroll = 0
+    this.world = undefined; this.actors = []; this.demoActors = []; this.demoLabels = []; this.semanticKeys = ['', '']; this.manual = undefined
   }
 }

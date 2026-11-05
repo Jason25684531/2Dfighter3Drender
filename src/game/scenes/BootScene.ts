@@ -4,6 +4,7 @@ import { spriteActions, spriteFrameCount, spriteFrameUrl, spriteIds, spriteTextu
 import { isSheetSprite, loadSheetSprites, registerSheetAnimations } from '../ui/animation/SheetSpriteManifest'
 import { loadImpactFx, registerImpactFx } from '../ui/vfx/ImpactFx'
 import { LAB_STAGE_DIR } from '../ui/stage/StageParallax'
+import { GameAudio } from '../audio/GameAudio'
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -11,6 +12,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
+    GameAudio.load(this)
     Object.values(testStageManifest).forEach((stage) => this.load.image(stageTextureKey(stage.id), stage.url))
     spriteIds.filter((id) => !isSheetSprite(id)).forEach((id) => spriteActions.forEach((action) => { for (let frame = 0; frame < spriteFrameCount(action); frame += 1) this.load.image(spriteTextureKey(id, action, frame), spriteFrameUrl(id, action, frame)) }))
     loadSheetSprites(this)

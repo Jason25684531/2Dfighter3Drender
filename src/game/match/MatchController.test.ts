@@ -5,7 +5,7 @@ import { INTRO_FIGHT_TICKS, INTRO_OUTCOME_TICKS, INTRO_READY_TICKS, INTRO_ROUND_
 import { FIXED_STEP_MS, GameClock } from '../time/GameClock'
 import { resolveMatchResult } from './ResultResolver'
 
-const neutral: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: false, guardHeld: false }
+const neutral: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: false }
 const closeConfig = (damage = 10): CombatConfig => ({ arenaWidth: 1920, floorY: 820, fighterWidth: 120, fighterHeight: 220, walkSpeed: 18, jumpVelocity: -34, gravity: 3, maxHp: 100, attack: { startupTicks: 3, activeTicks: 2, recoveryTicks: 5, damage, hitStunTicks: 6, hitboxOffset: 90, hitboxWidth: 90, hitboxHeight: 80 }, initialPositions: { PLAYER: 560, ENEMY: 640 } })
 
 describe('EnemyAI and MatchController', () => {
@@ -29,6 +29,22 @@ describe('EnemyAI and MatchController', () => {
 
   it('starts with 1440 ticks and decrements only on fighting ticks', () => {
     const match = new MatchController(closeConfig()); expect(match.getSnapshot().remainingTicks).toBe(ROUND_TICKS); match.start(); expect(match.getSnapshot().matchState).toBe('FIGHTING'); match.tick(); expect(match.getSnapshot().remainingTicks).toBe(ROUND_TICKS - 1); expect(match.getSnapshot().world.tick).toBe(1)
+  })
+  it('continues the 60-second timer while combat is frozen', () => {
+    const config = closeConfig(); config.attack.hitFreeze = 3
+    const match = new MatchController(config); let aiTicks = 0; match.ai.getIntent = () => { aiTicks += 1; return neutral }; match.start()
+    match.tick({ ...neutral, attackPressed: true })
+    for (let i = 0; i < 8 && !match.world.isFrozen(); i += 1) match.tick()
+    expect(match.world.isFrozen()).toBe(true)
+    while (match.world.isFrozen()) {
+      const before = match.getSnapshot(), aiTicksBefore = aiTicks
+      match.tick()
+      expect(aiTicks).toBe(aiTicksBefore)
+      expect(match.getSnapshot().remainingTicks).toBe(before.remainingTicks - 1)
+      expect(match.getSnapshot().world.fighters).toEqual(before.world.fighters)
+    }
+    expect(aiTicks).toBeGreaterThan(0)
+    expect(p4SubStateFor(500, 25, 100, 0)).toBe('DANGER')
   })
 
   it('resolves KO, first-to-two, round three, and no fourth round', () => {

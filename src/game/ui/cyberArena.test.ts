@@ -3,7 +3,6 @@ import sceneSource from '../scenes/AppScene.ts?raw'
 import { AppState } from '../state/AppState'
 import { AppStateMachine } from '../state/AppStateMachine'
 import { UIFramework } from './UIFramework'
-import { MatchController } from '../match/MatchController'
 import { healthRatio, panelPoints } from './presentationMath'
 import { uiTokens } from './tokens/uiTokens'
 

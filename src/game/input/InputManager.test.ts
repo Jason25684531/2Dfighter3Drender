@@ -12,7 +12,7 @@ describe('InputManager', () => {
   it('tracks device switches without changing gameplay input or letting held pad input steal keyboard emphasis', () => {
     const input = new InputManager(), pad = { buttons: [{ pressed: true }] }
     expect(input.lastDevice()).toBe('keyboard'); input.update([pad]); expect(input.lastDevice()).toBe('gamepad')
-    expect(input.consumeGameplaySnapshot().jumpPressed).toBe(true)
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ jumpPressed: false, attack: 'LIGHT_KICK' })
     input.handleKeyDown('KeyF'); input.update([pad]); expect(input.lastDevice()).toBe('keyboard')
     expect(input.consumeGameplaySnapshot().attackPressed).toBe(true)
     input.update([{ buttons: [{ pressed: true }, { pressed: true }] }]); expect(input.lastDevice()).toBe('gamepad')
@@ -69,7 +69,7 @@ describe('InputManager', () => {
     const pad: GamepadLike = { buttons: [{ pressed: true }, { pressed: false }, { pressed: true }], axes: [0.625] }
     const input = new InputManager(); input.update([pad])
     expect(input.consumeUiActions()).toEqual(['CONFIRM'])
-    expect(input.consumeGameplaySnapshot()).toMatchObject({ moveX: 0.5, jumpPressed: true, attackPressed: true })
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ moveX: 0.5, jumpPressed: false, attackPressed: true })
     const deadzone = new InputManager(); deadzone.update([{ axes: [0.2] }]); expect(deadzone.consumeGameplaySnapshot().moveX).toBe(0)
     const tie = new InputManager(); tie.handleKeyDown('KeyA'); tie.update([{ axes: [1] }]); expect(tie.consumeGameplaySnapshot().moveX).toBe(-1)
   })
@@ -111,12 +111,19 @@ describe('InputManager', () => {
     input.consumeUiActions(); input.handleKeyDown('KeyF'); input.update(); expect(input.consumeUiActions()).toEqual([])
     expect(input.lastCombatInput).toEqual({ code: 'KeyF', action: 'LIGHT_PUNCH' })
   })
-  it('uses a dedicated GUARD key; moving backward only walks', () => {
+  it('reports backward as movement without a guard input', () => {
     const input = new InputManager()
     input.handleKeyDown('KeyA'); input.update()
-    expect(input.consumeGameplaySnapshot()).toMatchObject({ moveX: -1, guardHeld: false })
-    input.handleKeyDown('KeyK'); input.update(); expect(input.consumeGameplaySnapshot().guardHeld).toBe(true)
-    input.handleKeyUp('KeyK'); input.update(); expect(input.consumeGameplaySnapshot().guardHeld).toBe(false)
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ moveX: -1 })
+    input.handleKeyDown('KeyK'); input.update(); expect(input.consumeGameplaySnapshot()).not.toHaveProperty('guardHeld')
+  })
+  it('maps the four face buttons to attacks and only D-pad up to jump', () => {
+    for (const [button, attack] of [[2, 'LIGHT_PUNCH'], [3, 'HEAVY_PUNCH'], [0, 'LIGHT_KICK'], [1, 'HEAVY_KICK']] as const) {
+      const input = new InputManager(), buttons = Array.from({ length: 13 }, (_, index) => ({ pressed: index === button }))
+      input.update([{ buttons }]); expect(input.consumeGameplaySnapshot()).toMatchObject({ attack, jumpPressed: false })
+    }
+    const input = new InputManager(), buttons = Array.from({ length: 13 }, (_, index) => ({ pressed: index === 12 }))
+    input.update([{ buttons }]); expect(input.consumeGameplaySnapshot()).toMatchObject({ jumpPressed: true, attackPressed: false })
   })
   it('rebinds Light Punch from F to Q without touching menu or owner keys', () => {
     const input = new InputManager()
@@ -124,5 +131,12 @@ describe('InputManager', () => {
     input.handleKeyDown('KeyF'); input.update(); expect(input.consumeGameplaySnapshot().attackPressed).toBe(false)
     input.handleKeyDown('KeyQ'); input.update(); expect(input.consumeGameplaySnapshot().attack).toBe('LIGHT_PUNCH')
     input.handleKeyDown('KeyJ'); expect(input.consumeOwnedUiActions()).toContainEqual({ owner: 'P1', action: 'CONFIRM' })
+  })
+  it('routes Player 1 menu input through the custom bindings', () => {
+    const input = new InputManager()
+    input.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS.P1, MOVE_LEFT: 'KeyJ', JUMP: 'KeyT' })
+    for (const code of ['KeyJ', 'KeyT', 'KeyF', 'KeyW', 'KeyK']) { input.handleKeyDown(code); input.handleKeyUp(code) }
+    // J 被綁成左移 → 確認改用輕拳 F；W 不再是上。
+    expect(input.consumeOwnedUiActions().filter(({ owner }) => owner === 'P1').map(({ action }) => action)).toEqual(['NAV_LEFT', 'NAV_UP', 'CONFIRM', 'BACK'])
   })
 })

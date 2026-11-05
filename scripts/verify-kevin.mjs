@@ -23,9 +23,9 @@ try {
     const { sheetAnimations: kevinAnimations } = await import('/src/game/ui/animation/SheetSpriteManifest.ts')
     return kevinAnimations.map(({ key, filename }) => ({ key, filename, frames: s.anims.get(`kevin-${key}`)?.frames.map(frame => Number(frame.textureFrame)), size: s.textures.get(`kevin-${key}`).get(0).width }))
   })
-  assert.equal(animations.length, 15)
+  assert.equal(animations.length, 14) // 06_Block 不再載入，防禦用 05_Crouch
   for (const clip of animations) { assert.deepEqual(clip.frames, Array.from({ length: 16 }, (_, i) => i)); assert.equal(clip.size, 128) }
-  check('All 15 Kevin sheets load as 16 ordered 128px frames')
+  check('All 14 Kevin sheets load as 16 ordered 128px frames')
   await key('Enter'); await waitState('P1')
   await key('d'); await key('d'); await key('d')
   assert.equal(await scene(s => s.p1Model.heroSlot('P1').entry.displayName), 'KEVIN')
@@ -39,19 +39,19 @@ try {
   await page.screenshot({ path: `${out}/select.png` })
   check('Slot 08 selects KEVIN; Hero idle plays every frame in order')
   await key('Enter'); await key('ArrowRight'); await key('ArrowRight'); await key('Enter'); await key('j')
-  await waitState('P2'); await key('Enter'); await key('Enter'); await waitState('P3')
+  await waitState('P2'); await key('Enter'); await waitState('P3')
   assert.deepEqual(await scene(s => [s.playerSpriteId(), s.enemySpriteId()]), ['kevin', 'kevin'])
   const previews = await scene(s => s.screen.list.filter(child => child.texture?.key === 'kevin-idle').map(image => ({ playing: image.anims.isPlaying, width: image.frame.width, flipped: image.flipX })))
   assert.equal(previews.length, 2); assert(previews.every(p => p.playing && p.width === 128)); assert(previews[1].flipped)
   await page.screenshot({ path: `${out}/loading.png` })
   check('P3 shows both KEVIN selections with a mirrored CPU preview')
   await key('Enter'); await waitState('P4')
-  assert.deepEqual(await scene(s => [s.battlePlayer.spriteId, s.battleEnemy.spriteId]), ['kevin', 'kevin'])
+  assert.deepEqual(await scene(s => [s.battleView.player.spriteId, s.battleView.enemy.spriteId]), ['kevin', 'kevin'])
   await key('Escape')
   const projections = await scene(s => {
-    const renderer = s.battlePlayer, fighter = s.flow.match.world.getFighter('PLAYER'), before = JSON.stringify(s.flow.match.getSnapshot()), results = []
+    const renderer = s.battleView.player, fighter = s.flow.match.world.getFighter('PLAYER'), before = JSON.stringify(s.flow.match.getSnapshot()), results = []
     let tick = 1000
-    for (const [state, patch] of [['IDLE', {}], ['WALK', {}], ['JUMP', { grounded: false }], ['GUARD', {}], ['HIT_STUN', {}], ['ATTACK', { attackPhase: 'ACTIVE', attackTicks: 1, attackId: 101 }]]) {
+    for (const [state, patch] of [['IDLE', {}], ['WALK', {}], ['JUMP', { grounded: false }], ['GUARD', {}], ['HIT_STUN', {}], ['KNOCKDOWN', {}], ['ATTACK', { attackPhase: 'ACTIVE', attackTicks: 1, attackId: 101 }]]) {
       renderer.update({ ...fighter, state, attackPhase: 'NONE', ...patch }, tick++)
       results.push({ state, key: renderer.image.texture.key, size: renderer.image.frame.width })
     }
@@ -59,14 +59,14 @@ try {
     renderer.update({ ...fighter, state: 'WALK', facing: 'LEFT' }, 2005)
     return { results, nextFrame: Number(renderer.image.frame.name), facing: renderer.scaleX, unchanged: before === JSON.stringify(s.flow.match.getSnapshot()) }
   })
-  assert.deepEqual(projections.results.map(item => item.key), ['kevin-idle', 'kevin-walk', 'kevin-jump', 'kevin-guard', 'kevin-prone', 'kevin-attack'])
+  assert.deepEqual(projections.results.map(item => item.key), ['kevin-idle', 'kevin-walk', 'kevin-jump', 'kevin-crouch', 'kevin-prone', 'kevin-prone', 'kevin-attack'])
   assert(projections.results.every(item => item.size === 128)); assert.equal(projections.nextFrame, 1); assert.equal(projections.facing, -1); assert(projections.unchanged) // 無縱深縮放，只鏡像
-  await key('Escape'); await page.keyboard.down('k') // K＝防禦
-  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').battlePlayer.image.texture.key === 'kevin-guard')
+  await key('Escape'); await page.keyboard.down('s') // S＝蹲（防禦同用 05_Crouch；後退防禦需對手出招，由投影檢查涵蓋）
+  await page.waitForFunction(() => window.__game.scene.getScene("AppScene").battleView.player.image.texture.key === 'kevin-crouch')
   await page.screenshot({ path: `${out}/battle.png` })
-  await page.keyboard.up('k')
-  check('P4 maps all six combat states and advances sheet frames; actual guard input works')
-  const old = await scene(s => { s.__oldHero = s.battlePlayer; return s.battlePlayer.active })
+  await page.keyboard.up('s')
+  check('P4 maps all seven combat states and advances sheet frames; actual crouch input works')
+  const old = await scene(s => { s.__oldHero = s.battleView.player; return s.battleView.player.active })
   assert(old)
   await scene(s => { s.appStateMachine.transitionTo('P0_IDLE') })
   assert(await scene(s => !s.__oldHero.scene))

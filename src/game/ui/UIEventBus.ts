@@ -2,6 +2,7 @@ export type UIEvents = {
   SUBSTATE_CHANGED: { screen: string; previous: string; next: string }
   FOCUS_CHANGED: { group: string; previous?: string; next?: string }
   OVERLAY_CHANGED: { open: boolean }
+  UI_ACTION: { action: import('./NavigationManager').UIAction; handled: boolean }
 }
 
 export class UIEventBus {

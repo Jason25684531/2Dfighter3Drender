@@ -31,7 +31,6 @@ export const uiTokens = {
   },
   opacity: { panel: 0.94, overlay: 0.78, imageOverlay: 0.56, vignette: 0.42, inactive: 0.78, muted: 0.52, focusGlow: 0.22 },
   backdrop: { empty: 0.56, content: 0.58, battle: 0.16, presentation: 0.22, result: 0.7, end: 0.64, impact: 0.5 },
-  glowAlpha: { ambient: 0.06, subtle: 0.08, player: 0.13, enemy: 0.15, system: 0.2, result: 0.17, gold: 0.1, win: 0.16 },
   borderWidth: { quiet: 1, standard: 2, focus: 3 },
   glowWidth: { focus: 12, energy: 8 },
   chamfer: 14,
@@ -50,7 +49,7 @@ export const uiTokens = {
     processingMs: 2500,
     allReadyMs: 800,
     // ponytail: D-11 暫定值，待營運確認
-    idleMs: { select: 60000, customize: 90000, end: 30000, attract: 30000 },
+    idleMs: { select: 60000, customize: 90000, attract: 60000 },
   },
   motionMs: { focus: reducedMotion ? 0 : 120, enter: reducedMotion ? 0 : 240, modal: reducedMotion ? 0 : 120, announcer: reducedMotion ? 0 : 360, focalReveal: reducedMotion ? 0 : 240 },
 } as const

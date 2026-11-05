@@ -1,5 +1,5 @@
 import { DEFAULT_COMBAT_CONFIG, NEUTRAL_INTENT as neutral, type CombatConfig, type CombatSnapshot, type FighterIntent } from '../combat/CombatWorld'
-import { ATTACK_ACTIONS } from '../input/ControlProfile'
+import { ATTACK_ACTIONS, type AttackAction } from '../input/ControlProfile'
 import { DEFAULT_AI_PROFILE, type AiProfile } from '../config/aiProfiles'
 
 // 難度與行為參數在 config/aiProfiles.ts。
@@ -26,17 +26,20 @@ export class EnemyAI {
   private guardedAttack = 0
   private guarding = false
   private readonly attackDistance: number
+  private readonly closest: number
   constructor(config: CombatConfig = DEFAULT_COMBAT_CONFIG, private readonly profile: AiProfile = DEFAULT_AI_PROFILE) {
     this.attackDistance = config.attack.hitboxOffset + config.attack.hitboxWidth / 2 + config.fighterWidth / 2 - config.walkSpeed
+    this.closest = (config.pushWidth ?? config.fighterWidth) + config.walkSpeed
   }
   reset(): void {
     this.rng = mulberry32(AI_SEED); this.tickCount = 0; this.cooldown = 0; this.retreat = 0; this.committed = false; this.stance = 'HOLD'
     this.wasAttacking = false; this.guardedAttack = 0; this.guarding = false
   }
 
-  getIntent(snapshot: CombatSnapshot): FighterIntent {
+  /** reaches：畫面輪廓的射程判定（CombatWorld.reaches）；沒有時用 AABB 估算的 attackDistance。 */
+  getIntent(snapshot: CombatSnapshot, reaches?: (attack: AttackAction) => boolean | undefined): FighterIntent {
     const enemy = snapshot.fighters.ENEMY, player = snapshot.fighters.PLAYER, p = this.profile
-    if (enemy.state === 'HIT_STUN' || enemy.attackPhase !== 'NONE') { this.wasAttacking = enemy.attackPhase !== 'NONE'; this.committed = false; return neutral }
+    if (enemy.state === 'HIT_STUN' || enemy.state === 'KNOCKDOWN' || enemy.attackPhase !== 'NONE') { this.wasAttacking = enemy.attackPhase !== 'NONE'; this.committed = false; return neutral }
     if (this.wasAttacking) { this.wasAttacking = false; this.retreat = p.retreatTicks }
     this.tickCount += 1
     if (this.cooldown > 0) this.cooldown -= 1
@@ -44,7 +47,7 @@ export class EnemyAI {
     // 玩家出招：每一招只擲一次是否防禦。
     if (player.attackPhase !== 'NONE' && dist <= this.attackDistance + 60) {
       if (player.attackId !== this.guardedAttack) { this.guardedAttack = player.attackId; this.guarding = this.rng() < p.guardChance }
-      if (this.guarding) return { ...neutral, guardHeld: true }
+      if (this.guarding) return { ...neutral, moveX: -dir }
     }
     // 出招後先退開，避免貼身互毆。
     if (this.retreat > 0) { this.retreat -= 1; return dist >= this.attackDistance + p.spacingMax ? neutral : { ...neutral, moveX: -dir } }
@@ -52,12 +55,16 @@ export class EnemyAI {
       if (dist <= this.attackDistance + p.spacingMax && this.rng() < p.aggression) this.committed = true
       else this.stance = stances[Math.floor(this.rng() * stances.length)]
     }
+    // 玩家倒地或起身無敵時打不到，不白揮；保持距離等他起來。
+    if (player.knockdownTicks > 0 || player.invulnerableTicks > 0) return dist < this.attackDistance + p.spacingMin ? { ...neutral, moveX: -dir } : neutral
     if (this.committed) {
-      if (dist > this.attackDistance) return { ...neutral, moveX: dir }
+      // 種類輪替只看 tick，不消耗 rng，出招時機與既有序列不變。
+      const attack = ATTACK_ACTIONS[this.tickCount % ATTACK_ACTIONS.length]
+      // 已貼到推擠距離仍判定打不到時照樣出手，避免一直往前頂。
+      if (!(reaches?.(attack) ?? dist <= this.attackDistance) && dist > this.closest) return { ...neutral, moveX: dir }
       if (this.cooldown > 0) return neutral
       this.committed = false; this.cooldown = p.attackCooldownTicks
-      // 種類輪替只看 tick，不消耗 rng，出招時機與既有序列不變。
-      return { ...neutral, attackPressed: true, attack: ATTACK_ACTIONS[this.tickCount % ATTACK_ACTIONS.length] }
+      return { ...neutral, attackPressed: true, attack }
     }
     if (dist > this.attackDistance + p.spacingMax) return { ...neutral, moveX: dir }
     if (dist < this.attackDistance + p.spacingMin) return { ...neutral, moveX: -dir }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CombatWorld } from '../../combat/CombatWorld'
 import { characterEntries } from '../assets/TestAssetManifest'
 import { spriteActionFor, spriteActions, spriteFrameCount, spriteFrameFor, spriteFrameUrl, spriteIds } from './TemporarySpriteManifest'
-import { presentationSheet, resolvePresentation, spriteTextureFrame, spriteTextureKey } from './TemporarySpriteManifest'
+import { outcomeFor, presentationSheet, resolvePresentation, spriteTextureFrame, spriteTextureKey } from './TemporarySpriteManifest'
 import { isSheetSprite, sheetAnimations, sheetSprites, sheetUrl, SHEET_FRAME_COUNT } from './SheetSpriteManifest'
 
 describe('temporary sprite presentation', () => {
@@ -16,17 +16,17 @@ describe('temporary sprite presentation', () => {
   })
 
   it('maps every Kevin sheet in source order and selects individual frames for combat', () => {
-    const files = Object.keys(import.meta.glob('../../../../public/test-assets/characters/{Kevin,Customize_body_01}/*.png')).map(path => path.slice(path.indexOf('/test-assets/')))
+    const files = Object.keys(import.meta.glob('../../../../public/test-assets/characters/{Kevin,Customize_body_01}/*.png')).map(path => path.slice(path.indexOf('/test-assets/'))).filter(path => !path.endsWith('06_Block.png')) // 防禦改用 05_Crouch，06_Block 不載入
     const urls = (['kevin', 'body01'] as const).flatMap(id => sheetAnimations.map(({ key, filename }) => sheetUrl(id, key, filename)))
     expect(urls.sort()).toEqual(files.sort())
-    expect(sheetAnimations).toHaveLength(15)
+    expect(sheetAnimations).toHaveLength(14)
     expect(sheetSprites.kevin.size * 4).toBe(512); expect(sheetSprites.body01.size * 4).toBe(1024); expect(SHEET_FRAME_COUNT).toBe(16)
-    expect(spriteTextureKey('body01', 'hurt')).toBe('body01-prone')
     const fighter = new CombatWorld().getFighter('PLAYER')
-    for (const action of spriteActions) expect(sheetAnimations.some(entry => `kevin-${entry.key}` === spriteTextureKey('kevin', action))).toBe(true)
+    expect(spriteTextureKey('kevin', 'idle')).toBe('kevin-idle')
     expect(Array.from({ length: 17 }, (_, i) => spriteFrameFor(fighter, 'walk', i * 5, 'kevin'))).toEqual([...Array.from({ length: 16 }, (_, i) => i), 0])
     expect(spriteTextureFrame('kevin', 15)).toBe(15)
-    expect(spriteFrameFor(fighter, 'hurt', 200, 'kevin')).toBe(15)
+    expect(spriteFrameFor({ ...fighter, state: 'KNOCKDOWN' }, 'hurt', 200, 'kevin')).toBe(15)
+    expect(spriteFrameFor({ ...fighter, state: 'HIT_STUN' }, 'hurt', 200, 'kevin')).toBe(2) // 一般受擊只後仰
     expect(spriteFrameFor({ ...fighter, attackPhase: 'RECOVERY', attackTicks: 5 }, 'attack', 0, 'kevin')).toBe(15)
   })
 
@@ -62,6 +62,9 @@ describe('temporary sprite presentation', () => {
     expect(resolvePresentation(attacking)).toBe('PUNCH_LIGHT') // 預設招式為輕拳
     expect(resolvePresentation({ ...attacking, attack: 'HEAVY_KICK' })).toBe('KICK_HEAVY') // 敵方也直接讀快照
     expect([resolvePresentation({ ...fighter, state: 'GUARD' }), resolvePresentation({ ...fighter, state: 'HIT_STUN' }), resolvePresentation(fighter, { crouch: true }), resolvePresentation({ ...fighter, state: 'WALK' }, { crouch: true })]).toEqual(['BLOCK', 'PRONE', 'CROUCH', 'MOVE'])
+    expect(presentationSheet.BLOCK).toBe('crouch')
+    expect([resolvePresentation({ ...fighter, state: 'KNOCKDOWN' }), resolvePresentation({ ...fighter, state: 'KNOCKDOWN' }, { outcome: 'WIN' })]).toEqual(['PRONE', 'VICTORY'])
+    expect([outcomeFor('PLAYER', 'ROUND_END', 'PLAYER'), outcomeFor('PLAYER', 'FIGHTING', 'PLAYER'), outcomeFor('ENEMY', 'MATCH_END', 'PLAYER'), outcomeFor('PLAYER', 'ROUND_END', null)]).toEqual(['WIN', undefined, undefined, undefined])
     expect(JSON.stringify(world.getSnapshot())).toBe(before)
   })
 })

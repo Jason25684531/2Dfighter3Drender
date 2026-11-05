@@ -1,15 +1,15 @@
 import Phaser from 'phaser'
 import type { FighterSnapshot } from '../../combat/CombatWorld'
-import { fighterSilhouette } from '../VisualComponents'
 import { uiTokens } from '../tokens/uiTokens'
 import { presentationSheet, resolvePresentation, spriteActionFor, spriteDisplayHeight, spriteFrameFor, spriteOriginY, spriteTextureFrame, spriteTextureKey, type Presentation, type PresentationContext, type SpriteAction, type SpriteId } from './TemporarySpriteManifest'
 import { isSheetSprite } from './SheetSpriteManifest'
+import { peakFrame } from './SpriteHitTest'
 
 export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private readonly shadow: Phaser.GameObjects.Ellipse
   private readonly image?: Phaser.GameObjects.Image
-  private readonly fallback?: Phaser.GameObjects.Graphics
   private action?: SpriteAction
+  private fighterState?: FighterSnapshot['state']
   /** 目前播放的呈現語意（sheet 角色）；攻擊期間鎖定。 */
   presentation?: Presentation
   private actionStartTick = 0
@@ -19,7 +19,7 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private currentPosition = { x: 0, y: 0 }
   private direction = 1
 
-  constructor(scene: Phaser.Scene, private readonly spriteId: SpriteId | undefined, fallbackColor: number, private readonly floorY: number) {
+  constructor(scene: Phaser.Scene, private readonly spriteId: SpriteId | undefined, private readonly floorY: number) {
     super(scene, 0, 0)
     this.shadow = scene.add.ellipse(0, 5, 280, 42, uiTokens.colors.shadow, 0.48)
     this.add(this.shadow)
@@ -28,9 +28,6 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
       this.image = scene.add.image(0, 0, key, spriteTextureFrame(spriteId)).setOrigin(0.5, spriteOriginY(spriteId))
       this.image.setScale(spriteDisplayHeight(spriteId) / this.image.height)
       this.add(this.image)
-    } else {
-      this.fallback = fighterSilhouette(scene, 0, -215, 200, 430, fallbackColor, 0.52)
-      this.add(this.fallback)
     }
   }
 
@@ -40,16 +37,31 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     this.currentPosition = position; this.lastTick = tick; this.direction = fighter.facing === 'LEFT' ? -1 : 1
     this.renderAt(1)
     if (!this.image || !this.spriteId) return
-    const action = spriteActionFor(fighter)
+    // 起身無敵：每 2 tick 明暗交替；tick 驅動，暫停時一起停。
+    this.image.setAlpha(fighter.invulnerableTicks > 0 && (tick >> 1) % 2 ? 0.35 : 1)
+    const action = spriteActionFor(fighter, context)
     // 招式在新 attackId 出現時鎖定，攻擊中途不因放開蹲鍵等而換圖。
     const presentation = !isSheetSprite(this.spriteId) ? undefined : action === 'attack' && fighter.attackId === this.attackId && this.action === 'attack' ? this.presentation : resolvePresentation(fighter, context)
-    if (action !== this.action || presentation !== this.presentation || (action === 'attack' && fighter.attackId !== this.attackId) || tick < this.actionStartTick) {
-      this.action = action; this.presentation = presentation; this.actionStartTick = tick; this.attackId = fighter.attackId
+    if (action !== this.action || presentation !== this.presentation || fighter.state !== this.fighterState || (action === 'attack' && fighter.attackId !== this.attackId) || tick < this.actionStartTick) {
+      this.action = action; this.fighterState = fighter.state; this.presentation = presentation; this.actionStartTick = tick; this.attackId = fighter.attackId
     }
     const sheet = presentation && presentationSheet[presentation]
-    const frame = spriteFrameFor(fighter, action, tick - this.actionStartTick, this.spriteId)
+    const frame = spriteFrameFor(fighter, action, tick - this.actionStartTick, this.spriteId, this.peak(action, sheet))
     const key = sheet ? `${this.spriteId}-${sheet}` : spriteTextureKey(this.spriteId, action, frame), textureFrame = spriteTextureFrame(this.spriteId, frame)
     if (this.scene.textures.exists(key) && (this.image.texture.key !== key || (textureFrame !== undefined && String(this.image.frame.name) !== String(textureFrame)))) this.image.setTexture(key, textureFrame).setScale(spriteDisplayHeight(this.spriteId) / this.image.height)
+  }
+
+  private peak(action: SpriteAction, sheet?: string): number | undefined { return action === 'attack' && sheet ? peakFrame(this.scene, `${this.spriteId}-${sheet}`) : undefined }
+
+  /** 命中判定用：攻擊中依 snapshot 算當下影格（與 update 同規則，招式鎖定），其餘用目前顯示的影格。 */
+  pose(fighter: FighterSnapshot, context?: PresentationContext): { key: string; frame: string | number; scale: number; originY: number } | undefined {
+    const { image, spriteId: id } = this
+    if (!image || !id) return undefined
+    const scale = spriteDisplayHeight(id) / image.height, originY = spriteOriginY(id)
+    if (spriteActionFor(fighter, context) !== 'attack') return { key: image.texture.key, frame: image.frame.name, scale, originY }
+    const presentation = !isSheetSprite(id) ? undefined : fighter.attackId === this.attackId && this.action === 'attack' ? this.presentation : resolvePresentation(fighter, context)
+    const sheet = presentation && presentationSheet[presentation], frame = spriteFrameFor(fighter, 'attack', 0, id, this.peak('attack', sheet))
+    return { key: sheet ? `${id}-${sheet}` : spriteTextureKey(id, 'attack', frame), frame: spriteTextureFrame(id, frame) ?? image.frame.name, scale, originY }
   }
 
   renderAt(alpha: number): void {

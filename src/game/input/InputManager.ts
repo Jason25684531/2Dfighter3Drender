@@ -10,7 +10,6 @@ export type InputSnapshot = {
   moveX: number
   jumpPressed: boolean
   attackPressed: boolean
-  guardHeld: boolean
   attack?: AttackAction
   // 蹲只供呈現解析，Combat 沒有蹲。
   crouchHeld: boolean
@@ -41,14 +40,19 @@ const defaults: Record<InputAction, readonly string[]> = {
   CONFIRM: ['Enter'], BACK: ['Escape'], OPEN_MENU: ['KeyM'],
   ...combatKeys(DEFAULT_KEYBOARD_BINDINGS.P1),
 }
+/** 1P 選單鍵跟著自訂戰鬥鍵：跳／蹲／左右＝上下左右；確認／返回固定 J／K，被方向鍵佔用時改用輕拳／重拳鍵。 */
+export const p1MenuKeys = (b: Bindings): OwnerKeys => {
+  const directions = [b.JUMP, b.CROUCH, b.MOVE_LEFT, b.MOVE_RIGHT]
+  return { NAV_UP: [b.JUMP], NAV_DOWN: [b.CROUCH], NAV_LEFT: [b.MOVE_LEFT], NAV_RIGHT: [b.MOVE_RIGHT], CONFIRM: [directions.includes('KeyJ') ? b.LIGHT_PUNCH : 'KeyJ'], BACK: [directions.includes('KeyK') ? b.HEAVY_PUNCH : 'KeyK'] }
+}
 // P1 選角的雙玩家鍵位；與上方未標記鍵位並存，不取代任何既有行為。
-const ownerDefaults: Record<PlayerSlotId, OwnerKeys> = {
-  P1: { NAV_UP: ['KeyW'], NAV_DOWN: ['KeyS'], NAV_LEFT: ['KeyA'], NAV_RIGHT: ['KeyD'], CONFIRM: ['KeyJ'], BACK: ['KeyK'] },
+export const DEFAULT_OWNER_KEYS: Record<PlayerSlotId, OwnerKeys> = {
+  P1: p1MenuKeys(DEFAULT_KEYBOARD_BINDINGS.P1),
   P2: { NAV_UP: ['ArrowUp'], NAV_DOWN: ['ArrowDown'], NAV_LEFT: ['ArrowLeft'], NAV_RIGHT: ['ArrowRight'], CONFIRM: ['Enter'], BACK: ['Backspace'] },
 }
 const defaultGamepad: Record<InputAction, readonly number[]> = {
   NAV_UP: [12], NAV_DOWN: [13], NAV_LEFT: [14], NAV_RIGHT: [15], CONFIRM: [0], BACK: [1], OPEN_MENU: [9],
-  MOVE_LEFT: [14], MOVE_RIGHT: [15], JUMP: [0, 12], CROUCH: [13], LIGHT_PUNCH: [2], HEAVY_PUNCH: [3], LIGHT_KICK: [4], HEAVY_KICK: [5], GUARD: [7], PAUSE: [9],
+  MOVE_LEFT: [14], MOVE_RIGHT: [15], JUMP: [12], CROUCH: [13], LIGHT_PUNCH: [2], HEAVY_PUNCH: [3], LIGHT_KICK: [0], HEAVY_KICK: [1], PAUSE: [9],
 }
 
 const isUi = (action: InputAction): action is UIAction => (UI_ACTIONS as readonly string[]).includes(action)
@@ -62,7 +66,7 @@ export class InputManager {
   private readonly pendingUi = new Set<UIAction>()
   private readonly pendingGameplay = new Set<GameplayAction>()
   private readonly pendingOwned: OwnedInput[] = []
-  private readonly ownerKeys: Record<PlayerSlotId, OwnerKeys>
+  private ownerKeys: Record<PlayerSlotId, OwnerKeys>
   private keyboardTarget?: KeyboardTarget
   private device: 'keyboard' | 'gamepad' = 'keyboard'
   private padInputs = new Set<string>()
@@ -83,7 +87,7 @@ export class InputManager {
       keyboard: Object.fromEntries((Object.keys(defaults) as InputAction[]).map((action) => [action, config.keyboard?.[action] ?? defaults[action]])) as Record<InputAction, readonly string[]>,
       gamepad: Object.fromEntries((Object.keys(defaultGamepad) as InputAction[]).map((action) => [action, config.gamepad?.[action] ?? defaultGamepad[action]])) as Record<InputAction, readonly number[]>,
     }
-    this.ownerKeys = { P1: { ...ownerDefaults.P1, ...config.owners?.P1 }, P2: { ...ownerDefaults.P2, ...config.owners?.P2 } }
+    this.ownerKeys = { P1: { ...DEFAULT_OWNER_KEYS.P1, ...config.owners?.P1 }, P2: { ...DEFAULT_OWNER_KEYS.P2, ...config.owners?.P2 } }
   }
 
   attachKeyboard(target: KeyboardTarget): void {
@@ -147,8 +151,8 @@ export class InputManager {
     return Math.sign(value) * ((magnitude - this.config.deadzone) / (1 - this.config.deadzone))
   }
 
-  /** 只替換戰鬥鍵位；選單與選角 owner 鍵位不受影響。 */
-  setCombatBindings(bindings: Bindings): void { Object.assign(this.config.keyboard, combatKeys(bindings)) }
+  /** 套用自訂鍵位：戰鬥鍵與 1P 選單鍵（p1MenuKeys）；2P 與未標記選單鍵不變。 */
+  setCombatBindings(bindings: Bindings): void { Object.assign(this.config.keyboard, combatKeys(bindings)); this.ownerKeys = { ...this.ownerKeys, P1: p1MenuKeys(bindings) } }
   consumePause(): boolean { return this.pendingGameplay.delete('PAUSE') }
   getActionState(action: InputAction): InputState { return { ...(this.states.get(action) ?? { pressed: false, held: false, released: false }) } }
   consumeOwnedUiActions(): OwnedInput[] { return this.pendingOwned.splice(0) }
@@ -156,6 +160,6 @@ export class InputManager {
   consumeGameplaySnapshot(): InputSnapshot {
     const pressed = (action: GameplayAction): boolean => this.pendingGameplay.delete(action)
     const jumpPressed = pressed('JUMP'), attack = ATTACK_ACTIONS.filter(pressed)[0]
-    return { moveX: this.lastMoveX, jumpPressed, attackPressed: Boolean(attack), guardHeld: this.getActionState('GUARD').held, attack, crouchHeld: this.getActionState('CROUCH').held }
+    return { moveX: this.lastMoveX, jumpPressed, attackPressed: Boolean(attack), attack, crouchHeld: this.getActionState('CROUCH').held }
   }
 }

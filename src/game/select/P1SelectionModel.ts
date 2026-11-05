@@ -14,6 +14,7 @@ export type GenerationState = 'PHOTO_CONFIRMED' | 'REQUESTING' | 'PROCESSING' | 
 export type PlayerStatus = 'JOIN' | 'SELECTING' | 'READY' | 'WAITING' | 'CUSTOMIZE' | 'OPPONENT' | 'DIFFICULTY' | 'CPU_READY'
 export type OpponentChoice = { characterId: string; difficulty: AiProfileId }
 export type SelectFeedback = 'REJECTED' | 'JOIN_HINT' | 'NAME_REQUIRED'
+export type SelectionInputResult = SelectFeedback | 'CONFIRMED'
 // photo：本機擷取的 dataURL，只存在記憶體、不進 result()／API。
 type PlayerState = { joined: boolean; cursor: number; locked?: number; nickname: string; customized: boolean; generation?: GenerationState; photo?: string }
 
@@ -87,25 +88,25 @@ export class P1SelectionModel {
     p.cursor = index; return true
   }
 
-  input(id: PlayerSlotId, action: OwnedUiAction): SelectFeedback | undefined {
+  input(id: PlayerSlotId, action: OwnedUiAction): SelectionInputResult | undefined {
     if (this.phase === 'FAILED') {
       if (id === this.owner && action === 'BACK') this.abortCustomize()
-      else if (id === this.owner && action === 'CONFIRM') { this.state[id].generation = 'PHOTO_CONFIRMED'; this.phase = 'PROCESSING' }
+      else if (id === this.owner && action === 'CONFIRM') { this.state[id].generation = 'PHOTO_CONFIRMED'; this.phase = 'PROCESSING'; return 'CONFIRMED' }
       return undefined
     }
     if (this.phase === 'PROCESSING') return undefined
     if (this.phase === 'CUSTOMIZE' || this.phase === 'REVIEW') {
       if (id !== this.owner) return undefined
-      if (this.phase === 'CUSTOMIZE' && action === 'CONFIRM') { if (!this.nicknameValid(id)) return 'NAME_REQUIRED'; this.phase = 'REVIEW' }
+      if (this.phase === 'CUSTOMIZE' && action === 'CONFIRM') { if (!this.nicknameValid(id)) return 'NAME_REQUIRED'; this.phase = 'REVIEW'; return 'CONFIRMED' }
       else if (this.phase === 'CUSTOMIZE' && action === 'BACK') this.abortCustomize()
-      else if (this.phase === 'REVIEW' && action === 'CONFIRM') { this.state[id].generation = 'PHOTO_CONFIRMED'; this.phase = 'PROCESSING' }
+      else if (this.phase === 'REVIEW' && action === 'CONFIRM') { this.state[id].generation = 'PHOTO_CONFIRMED'; this.phase = 'PROCESSING'; return 'CONFIRMED' }
       else if (this.phase === 'REVIEW' && action === 'BACK') this.phase = 'CUSTOMIZE'
       return undefined
     }
     const p = this.state[id]
     if (!p.joined) {
       if (id !== 'P2' || action !== 'CONFIRM') return 'JOIN_HINT'
-      p.joined = true; p.cursor = 6; this.rival = undefined; this.phase = 'GRID'; return undefined
+      p.joined = true; p.cursor = 6; this.rival = undefined; this.phase = 'GRID'; return 'CONFIRMED'
     }
     if (this.rival && id === 'P1') return this.rivalInput(action)
     if (action === 'BACK') {
@@ -116,7 +117,7 @@ export class P1SelectionModel {
     if (this.phase !== 'GRID' || p.locked !== undefined) return undefined
     if (action !== 'CONFIRM') { p.cursor = moveSlot(p.cursor, action); return undefined }
     if (!confirmable(this.slot(p.cursor))) return 'REJECTED'
-    p.locked = p.cursor; this.advance(); return undefined
+    p.locked = p.cursor; this.advance(); return 'CONFIRMED'
   }
 
   completeProcessing(): void {
@@ -154,16 +155,16 @@ export class P1SelectionModel {
   }
 
   /** 單人：OPPONENT（選格）→ DIFFICULTY（←→ 切換）→ ALL_READY；BACK 逐層退回，OPPONENT 再退即解除 1P 鎖定。 */
-  private rivalInput(action: OwnedUiAction): SelectFeedback | undefined {
+  private rivalInput(action: OwnedUiAction): SelectionInputResult | undefined {
     const rival = this.rival as NonNullable<P1SelectionModel['rival']>
     if (this.phase === 'OPPONENT') {
       if (action === 'BACK') { this.unlock('P1'); this.phase = 'GRID' }
       else if (action !== 'CONFIRM') rival.cursor = moveSlot(rival.cursor, action)
       else if (!confirmable(this.slot(rival.cursor)) || rival.cursor === this.state.P1.locked) return 'REJECTED'
-      else this.phase = 'DIFFICULTY'
+      else { this.phase = 'DIFFICULTY'; return 'CONFIRMED' }
     } else if (this.phase === 'DIFFICULTY') {
       if (action === 'BACK') this.phase = 'OPPONENT'
-      else if (action === 'CONFIRM') this.phase = 'ALL_READY'
+      else if (action === 'CONFIRM') { this.phase = 'ALL_READY'; return 'CONFIRMED' }
       else if (action === 'NAV_LEFT' || action === 'NAV_RIGHT') rival.difficulty = AI_PROFILE_IDS[(AI_PROFILE_IDS.indexOf(rival.difficulty) + (action === 'NAV_RIGHT' ? 1 : AI_PROFILE_IDS.length - 1)) % AI_PROFILE_IDS.length]
     } else if (this.phase === 'ALL_READY' && action === 'BACK') this.phase = 'DIFFICULTY'
     return undefined

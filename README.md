@@ -11,7 +11,8 @@
 | FastAPI／SQLite：玩家、session、排隊、對戰、回合、計分、排行榜 | 已完成 |
 | Concept A Cyber Arena 視覺（P0–P7 與 ESC 選單），含 OFL 字型、Canvas 後備、減少動態 | 已完成 |
 | 命中／防禦特效（暫用素材）、Announcer 播報、回合結束 K.O.／TIME UP | 已完成 |
-| 正式美術與特效、音效、ComfyUI 生成角色串接、P3 真實載入 | 尚未開始（D9） |
+| 已提供的 UI、戰鬥、播報與環境音效 | 已接入（缺檔時靜默） |
+| 正式美術與特效、ComfyUI 生成角色串接、P3 真實載入 | 尚未開始（D9） |
 
 已上線的玩法細節：
 
@@ -56,7 +57,7 @@
 | 層 | 模組 | 職責 | 不負責 |
 |---|---|---|---|
 | 輸入 | `input/InputManager` | 實體鍵與手把轉成語意動作，P1／P2 鍵位分離 | 判斷目前在哪個畫面 |
-| 輸入 | `input/ControlProfile` | 戰鬥鍵位設定與儲存（P0 按 C 開啟，`exp2.controls.v2`） | 選單鍵位 |
+| 輸入 | `input/ControlProfile` | 戰鬥鍵位設定與儲存（P0 按 C 開啟，`exp2.controls.v3`） | 選單鍵位 |
 | 流程 | `state/AppStateMachine` | P0–P7 狀態與合法轉移，唯一真相 | 任何副作用 |
 | 流程 | `ui/UIFramework` | 畫面子狀態、焦點群組、導覽、UI 事件 | 畫面繪製 |
 | 流程 | `app/ExperienceFlow` | 轉移時建立／結束 session、開始／重置對戰、寫入後端、結算 | 畫面繪製、輸入 |
@@ -66,7 +67,10 @@
 | 玩法 | `match/EnemyAI` | 依難度 profile 產生敵方意圖 | 數值平衡以外的事 |
 | 資料 | `app/ExperiencePersistence` | 依序寫入、冪等重送、失敗寫入在結算前重送 | 計分與排名（由後端決定） |
 | 資料 | `api/ApiClient` | HTTP 邊界 | 重試策略 |
-| 呈現 | `scenes/AppScene` | 依狀態繪製 P0–P7、HUD、橫幅、面板、開頭影片 | 流程規則、後端規則 |
+| 呈現 | `scenes/AppScene` | 依狀態管理 P0–P7、面板與開頭影片 | 流程規則、後端規則 |
+| 呈現 | `ui/stage/BattleStage` | 共用舞台圖層、鏡頭及視差 | 戰鬥規則 |
+| 呈現 | `ui/battle/BattleView` | P4 角色、HUD、特效與音效 cue | 對戰狀態 |
+| 音效 | `audio/` | cue 對照、事件映射、載入與播放 | 戰鬥判定 |
 | 流程 | `select/P1SelectionModel` | 1P／2P 選角、自訂拍照、單人的 CPU 對手與難度 | 畫面繪製 |
 | 呈現 | `ui/*` | 元件（含 `Announcer`）、view model（含播報訊息表）、tokens、P1 選角畫面、舞台視差 | 狀態轉移 |
 | 呈現 | `ui/vfx/ImpactFx` | 命中／防禦特效的素材表、尺寸與方向規則、一次性播放 | 戰鬥判定 |
@@ -105,18 +109,23 @@
 | P4 | 開啟暫停選單；選 EXIT 並確認後回 P0 |
 | P7 | 無作用，用 Replay 或 Finish |
 
-閒置逾時：P0 30 秒播開頭影片；P1 選角與選對手 60 秒、自訂 90 秒；P7 30 秒回 P0。其他畫面靠 ESC 離開。
+閒置逾時：P0 60 秒播開頭影片，任意鍵盤鍵或手把按鈕返回；P1 選角與選對手 60 秒、自訂 90 秒；P7 沒有閒置逾時。其他畫面靠 ESC 離開。
 
 ### 操作
 
 | 情境 | 1P | 2P |
 |---|---|---|
 | 選單／選角 | W A S D 移動 · J 確認 · K 返回 | 方向鍵 · ENTER 加入／確認 · BACKSPACE 返回 |
+| 選場景（P2） | A D 或 ←→ 切換場景 · J／ENTER 確認 · K／ESC 返回 | — |
 | 選 CPU 對手（單人） | W A S D 移動 CPU 游標 · J 確認；難度用 A D | 按 ENTER 改為雙人 |
-| 戰鬥 | A D 移動 · W 跳 · S 蹲 · F 輕拳 · U 重拳 · G 輕腳 · I 重腳 · K 防禦 · ESC 暫停 | 由 CPU 控制，選角只決定外觀 |
-| 手把 | 十字鍵移動 · A 或 ↑ 跳 · ↓ 蹲 · X Y 拳 · LB RB 腳 · RT 防禦 · START 暫停 | — |
+| 戰鬥 | A D 移動 · W 跳 · S 蹲 · F 輕拳 · U 重拳 · G 輕腳 · I 重腳 · 按住後方向防禦 · ESC 暫停；S／W＋攻擊＝蹲／空中攻擊 | 由 CPU 控制，選角只決定外觀 |
+| 手把 | 十字鍵移動 · ↑ 跳 · ↓ 蹲 · X Y 拳 · A B 腳 · 按住後方向防禦 · START 暫停 | — |
 
-戰鬥鍵可在 P0 按 C 重新綁定，存在 `localStorage` 的 `exp2.controls.v2`；舊版 `v1` 存檔會被忽略並使用預設。
+戰鬥鍵可在 P0 按 C 重新綁定，存在 `localStorage` 的 `exp2.controls.v3`；舊版存檔會被忽略並使用預設。面板下方唯讀列出依目前鍵位推導的組合操作。
+
+四種攻擊各有招式資料（幀數、傷害、判定框），在 `combat/CombatWorld.ts` 的 `DEFAULT_COMBAT_CONFIG.attack`（輕拳）與 `moves` 調整。
+
+音效檔由 `Audio/` 複製到未納入 git 的 `public/test-assets/audio/`，保留原檔名。缺少的素材包括腳步、落地、下蹲、起身、出場音、勝利 jingle、KO 衝擊、BGM 與 First Attack／Nice Combo／Danger／10 Seconds／New Record 語音；未提供時不播放。`?mute=1` 靜音，`?audioDebug=1` 在 console 記錄 cue。
 
 ## 後端 API
 
@@ -181,13 +190,15 @@ npx vite --port 5189 --host 127.0.0.1
 | `http://127.0.0.1:5189/` | 正式流程 P0–P7 |
 | `http://127.0.0.1:5189/prototype.html` | 隔離原型，不寫入 API |
 | `http://127.0.0.1:5189/?inputDebug=1` | P4 顯示按鍵 → 語意 → 呈現的診斷面板 |
+| `http://127.0.0.1:5189/?hitbox` | P4 畫出 hurtbox（藍）與出招判定框（紅），對照動畫調招式表 |
 
 Playwright 腳本在前端啟動後執行，截圖輸出到 `outputs/*-verification/`：
 
 | 腳本 | 驗證範圍 |
 |---|---|
 | `scripts/verify-opponent-flow.mjs` | 排行榜、1P 選對手與難度、P2 只選場景、Announcer、命中／防禦特效、回合 K.O. 停留、P5、Replay |
-| `scripts/verify-controls.mjs` | 改鍵、衝突、重設、存檔 v2、四種攻擊的站立／空中／蹲姿圖、W 跳 S 蹲、推擠、鏡頭 |
+| `scripts/verify-controls.mjs` | 改鍵、衝突、重設、存檔 v3、四種攻擊的站立／空中／蹲姿圖、W 跳 S 蹲、防禦、推擠、鏡頭 |
+| `scripts/verify-audio.mjs` | 音效 cue 序列及 Chrome FLAC／WAV 解碼 |
 | `scripts/verify-p1.mjs` | 選角格、雙人、自訂拍照、單人選對手、閒置逾時、離線 |
 | `scripts/verify-experience.mjs` | P0–P4 完整流程、相機、舞台後備 |
 | `scripts/verify-kevin.mjs` | Kevin 圖集與呈現投影 |

@@ -8,7 +8,7 @@ describe('隔離操作展示', () => {
     const held = new Set(['KeyF', 'Numpad2'])
     expect(resolveDemo(held, 'RIGHT', combatMapping.P1)).toBe('PUNCH_LIGHT')
     expect(resolveDemo(held, 'LEFT', combatMapping.P2)).toBe('PUNCH_HEAVY')
-    expect(resolveDemo(new Set(['KeyZ']), 'RIGHT', { ...combatMapping.P1, lightKick: 'KeyZ' })).toBe('KICK_LIGHT')
+    expect(resolveDemo(new Set(['KeyZ']), 'RIGHT', { ...combatMapping.P1, LIGHT_KICK: 'KeyZ' })).toBe('KICK_LIGHT')
     expect(resolveDemo(new Set(['KeyA']), 'RIGHT', combatMapping.P1)).toBe('BLOCK')
     expect(resolveDemo(new Set(['KeyA']), 'LEFT', combatMapping.P1)).toBe('MOVE')
   })

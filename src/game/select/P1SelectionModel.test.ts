@@ -68,11 +68,11 @@ describe('P1 selection model', () => {
     expect(model.heroSlot('P2')?.index).toBe(6)
   })
   it('CASE A: solo pick moves on to choosing the CPU opponent and difficulty on the same grid', () => {
-    const model = new P1SelectionModel(); model.input('P1', 'CONFIRM')
+    const model = new P1SelectionModel(); expect(model.input('P1', 'CONFIRM')).toBe('CONFIRMED')
     expect(model.phase).toBe('OPPONENT'); expect(model.rival).toEqual({ cursor: 6, difficulty: 'NORMAL' }); expect(model.status('P2')).toBe('OPPONENT')
     expect(model.heroSlot('P2')?.entry?.displayName).toBe('KAEL'); expect(model.opponent()).toBeUndefined()
     press(model, 'P1', 'NAV_RIGHT'); expect([model.rival?.cursor, model.player('P1').cursor]).toEqual([7, 5]) // 1P 方向鍵只移動對手游標
-    press(model, 'P1', 'CONFIRM'); expect(model.phase).toBe('DIFFICULTY')
+    expect(model.input('P1', 'CONFIRM')).toBe('CONFIRMED'); expect(model.phase).toBe('DIFFICULTY')
     press(model, 'P1', 'NAV_RIGHT'); expect(model.rival?.difficulty).toBe('HARD'); press(model, 'P1', 'NAV_RIGHT'); expect(model.rival?.difficulty).toBe('EASY')
     press(model, 'P1', 'NAV_LEFT', 'CONFIRM')
     expect(model.phase).toBe('ALL_READY'); expect(model.status('P2')).toBe('CPU_READY')

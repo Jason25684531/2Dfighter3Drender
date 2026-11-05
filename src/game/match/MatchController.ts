@@ -57,7 +57,7 @@ export class MatchController {
     if (this.matchState === 'READY' && this.introRemaining > 0) { this.introRemaining -= 1; if (this.introRemaining === 0) { this.matchState = 'FIGHTING'; this.fightFlash = INTRO_FIGHT_TICKS } return }
     if (this.matchState !== 'FIGHTING') return
     if (this.fightFlash > 0) this.fightFlash -= 1
-    this.world.tick(playerIntent, this.ai.getIntent(this.world.getSnapshot())); this.remainingTicks -= 1; this.maxPlayerCombo = Math.max(this.maxPlayerCombo, this.world.getFighter('PLAYER').combo); this.roundMaxCombo = Math.max(this.roundMaxCombo, this.world.getFighter('PLAYER').combo)
+    this.world.tick(playerIntent, this.world.isFrozen() ? NEUTRAL_INTENT : this.ai.getIntent(this.world.getSnapshot(), (attack) => this.world.reaches('ENEMY', attack))); this.remainingTicks -= 1; this.maxPlayerCombo = Math.max(this.maxPlayerCombo, this.world.getFighter('PLAYER').combo); this.roundMaxCombo = Math.max(this.roundMaxCombo, this.world.getFighter('PLAYER').combo)
     const player = this.world.getFighter('PLAYER'); const enemy = this.world.getFighter('ENEMY')
     if (player.currentHP === 0 || enemy.currentHP === 0) this.resolveRound(player.currentHP === enemy.currentHP ? null : player.currentHP > 0 ? 'PLAYER' : 'ENEMY', 'KO')
     else if (this.remainingTicks <= 0) this.resolveRound(player.currentHP === enemy.currentHP ? null : player.currentHP > enemy.currentHP ? 'PLAYER' : 'ENEMY', 'TIME_UP')

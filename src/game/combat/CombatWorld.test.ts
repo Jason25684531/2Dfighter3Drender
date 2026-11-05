@@ -1,15 +1,69 @@
 import { describe, expect, it } from 'vitest'
 import { STAGE_TUNING } from '../config/stageTuning'
-import { CombatWorld, DEFAULT_COMBAT_CONFIG, type CombatConfig, type CombatEvent, type FighterIntent } from './CombatWorld'
+import { ATTACK_ACTIONS } from '../input/ControlProfile'
+import { CombatWorld, DEFAULT_COMBAT_CONFIG, KNOCKDOWN, type CombatConfig, type CombatEvent, type FighterIntent } from './CombatWorld'
 
-const neutral: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: false, guardHeld: false }
+const neutral: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: false }
 const closeConfig = (positions = { PLAYER: 560, ENEMY: 640 }): CombatConfig => ({
   arenaWidth: 1920, floorY: 820, fighterWidth: 120, fighterHeight: 220, walkSpeed: 18, jumpVelocity: -34, gravity: 3, maxHp: 100,
-  attack: { startupTicks: 3, activeTicks: 2, recoveryTicks: 5, damage: 10, hitStunTicks: 6, hitboxOffset: 90, hitboxWidth: 90, hitboxHeight: 80 }, initialPositions: positions,
+  attack: { startupTicks: 3, activeTicks: 2, recoveryTicks: 5, damage: 10, hitStunTicks: 6, hitboxOffset: 90, hitboxWidth: 90, hitboxHeight: 80, blockStunTicks: 0, knockback: 0, knockbackTicks: 0, blockPush: 0, blockPushTicks: 0, hitFreeze: 0, blockFreeze: 0 }, initialPositions: positions,
 })
 const tick = (world: CombatWorld, player = neutral, enemy = neutral): void => world.tick(player, enemy)
 
 describe('CombatWorld', () => {
+  it('freezes deterministically, pushes the defender, and allows a buffered combo', () => {
+    // 固定單一招式資料，只驗 freeze／knockback／buffer 機制。
+    const config: CombatConfig = { ...DEFAULT_COMBAT_CONFIG, attack: { ...DEFAULT_COMBAT_CONFIG.attack, startupTicks: 3, recoveryTicks: 12, hitStunTicks: 20, knockback: 12, knockbackTicks: 5, hitFreeze: 3 }, moves: undefined, initialPositions: { PLAYER: 1300, ENEMY: 1520 } }
+    const world = new CombatWorld(config), events: CombatEvent[] = []
+    world.subscribe(event => events.push(event))
+    tick(world, { ...neutral, attackPressed: true })
+    for (let i = 0; i < 3; i++) tick(world)
+    const hit = world.getSnapshot()
+    for (let i = 0; i < 3; i++) { tick(world); expect(world.getSnapshot().fighters).toEqual(hit.fighters) }
+    for (let i = 0; i < 5; i++) tick(world)
+    expect(world.getFighter('ENEMY').x).toBe(hit.fighters.ENEMY.x + 60)
+    while (world.getFighter('PLAYER').attackPhase !== 'RECOVERY' || world.getFighter('PLAYER').attackTicks < 11) tick(world)
+    tick(world, { ...neutral, attackPressed: true, attack: 'HEAVY_KICK' })
+    for (let i = 0; i < 8; i++) tick(world)
+    expect(world.getFighter('PLAYER').combo).toBe(2)
+    expect(events.filter(event => event.type === 'ATTACK_STARTED').at(-1)).toMatchObject({ attack: 'HEAVY_KICK' })
+  })
+
+  it('emits a jump event', () => {
+    const world = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: 1300, ENEMY: 1520 } }), events: CombatEvent[] = []
+    world.subscribe(event => events.push(event))
+    tick(world, { ...neutral, jumpPressed: true })
+    expect(events.filter(event => event.type === 'JUMP')).toEqual([{ type: 'JUMP', fighter: 'PLAYER' }])
+  })
+  it('does not block while airborne or attacking', () => {
+    for (const action of ['jumpPressed', 'attackPressed'] as const) {
+      const world = new CombatWorld(closeConfig())
+      tick(world, { ...neutral, attackPressed: true }, { ...neutral, moveX: 1, [action]: true })
+      for (let i = 0; i < 3; i++) tick(world, neutral, { ...neutral, moveX: 1 })
+      expect(world.getFighter('ENEMY').currentHP).toBe(90)
+    }
+  })
+  it('can block another attack while still in block stun', () => {
+    const config = closeConfig(), world = new CombatWorld({ ...config, walkSpeed: 0, attack: { ...config.attack, startupTicks: 0, activeTicks: 1, recoveryTicks: 0, blockStunTicks: 20 } }), events: CombatEvent[] = []
+    world.subscribe(event => events.push(event))
+    for (let i = 0; i < 8; i++) tick(world, { ...neutral, attackPressed: true }, { ...neutral, moveX: 1 })
+    expect(events.filter(event => event.type === 'BLOCK').length).toBeGreaterThanOrEqual(2)
+    expect(world.getFighter('ENEMY').currentHP).toBe(100)
+  })
+  it('buffers an attack pressed during freeze and retains its kind', () => {
+    const config = closeConfig(), world = new CombatWorld({ ...config, inputBufferTicks: 3, attack: { ...config.attack, hitStunTicks: 1, hitFreeze: 3 } })
+    tick(world, { ...neutral, attackPressed: true }); for (let i = 0; i < 3; i++) tick(world)
+    tick(world, neutral, { ...neutral, attackPressed: true, attack: 'HEAVY_KICK' }); tick(world); tick(world); tick(world)
+    expect(world.getFighter('ENEMY')).toMatchObject({ attackPhase: 'STARTUP', attack: 'HEAVY_KICK' })
+  })
+  it('replays the same freeze and event sequence deterministically', () => {
+    // 固定單一招式資料，只驗 freeze／knockback／buffer 機制。
+    const config: CombatConfig = { ...DEFAULT_COMBAT_CONFIG, attack: { ...DEFAULT_COMBAT_CONFIG.attack, startupTicks: 3, recoveryTicks: 12, hitStunTicks: 20, knockback: 12, knockbackTicks: 5, hitFreeze: 3 }, moves: undefined, initialPositions: { PLAYER: 1300, ENEMY: 1520 } }
+    const a = new CombatWorld(config), b = new CombatWorld(config), ae: CombatEvent[] = [], be: CombatEvent[] = []
+    a.subscribe(event => ae.push(event)); b.subscribe(event => be.push(event))
+    for (let i = 0; i < 30; i++) { const input = { ...neutral, attackPressed: i === 0 }; tick(a, input); tick(b, input); expect(a.getSnapshot()).toEqual(b.getSnapshot()) }
+    expect(ae).toEqual(be)
+  })
   it.each([0, 1, 3])('retains a recovery press for exactly %i following ticks and consumes it once', (inputBufferTicks) => {
     for (const delay of [1, 2, 3, 4]) {
       const world = new CombatWorld({ ...closeConfig({ PLAYER: 560, ENEMY: 1360 }), inputBufferTicks })
@@ -54,14 +108,6 @@ describe('CombatWorld', () => {
     expect(world.getFighter('PLAYER')).toMatchObject({ hitStunTicks: 2, attackPhase: 'NONE' })
     tick(world); expect(world.getFighter('PLAYER').attackPhase).toBe('NONE')
     tick(world); expect(world.getFighter('PLAYER').attackPhase).toBe('STARTUP')
-    for (const action of ['jumpPressed', 'attackPressed'] as const) {
-      const guarded = new CombatWorld()
-      tick(guarded, { ...neutral, [action]: true, guardHeld: true })
-      tick(guarded, { ...neutral, guardHeld: true })
-      expect(guarded.getFighter('PLAYER')).toMatchObject({ state: 'GUARD', grounded: true, attackPhase: 'NONE' })
-      tick(guarded)
-      expect(guarded.getFighter('PLAYER')[action === 'jumpPressed' ? 'grounded' : 'attackPhase']).toBe(action === 'jumpPressed' ? false : 'STARTUP')
-    }
   })
 
   it('expires a hit-stun press and clears both buffers on reset without exposing them', () => {
@@ -70,7 +116,7 @@ describe('CombatWorld', () => {
     tick(world, { ...neutral, attackPressed: true })
     for (let i = 0; i < 6; i++) tick(world)
     expect(world.getFighter('PLAYER').attackPhase).toBe('NONE')
-    tick(world, { ...neutral, attackPressed: true, jumpPressed: true, guardHeld: true })
+    tick(world, { ...neutral, attackPressed: true, jumpPressed: true })
     expect(world.getFighter('PLAYER')).not.toHaveProperty('jumpBuffer')
     expect(world.getFighter('PLAYER')).not.toHaveProperty('attackBuffer')
     world.reset(); tick(world)
@@ -101,9 +147,9 @@ describe('CombatWorld', () => {
     mirrored.reset(); mirrored.tick(neutral, { ...neutral, attackPressed: true }); for (let i = 0; i < 3; i += 1) tick(mirrored); const left = mirrored.getActiveHitbox('ENEMY')!; expect(right.x + right.width).toBeCloseTo(675); expect(left.x).toBeCloseTo(525)
   })
 
-  it('blocks whenever guard is held, in any direction, and applies damage/hit stun otherwise', () => {
-    const blocked = new CombatWorld(closeConfig()); tick(blocked, { ...neutral, attackPressed: true }); tick(blocked); tick(blocked); tick(blocked, neutral, { ...neutral, moveX: 1, guardHeld: true }); expect(blocked.getFighter('ENEMY').currentHP).toBe(100); expect(blocked.getFighter('ENEMY').hitStunTicks).toBe(0)
-    for (const moveX of [0, -1]) { const guarded = new CombatWorld(closeConfig()); tick(guarded, { ...neutral, attackPressed: true }); tick(guarded); tick(guarded); tick(guarded, neutral, { ...neutral, moveX, guardHeld: true }); expect(guarded.getFighter('ENEMY').currentHP).toBe(100) }
+  it('blocks when holding back and applies damage otherwise', () => {
+    const blocked = new CombatWorld(closeConfig()); tick(blocked, { ...neutral, attackPressed: true }); tick(blocked); tick(blocked); tick(blocked, neutral, { ...neutral, moveX: 1 }); expect(blocked.getFighter('ENEMY').currentHP).toBe(100); expect(blocked.getFighter('ENEMY').hitStunTicks).toBe(0)
+    for (const moveX of [0, -1]) { const guarded = new CombatWorld(closeConfig()); tick(guarded, { ...neutral, attackPressed: true }); tick(guarded); tick(guarded); tick(guarded, neutral, { ...neutral, moveX }); expect(guarded.getFighter('ENEMY').currentHP).toBe(90) }
     const hit = new CombatWorld(closeConfig()); tick(hit, { ...neutral, attackPressed: true }); tick(hit); tick(hit); tick(hit, neutral, { ...neutral, moveX: -1 }); expect(hit.getFighter('ENEMY').currentHP).toBe(90); expect(hit.getFighter('ENEMY').state).toBe('HIT_STUN'); tick(hit, neutral, { ...neutral, attackPressed: true }); expect(hit.getFighter('ENEMY').attackPhase).toBe('NONE')
   })
 
@@ -118,17 +164,28 @@ describe('CombatWorld', () => {
     expect(world.getFighter('PLAYER').facing).toBe('RIGHT'); expect(world.getFighter('ENEMY').facing).toBe('LEFT')
     const m = STAGE_TUNING.wallMargin, wall = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: m, ENEMY: m + 90 } }); tick(wall)
     expect([wall.getFighter('PLAYER').x, wall.getFighter('ENEMY').x]).toEqual([m, m + STAGE_TUNING.pushWidth])
-    // 推擠寬 220 時攻擊仍打得到（hitbox 延伸到 150+45）。
     const close = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: 1300, ENEMY: 1380 } }); tick(close)
     tick(close, { ...neutral, attackPressed: true }); for (let i = 0; i < 4; i += 1) tick(close)
-    expect(close.getFighter('ENEMY').currentHP).toBe(90)
+    expect(close.getFighter('ENEMY').currentHP).toBe(100 - DEFAULT_COMBAT_CONFIG.attack.damage)
   })
   it('limits separation so both fighters stay inside the camera, stopping whoever walks away', () => {
     const world = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: 300, ENEMY: 2090 } })
     for (let i = 0; i < 10; i += 1) tick(world, { ...neutral, moveX: -1 })
     expect(world.getFighter('ENEMY').x).toBe(2090); expect(world.getFighter('ENEMY').x - world.getFighter('PLAYER').x).toBe(1800)
   })
-  it('records the attack kind without changing timing or damage, and reports the contact point', () => {
+  it('gives each attack its own move data with a playable window, and every move reaches at push distance', () => {
+    const world = new CombatWorld(), moves = ATTACK_ACTIONS.map((attack) => world.move(attack))
+    moves.forEach((move) => expect(move.hitStunTicks).toBeGreaterThan(move.recoveryTicks))
+    expect(new Set(moves.map((move) => move.damage)).size).toBe(4)
+    expect(world.move('LIGHT_PUNCH').startupTicks).toBeLessThan(world.move('HEAVY_PUNCH').startupTicks)
+    expect(world.move('LIGHT_KICK').hitboxOffset).toBeGreaterThan(world.move('LIGHT_PUNCH').hitboxOffset)
+    ATTACK_ACTIONS.forEach((attack) => {
+      const close = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: 1300, ENEMY: 1300 + STAGE_TUNING.pushWidth } })
+      tick(close, { ...neutral, attackPressed: true, attack }); for (let i = 0; i < 8; i += 1) tick(close)
+      expect(close.getFighter('ENEMY').currentHP).toBe(100 - close.move(attack).damage)
+    })
+  })
+  it('records the attack kind and reports the contact point', () => {
     const run = (attack?: 'HEAVY_KICK') => {
       const world = new CombatWorld(closeConfig()), events: CombatEvent[] = []
       world.subscribe((event) => events.push(event))
@@ -137,8 +194,8 @@ describe('CombatWorld', () => {
       return { kind, events, hp: world.getFighter('ENEMY').currentHP }
     }
     const heavy = run('HEAVY_KICK'), light = run()
-    expect([heavy.kind, light.kind]).toEqual(['HEAVY_KICK', 'LIGHT_PUNCH']); expect(heavy.hp).toBe(light.hp)
-    expect(heavy.events.map((e) => e.type)).toEqual(light.events.map((e) => e.type))
+    expect([heavy.kind, light.kind]).toEqual(['HEAVY_KICK', 'LIGHT_PUNCH'])
+    expect(heavy.events.map((e) => e.type).filter((t) => t !== 'KNOCKDOWN')).toEqual(light.events.map((e) => e.type))
     const hit = heavy.events.find((e) => e.type === 'HIT')
     expect(hit).toMatchObject({ attack: 'HEAVY_KICK', at: { x: expect.any(Number), y: expect.any(Number) } })
     // 接觸點落在敵方 hurtbox 內。
@@ -147,8 +204,38 @@ describe('CombatWorld', () => {
   it('emits HIT then BLOCK for a guarded attack and no damage', () => {
     const world = new CombatWorld(closeConfig()), types: string[] = []
     world.subscribe((event) => types.push(event.type))
-    tick(world, { ...neutral, attackPressed: true }, { ...neutral, guardHeld: true })
-    for (let i = 0; i < 6; i += 1) tick(world, neutral, { ...neutral, guardHeld: true })
+    tick(world, { ...neutral, attackPressed: true })
+    for (let i = 0; i < 6; i += 1) tick(world, neutral, { ...neutral, moveX: 1 })
     expect(types).toEqual(['ATTACK_STARTED', 'HIT', 'BLOCK']); expect(world.getFighter('ENEMY').currentHP).toBe(100)
+  })
+
+  it('knocks down on heavy hits and the third combo hit, then wakes up invulnerable', () => {
+    const config = closeConfig(), world = new CombatWorld({ ...config, attack: { ...config.attack, hitStunTicks: 20 } }), types: string[] = []
+    world.subscribe((e) => types.push(e.type))
+    const swing = (attack?: 'HEAVY_PUNCH'): void => { tick(world, { ...neutral, attackPressed: true, attack }); while (world.getFighter('PLAYER').attackPhase !== 'NONE') tick(world) }
+    swing(); swing()
+    expect(world.getFighter('ENEMY').state).toBe('HIT_STUN')
+    swing()
+    expect(world.getFighter('ENEMY').state).toBe('KNOCKDOWN'); expect(types).toContain('KNOCKDOWN')
+    const hp = world.getFighter('ENEMY').currentHP
+    swing()
+    expect(world.getFighter('ENEMY').currentHP).toBe(hp)
+    while (world.getFighter('ENEMY').knockdownTicks > 1) tick(world, neutral, { ...neutral, attackPressed: true })
+    tick(world)
+    expect(types).toContain('WAKE_UP'); expect(world.getFighter('ENEMY').attackPhase).toBe('NONE')
+    expect(world.getFighter('ENEMY').invulnerableTicks).toBe(KNOCKDOWN.invulnerableTicks)
+    swing()
+    expect(world.getFighter('ENEMY').currentHP).toBe(hp)
+    while (world.getFighter('ENEMY').invulnerableTicks > 0) tick(world)
+    swing('HEAVY_PUNCH')
+    expect(world.getFighter('ENEMY').state).toBe('KNOCKDOWN')
+    world.reset()
+    expect(world.getFighter('ENEMY')).toMatchObject({ state: 'IDLE', knockdownTicks: 0, invulnerableTicks: 0 })
+  })
+
+  it('does not count blocked hits toward knockdown', () => {
+    const world = new CombatWorld(closeConfig())
+    for (let n = 0; n < 3; n += 1) { tick(world, { ...neutral, attackPressed: true }, { ...neutral, moveX: 1 }); while (world.getFighter('PLAYER').attackPhase !== 'NONE') tick(world, neutral, { ...neutral, moveX: 1 }) }
+    expect(world.getFighter('ENEMY').state).not.toBe('KNOCKDOWN'); expect(world.getFighter('ENEMY').currentHP).toBe(100)
   })
 })

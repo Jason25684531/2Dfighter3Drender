@@ -1,7 +1,8 @@
 import Phaser from 'phaser'
-import type { OwnedUiAction, PlayerSlotId, UIAction } from '../../input/InputManager'
+import { p1MenuKeys, type OwnedUiAction, type PlayerSlotId, type UIAction } from '../../input/InputManager'
+import { keyLabel, loadProfiles } from '../../input/ControlProfile'
 import { GRID_COLUMNS, NICKNAME_MAX, sectionCounts, sectionOf, type P1SelectionModel, type SelectFeedback, type Slot } from '../../select/P1SelectionModel'
-import { ActionButton, AngularPanel, fighterSilhouette } from '../VisualComponents'
+import { ActionButton, AngularPanel } from '../VisualComponents'
 import { spriteDisplayHeight, spriteOriginY, spriteTextureFrame, spriteTextureKey } from '../animation/TemporarySpriteManifest'
 import { isSheetSprite } from '../animation/SheetSpriteManifest'
 import { colorHex, reducedMotion, uiTokens, type UiColorToken } from '../tokens/uiTokens'
@@ -19,7 +20,11 @@ export type P1ViewHooks = {
 
 const { p1, colors, type } = uiTokens
 const identity: Record<PlayerSlotId, { main: number; glow: number; text: UiColorToken; tag: string; label: string; keys: string; back: string; confirm: string }> = {
-  P1: { main: colors.playerPrimary, glow: colors.playerGlow, text: 'playerGlow', tag: '1P', label: 'PLAYER 1', keys: 'W A S D', confirm: 'J', back: 'K' },
+  // 1P 鍵名跟著已存的自訂鍵位（與 InputManager.p1MenuKeys 同一規則）。
+  P1: { main: colors.playerPrimary, glow: colors.playerGlow, text: 'playerGlow', tag: '1P', label: 'PLAYER 1',
+    get keys() { const k = p1MenuKeys(loadProfiles().P1); return [k.NAV_UP, k.NAV_LEFT, k.NAV_DOWN, k.NAV_RIGHT].map((codes) => keyLabel(codes?.[0] ?? '')).join(' ') },
+    get confirm() { return keyLabel(p1MenuKeys(loadProfiles().P1).CONFIRM?.[0] ?? '') },
+    get back() { return keyLabel(p1MenuKeys(loadProfiles().P1).BACK?.[0] ?? '') } },
   P2: { main: colors.enemyPrimary, glow: colors.enemyGlow, text: 'enemyGlow', tag: '2P', label: 'PLAYER 2', keys: '↑ ↓ ← →', confirm: 'ENTER', back: 'BACKSPACE' },
 }
 const pad = (index: number): string => String(index).padStart(2, '0')
@@ -39,7 +44,7 @@ class HeroPreview extends Phaser.GameObjects.Container {
   private readonly beam: Phaser.GameObjects.Graphics
   private readonly title: Phaser.GameObjects.Text
   private readonly kind: Phaser.GameObjects.Text
-  private figure?: Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics
+  private figure?: Phaser.GameObjects.Sprite
   private stamp?: Phaser.GameObjects.Text
   private key = ''
   private pulse?: Phaser.Tweens.Tween
@@ -55,7 +60,7 @@ class HeroPreview extends Phaser.GameObjects.Container {
     this.beam.fillStyle(id.main, 1).fillPoints([new Phaser.Math.Vector2(-230, 60), new Phaser.Math.Vector2(110, 60), new Phaser.Math.Vector2(330, -780), new Phaser.Math.Vector2(-10, -780)], true)
     const lines = scene.add.graphics().lineStyle(2, id.glow, 0.5)
     for (let i = 0; i < 7; i += 1) lines.lineBetween(-160 + i * 50, 40, -20 + i * 50, -500)
-    this.stage.add([this.beam, lines, scene.add.ellipse(0, 0, 440, 74, id.main, 0.22), scene.add.ellipse(0, 4, 300, 44, colors.shadow, 0.5)])
+    this.stage.add([this.beam, lines, scene.add.ellipse(0, 4, 300, 44, colors.shadow, 0.5)])
     if (!reducedMotion) this.tweens.push(scene.tweens.add({ targets: lines, y: -60, duration: 2000, repeat: -1 }))
     this.title = scene.add.text(left ? 96 - this.x : 1824 - this.x, 330 - this.y, '', { ...typography.title, fontSize: type.h1, color: colorHex(id.text), stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.standard }).setOrigin(left ? 0 : 1, 0.5)
     this.kind = label(scene, this.title.x, 384 - this.y, '').setOrigin(left ? 0 : 1, 0.5)
@@ -83,10 +88,8 @@ class HeroPreview extends Phaser.GameObjects.Container {
       else glowOn(image, id.main)
       if (relock && !body && !reducedMotion) { image.setTintFill(colors.textPrimary); this.flash = this.scene.time.delayedCall(60, () => image.active && image.clearTint()) }
       this.figure = image
-    } else {
-      this.figure = fighterSilhouette(this.scene, 0, -440, 300, 720, slot ? colors.textSecondary : id.main, 0.22)
-    }
-    this.addAt(this.figure, 1)
+      this.addAt(image, 1)
+    } else this.figure = undefined
     this.title.setText(slot ? (nickname || slot.entry?.displayName || 'EMPTY') : 'PRESS ENTER')
     this.kind.setText(slot ? `${pad(slot.index)} · ${slot.type === 'BODY_TEMPLATE' ? 'CUSTOM BODY · CREATE YOUR FIGHTER' : slotKind(slot)}${nickname ? ' · ' + (slot.entry?.displayName ?? '') : ''}` : 'TO JOIN · 按 ENTER 加入')
     this.pulse?.stop(); this.title.setAlpha(1)
@@ -126,7 +129,7 @@ class GridSlotView extends AngularPanel {
     }
     const sprite = !body ? slot.entry?.spriteId : undefined
     if (sprite && scene.textures.exists(spriteTextureKey(sprite, 'idle'))) this.add(scene.add.image(0, -4, spriteTextureKey(sprite, 'idle'), spriteTextureFrame(sprite)).setDisplaySize(84, 84))
-    if (body) this.add([fighterSilhouette(scene, 0, -12, 46, 70, colors.textPrimary, 0.55), label(scene, 0, -14, '+', 'resultGold', type.h2).setOrigin(0.5)])
+    if (body) this.add(label(scene, 0, -14, '+', 'resultGold', type.h2).setOrigin(0.5))
     this.add(label(scene, -40, -48, pad(slot.index), body ? 'resultGold' : 'textSecondary'))
     this.add(label(scene, 0, 38, empty ? 'EMPTY' : (slot.entry?.displayName ?? '').slice(0, 8), empty ? 'textSecondary' : 'textPrimary').setOrigin(0.5).setAlpha(empty ? 0.55 : 1))
     const tag = (owner: PlayerSlotId, offset: number): Phaser.GameObjects.Container => {
@@ -472,7 +475,6 @@ export class P1SelectView {
         this.media = scene.add.dom(960, 640, image)
         root.add(label(scene, 960, 446, 'LOCAL PHOTO · 僅存於本機記憶體，未上傳', 'statusLime').setOrigin(0.5))
       } else {
-        root.add(fighterSilhouette(scene, 960, 620, 180, 260, colors.textSecondary, 0.45))
         root.add(label(scene, 960, 790, 'MOCK PHOTO · 模擬照片', 'textSecondary').setOrigin(0.5))
       }
       root.add(label(scene, 960, 400, `${slot.entry?.displayName ?? ''}  ·  ${player.nickname.trim()}`, 'textPrimary', type.body).setOrigin(0.5))
@@ -499,7 +501,7 @@ export class P1SelectView {
       if (!reducedMotion) this.tweens.push(scene.tweens.add({ targets: ring, angle: i % 2 ? -360 : 360, duration: 1800 + i * 400, repeat: -1 }))
       return ring
     })
-    root.add([...rings, fighterSilhouette(scene, 960, 640, 150, 220, colors.resultGold, 0.6)])
+    root.add(rings)
     root.add(this.scene.add.rectangle(960, 840, 600, 16, colors.background0).setStrokeStyle(1, colors.lineBright))
     const bar = scene.add.rectangle(660, 840, 600, 16, colors.systemBlue).setOrigin(0, 0.5).setScale(0, 1)
     const percent = scene.add.text(960, 940, '0%', typography.number).setOrigin(0.5)

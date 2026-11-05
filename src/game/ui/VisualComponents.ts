@@ -175,15 +175,3 @@ export class Announcer extends Phaser.GameObjects.Container {
   destroy(fromScene?: boolean): void { if (this.tween) stopOwnedTweens([this.tween]); super.destroy(fromScene) }
 }
 
-export const addFocalGlow = (scene: Phaser.Scene, parent: Phaser.GameObjects.Container, x: number, y: number, width: number, height: number, color: number, alpha: number = uiTokens.opacity.focusGlow): Phaser.GameObjects.Graphics => {
-  const glow = scene.add.graphics().setPosition(x, y)
-  ;[1, 0.76, 0.52, 0.28].forEach((scale, index) => glow.fillStyle(color, alpha * (0.16 + index * 0.12)).fillEllipse(0, 0, width * scale, height * scale))
-  parent.add(glow); return glow
-}
-export const fighterSilhouette = (scene: Phaser.Scene, x: number, y: number, width: number, height: number, color: number, alpha = 0.38): Phaser.GameObjects.Graphics => {
-  const silhouette = scene.add.graphics().setPosition(x, y)
-  silhouette.fillStyle(color, alpha).fillEllipse(0, -height * 0.23, width * 0.31, height * 0.28)
-  silhouette.fillStyle(color, alpha * 0.82).fillEllipse(0, height * 0.16, width * 0.92, height * 0.58)
-  silhouette.fillStyle(color, alpha * 0.54).fillRoundedRect(-width * 0.29, height * 0.22, width * 0.58, height * 0.39, Math.min(16, width * 0.08))
-  return silhouette
-}

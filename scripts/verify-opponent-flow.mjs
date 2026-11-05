@@ -23,7 +23,7 @@ try {
   // P0 → P1 → 1P 鎖定 05（ARIA）→ 對手階段
   const toOpponent = async () => { await key('Enter'); await waitState('P1'); await page.waitForTimeout(600); await page.screenshot({ path: `${out}/00-p1-grid.png` }); await key('j'); assert.equal((await model()).phase, 'OPPONENT') }
   const texts = () => s((s) => { const out = []; const walk = (o) => { if (o.type === 'Text' && o.visible) out.push(o.text); (o.list ?? []).forEach(walk) }; s.children.list.forEach(walk); return out })
-  const waitAnnounce = (text, timeout = 10000) => page.waitForFunction((t) => { const a = window.__game.scene.getScene('AppScene').announcer; return a?.visible && a.label.text === t }, text, { timeout })
+  const waitAnnounce = (text, timeout = 10000) => page.waitForFunction((t) => { const a = window.__game.scene.getScene('AppScene').battleView.announcer; return a?.visible && a.label.text === t }, text, { timeout })
   const world = (fn) => s((s, code) => new Function('w', `return (${code})(w)`)(s.flow.match.world), fn.toString())
 
   // 1 首頁排行榜
@@ -68,11 +68,21 @@ try {
   const t = await s((s) => s.flow.match.getSnapshot()); assert.equal(t.matchState, 'FIGHTING'); assert.ok(t.remainingTicks >= frozen - 3)
   await page.screenshot({ path: `${out}/06-fight.png` })
   check('P3 顯示 RIVEN；P4 Announcer 依序 ROUND 1→READY?→FIGHT!，期間時間不減；HARD AI 已套用')
+  await key('Escape'); await key('ArrowDown'); await key('Enter')
+  assert.equal(await s(s => s.ui.navigation.isExitConfirmationOpen()), true)
+  assert.equal(await s(s => s.ui.focus.current()), 'overlay-CANCEL')
+  assert.ok((await texts()).includes('將回到首頁，本局成績不列入排行榜'))
+  await key('ArrowDown'); await key('Enter')
+  assert.equal(await s(s => s.ui.focus.current()), 'overlay-CANCEL')
+  assert.match(await state(), /^P4/)
+  await page.waitForTimeout(450); await key('Enter')
+  assert.equal(await s(s => s.ui.navigation.isOverlayOpen()), false)
+  check('離開確認預設 CANCEL，顯示後果且 0.4 秒內忽略快速輸入')
 
   // 4 命中與防禦特效（AI 固定不動，以便確定性）
-  const fx = (k) => page.waitForFunction((k) => window.__game.scene.getScene('AppScene').battleWorld.list.some((o) => o.texture?.key === k), k, { timeout: 3000 }).then(() => s((s, k) => s.battleWorld.list.filter((o) => o.texture?.key === k).map((o) => ({ scale: o.scaleX, flip: o.flipX, x: o.x })), k))
-  const noFx = (k) => page.waitForFunction((k) => !window.__game.scene.getScene('AppScene').battleWorld.list.some((o) => o.texture?.key === k), k, { timeout: 3000 })
-  await s((s) => { s.flow.match.ai.getIntent = () => ({ moveX: 0, jumpPressed: false, attackPressed: false, guardHeld: false }) })
+  const fx = (k) => page.waitForFunction((k) => window.__game.scene.getScene('AppScene').stage.world.list.some((o) => o.texture?.key === k), k, { timeout: 3000 }).then(() => s((s, k) => s.stage.world.list.filter((o) => o.texture?.key === k).map((o) => ({ scale: o.scaleX, flip: o.flipX, x: o.x })), k))
+  const noFx = (k) => page.waitForFunction((k) => !window.__game.scene.getScene('AppScene').stage.world.list.some((o) => o.texture?.key === k), k, { timeout: 3000 })
+  await s((s) => { s.flow.match.ai.getIntent = () => ({ moveX: 0, jumpPressed: false, attackPressed: false }) })
   await world((w) => { w.fighters.PLAYER.x = 1300; w.fighters.ENEMY.x = 1520 })
   await key('u'); const heavy = await fx('fx-hit'); await page.screenshot({ path: `${out}/07-hit-heavy.png` })
   assert.equal(heavy[0].scale, 1.5); assert.equal(heavy[0].flip, false); assert.ok(heavy[0].x > 1300 && heavy[0].x < 1520)
@@ -81,10 +91,10 @@ try {
   await key('g'); const light = await fx('fx-hit'); assert.equal(light[0].scale, 0.9)
   check('重拳命中：接觸點出現完整尺寸爆炸並自毀；輕腳命中縮小播放')
   await noFx('fx-hit'); await page.waitForTimeout(500)
-  await s((s) => { s.flow.match.ai.getIntent = () => ({ moveX: 0, jumpPressed: false, attackPressed: false, guardHeld: true }) })
+  await s((s) => { s.flow.match.ai.getIntent = () => ({ moveX: 1, jumpPressed: false, attackPressed: false }) })
   await world((w) => { w.fighters.PLAYER.x = 1300; w.fighters.ENEMY.x = 1520 }); const hp = await world((w) => w.getFighter('ENEMY').currentHP)
   await key('f'); const guard = await fx('fx-guard'); await page.screenshot({ path: `${out}/08-guard.png` })
-  assert.equal(guard[0].flip, true); assert.equal(await s((s) => s.battleWorld.list.some((o) => o.texture?.key === 'fx-hit')), false); assert.equal(await world((w) => w.getFighter('ENEMY').currentHP), hp)
+  assert.equal(guard[0].flip, true); assert.equal(await s((s) => s.stage.world.list.some((o) => o.texture?.key === 'fx-hit')), false); assert.equal(await world((w) => w.getFighter('ENEMY').currentHP), hp)
   check('面向左的敵方防禦：波紋弧面朝左（朝攻擊者），沒有爆炸、不扣血')
 
   // 5 回合 K.O. 停留 → 結果 → ROUND 2
@@ -92,7 +102,7 @@ try {
   await waitAnnounce('K.O.'); const held = await s((s) => s.flow.match.getSnapshot())
   await page.waitForTimeout(700); const later = await s((s) => s.flow.match.getSnapshot()); await page.screenshot({ path: `${out}/09-ko.png` })
   assert.equal(later.matchState, 'ROUND_END'); assert.equal(later.remainingTicks, held.remainingTicks)
-  await waitAnnounce('YOU WIN'); assert.equal(await s((s) => s.announcer.sub.text), 'ROUND 1'); await page.screenshot({ path: `${out}/10-round-win.png` })
+  await waitAnnounce('YOU WIN'); assert.equal(await s((s) => s.battleView.announcer.sub.text), 'ROUND 1'); await page.screenshot({ path: `${out}/10-round-win.png` })
   await waitAnnounce('ROUND 2'); await waitAnnounce('FIGHT!')
   check('回合 K.O.：停留約 1.5 秒（時間不減）→ YOU WIN · ROUND 1 → ROUND 2 → FIGHT!')
 

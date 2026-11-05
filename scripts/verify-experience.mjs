@@ -39,14 +39,19 @@ try {
   await key('p')
   await page.waitForFunction(() => { const v = window.__game.scene.getScene('AppScene').attract?.node; return v && v.currentTime > 0.3 }, null, { timeout: 8000 })
   await page.screenshot({ path: `${out}/02-attract.png` })
-  await key('Enter'); assert.match(await state(), /^P0/)
-  await key('k'); assert.equal(await s(s => s.attract), undefined)
-  check('P 播放開頭動畫；播放中 Enter 不穿透；K 回主畫面')
-  await s(s => { s.lastActivity -= 31000 }); await key('Shift')
+  await key('Enter'); assert.match(await state(), /^P0/); assert.equal(await s(s => s.attract), undefined)
+  check('P 播放開頭動畫；播放中 Enter 返回且不穿透')
+  await s(s => { s.lastActivity -= 61000 }); await s(s => new Promise(resolve => s.events.once('postupdate', resolve)))
   assert.ok(await s(s => Boolean(s.attract)))
   await s(s => s.attract.node.dispatchEvent(new Event('ended'))); assert.equal(await s(s => s.attract), undefined)
   assert.ok(await s(s => s.time.now - s.lastActivity < 1000))
-  check('閒置 30 秒自動播放；播完回 P0 並重設閒置計時')
+  check('閒置 60 秒自動播放；播完回 P0 並重設閒置計時')
+  await key('p'); await page.waitForFunction(() => Boolean(window.__game.scene.getScene('AppScene').attract))
+  await page.evaluate(() => { navigator.getGamepads = () => [{ connected: true, buttons: [{ pressed: false, value: 0 }, { pressed: false, value: 0 }, { pressed: true, value: 1 }], axes: [] }] })
+  await page.waitForFunction(() => !window.__game.scene.getScene('AppScene').attract)
+  assert.match(await state(), /^P0/)
+  await page.evaluate(() => { navigator.getGamepads = () => [] })
+  check('任意手把按鈕關閉影片且不穿透首頁')
 
   // P1：CUSTOM01 預設角色與 BODY 01 身形。
   await key('Enter'); await waitState('P1')
@@ -77,20 +82,24 @@ try {
   // 1P：拍照完成後在同頁選對手 → 難度，再到 P2 選場景 → CONFIRM
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').p1Model?.phase === 'OPPONENT', null, { timeout: 10000 })
   await key('j'); await key('j'); await waitState('P2', 10000)
-  await key('Enter'); await key('Enter'); await waitState('P3')
+  // P2：←→／A D 切卡即選取，J 直接確認進 P3。
+  await key('ArrowRight'); assert.equal(await s(s => s.selectedStageId), 'company-building')
+  await key('a'); assert.equal(await s(s => [s.selectedStageId, s.ui.focus.current()].join()), 'laboratory,stage-laboratory')
+  await key('j'); await waitState('P3')
+  check('P2 方向鍵／A D 切換場景，J 確認進 P3')
   assert.equal(await s(s => s.playerSpriteId()), 'body01')
   await key('Enter'); await waitState('P4')
-  assert.match(await s(s => s.battlePlayer.image.texture.key), /^body01-/)
+  assert.match(await s(s => s.battleView.player.image.texture.key), /^body01-/)
   check('客製角色未串 ComfyUI，直接以 body01 進入戰鬥')
 
   // 實驗室影片＋視差＋鏡頭。
-  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').stage?.video?.isPlaying(), null, { timeout: 8000 })
-  const before = await s(s => ({ bg: s.stage.background.x, fg: s.stage.foreground.x, timer: [s.battleTimer.x, s.battleTimer.y] }))
+  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').stage?.parallax.video?.isPlaying(), null, { timeout: 8000 })
+  const before = await s(s => ({ bg: s.stage.parallax.background.x, fg: s.stage.parallax.foreground.x, timer: [s.battleView.timer.x, s.battleView.timer.y] }))
   await page.screenshot({ path: `${out}/06-battle-lab.png` })
   await s(s => { s.flow.match.world.fighters.PLAYER.x = s.flow.match.world.getConfig().wallMargin }); await wait(3500) // 後退現在是防禦，直接把玩家放到左邊界
   const after = await s(s => {
-    const edges = o => [o.x - o.displayWidth / 2, o.x + o.displayWidth / 2], screen = a => s.battleWorld.x + a.x * s.battleWorld.scaleX
-    return { scroll: s.stageScroll, bg: s.stage.background.x, fg: s.stage.foreground.x, bgEdges: edges(s.stage.background), fgEdges: edges(s.stage.foreground), actors: [screen(s.battlePlayer), screen(s.battleEnemy)], timer: [s.battleTimer.x, s.battleTimer.y] }
+    const edges = o => [o.x - o.displayWidth / 2, o.x + o.displayWidth / 2], screen = a => s.stage.world.x + a.x * s.stage.world.scaleX
+    return { scroll: s.stage.scroll, bg: s.stage.parallax.background.x, fg: s.stage.parallax.foreground.x, bgEdges: edges(s.stage.parallax.background), fgEdges: edges(s.stage.parallax.foreground), actors: [screen(s.battleView.player), screen(s.battleView.enemy)], timer: [s.battleView.timer.x, s.battleView.timer.y] }
   })
   assert.ok(after.scroll < -300 && after.scroll >= -534, `scroll ${after.scroll}`)
   const fgShift = after.fg - before.fg, bgShift = after.bg - before.bg
@@ -99,14 +108,14 @@ try {
   assert.ok(after.actors.every(x => x > 0 && x < 1920)); assert.deepEqual(after.timer, before.timer)
   await page.screenshot({ path: `${out}/07-battle-parallax.png` })
   check(`玩家在左邊界：鏡頭 ${after.scroll.toFixed(0)}px，前景位移 ${fgShift.toFixed(0)} > 背景 ${bgShift.toFixed(0)}（視差），無露邊、雙角色可見、HUD 固定`)
-  await key('Escape'); assert.equal(await s(s => s.stage.video.isPaused()), true)
-  await key('Escape'); await page.waitForFunction(() => window.__game.scene.getScene('AppScene').stage.video.isPlaying())
+  await key('Escape'); assert.equal(await s(s => s.stage.parallax.video.isPaused()), true)
+  await key('Escape'); await page.waitForFunction(() => window.__game.scene.getScene('AppScene').stage.parallax.video.isPlaying())
   check('暫停選單同步暫停／恢復背景影片')
   await s(s => s.appStateMachine.transitionTo('P0_IDLE')); await waitState('P0')
   assert.equal(await s(s => s.stage), undefined)
   check('離開戰鬥釋放影片圖層')
   await s(s => { s.selectedStageId = 'company-building'; ['P1_READY', 'P2_SETUP', 'P3_LOADING', 'P4_BATTLE'].forEach(state => s.appStateMachine.transitionTo(state)) }); await waitState('P4')
-  const company = await s(s => { const b = s.stage.background; return [b.texture.key, b.scaleX === b.scaleY, b.displayWidth >= 2000 && b.displayHeight >= 1080, s.stage.video] })
+  const company = await s(s => { const b = s.stage.parallax.background; return [b.texture.key, b.scaleX === b.scaleY, b.displayWidth >= 2000 && b.displayHeight >= 1080, s.stage.parallax.video] })
   assert.deepEqual(company, ['stage-company-building', true, true, undefined])
   await page.screenshot({ path: `${out}/10-battle-company.png` })
   check('Company Building 等比 cover（無非等比拉伸、無影片層）')
@@ -122,7 +131,7 @@ try {
   check('沒有相機：顯示 CAMERA UNAVAILABLE，仍以模擬照片完成 Review')
   await fallback.s(s => ['P1_READY', 'P2_SETUP', 'P3_LOADING', 'P4_BATTLE'].forEach(state => s.appStateMachine.getCurrentState() !== state && s.appStateMachine.transitionTo(state)))
   await fallback.waitState('P4'); await wait(1500)
-  assert.deepEqual(await fallback.s(s => [s.stage.background.texture.key, s.stage.video.visible]), ['lab-poster', false])
+  assert.deepEqual(await fallback.s(s => [s.stage.parallax.background.texture.key, s.stage.parallax.video.visible]), ['lab-poster', false])
   await fallback.page.screenshot({ path: `${out}/09-video-fallback.png` })
   check('實驗室影片讀取失敗時以 poster 覆蓋，戰鬥繼續')
   assert.deepEqual(report.errors, [])

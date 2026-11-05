@@ -10,6 +10,11 @@ export class NavigationManager {
   constructor(private readonly app: AppStateMachine, private readonly focus: FocusManager, private readonly events: UIEventBus) {}
   isOverlayOpen(): boolean { return this.overlayOpen }
   dispatch(action: UIAction): boolean {
+    const handled = this.handle(action)
+    this.events.emit('UI_ACTION', { action, handled })
+    return handled
+  }
+  private handle(action: UIAction): boolean {
     if (action === 'BACK' && !this.overlayOpen) {
       const state = this.app.getCurrentState(), back = backRoutes[state]
       if (back) return this.app.transitionTo(back)

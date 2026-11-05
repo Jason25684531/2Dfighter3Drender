@@ -7,7 +7,6 @@ export const sheetAnimations = [
   { key: 'walk', filename: '03_Move.png', loop: true },
   { key: 'jump', filename: '04_Jump.png', loop: false },
   { key: 'crouch', filename: '05_Crouch.png', loop: true },
-  { key: 'guard', filename: '06_Block.png', loop: true },
   { key: 'prone', filename: '07_Prone.png', loop: false },
   { key: 'attack', filename: '08_Punch_Light.png', loop: false },
   { key: 'punch-heavy', filename: '09_Punch_Heavy.png', loop: false },
