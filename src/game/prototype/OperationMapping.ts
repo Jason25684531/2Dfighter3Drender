@@ -1,9 +1,9 @@
-import { DEFAULT_OWNER_KEYS, p1MenuKeys, type OwnedUiAction, type PlayerSlotId } from '../input/InputManager'
-import { loadProfiles, type Bindings } from '../input/ControlProfile'
+import type { OwnedUiAction, PlayerSlotId } from '../input/InputManager'
+import { loadProfiles, menuKeys, type Bindings } from '../input/ControlProfile'
 
 // 讀已儲存的鍵位（與正式 CONTROLS 面板同一份）；重新整理頁面後生效。
 export const combatMapping = loadProfiles()
-const ownerKeys = { P1: p1MenuKeys(combatMapping.P1), P2: DEFAULT_OWNER_KEYS.P2 }
+const ownerKeys = { P1: menuKeys(combatMapping.P1, 'P1'), P2: menuKeys(combatMapping.P2, 'P2') }
 export const menuMapping = Object.fromEntries((['P1', 'P2'] as PlayerSlotId[]).map(owner => [owner, Object.fromEntries(Object.entries(ownerKeys[owner]).flatMap(([action, codes]) => codes.map(code => [code, action as OwnedUiAction])))])) as Record<PlayerSlotId, Record<string, OwnedUiAction>>
 import { presentationSheet as semanticAnimation, type Presentation as Semantic } from '../ui/animation/TemporarySpriteManifest'
 export { semanticAnimation, type Semantic }

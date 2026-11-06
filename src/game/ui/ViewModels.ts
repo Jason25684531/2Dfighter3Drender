@@ -56,3 +56,6 @@ export const leaderboardPanelModel = (entries: readonly LeaderboardEntry[] | und
   const rows = entries.slice(0, limit).map((entry) => ({ rank: entry.rank, name: entry.nickname, score: entry.score, title: entry.title }))
   return { status: rows.length ? 'READY' : 'EMPTY', rows }
 }
+/** 連擊標語：未滿 2 不顯示；2–3 COMBO!（萊姆綠）、4–5 GREAT!（金）、6+ AWESOME!（洋紅）。 */
+export const comboCallout = (hits: number): { count: string; word: string; color: 'statusLime' | 'resultGold' | 'comboMagenta' } | undefined =>
+  hits < 2 ? undefined : { count: `${hits} HITS`, ...(hits >= 6 ? { word: 'AWESOME!', color: 'comboMagenta' as const } : hits >= 4 ? { word: 'GREAT!', color: 'resultGold' as const } : { word: 'COMBO!', color: 'statusLime' as const }) }

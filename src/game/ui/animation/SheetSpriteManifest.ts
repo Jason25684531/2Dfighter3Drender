@@ -20,9 +20,15 @@ export const sheetAnimations = [
 
 export const SHEET_FRAME_COUNT = 16
 // renamed：來源檔名與 Kevin 不同的部分，照原檔名對應、不改素材。
+const bodyRenamed: Record<string, string> = { 'punch-jump': '10_Punch_Jump.png' }
 export const sheetSprites = {
   kevin: { folder: 'Kevin', size: 128, renamed: {} as Record<string, string> },
   body01: { folder: 'Customize_body_01', size: 256, renamed: { 'punch-jump': '10_Punch_Jump.png', 'kick-crouch': '15_Kick_Crounch.png' } as Record<string, string> },
+  // Customize Body 01–04 的正式身形。
+  s1aw: { folder: 'S1AW', size: 256, renamed: bodyRenamed },
+  s2am: { folder: 'S2AM', size: 256, renamed: bodyRenamed },
+  s2lw: { folder: 'S2LW', size: 256, renamed: bodyRenamed },
+  s3ww: { folder: 'S3WW', size: 256, renamed: bodyRenamed },
 } as const
 export type SheetSpriteId = keyof typeof sheetSprites
 const sheetSpriteIds = Object.keys(sheetSprites) as SheetSpriteId[]

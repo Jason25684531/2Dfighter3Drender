@@ -2,7 +2,7 @@ export const reducedMotion = typeof matchMedia === 'function' && matchMedia('(pr
 export const uiTokens = {
   slant: 28,
   type: { hero: 260, display: 120, h1: 72, h2: 40, title: 30, body: 24, label: 18 },
-  fonts: { display: 'Oswald, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', body: 'Chivo, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', label: 'Space Grotesk, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', zh: 'Noto Sans TC, Microsoft JhengHei, sans-serif' },
+  fonts: { display: 'Oswald, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', body: 'Chivo, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', label: 'Space Grotesk, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', zh: 'Noto Sans TC, Microsoft JhengHei, sans-serif', graffiti: 'Sedgwick Ave Display, Oswald, Arial, sans-serif' },
   motion: { fast: reducedMotion ? 0 : 120, enter: reducedMotion ? 0 : 240, ko: reducedMotion ? 0 : 360 },
   logicalWidth: 1920,
   logicalHeight: 1080,
@@ -23,6 +23,7 @@ export const uiTokens = {
     lineBright: 0x4a5677,
     statusLime: 0xb6f23a,
     resultGold: 0xffc247,
+    comboMagenta: 0xff3df0,
     textPrimary: 0xf5f7fb,
     textSecondary: 0xaeb8c9,
     focus: 0xffffff,

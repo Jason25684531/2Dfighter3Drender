@@ -24,7 +24,7 @@ export class BootScene extends Phaser.Scene {
   async create(): Promise<void> {
     registerSheetAnimations(this); registerImpactFx(this)
     let timeout: ReturnType<typeof setTimeout> | undefined
-    const faces = ['700 24px Oswald', '400 24px Chivo', '700 24px Chivo', '500 24px "Space Grotesk"', '700 24px "Space Grotesk"', '400 24px "Noto Sans TC"', '700 24px "Noto Sans TC"']
+    const faces = ['700 24px Oswald', '400 24px Chivo', '700 24px Chivo', '500 24px "Space Grotesk"', '700 24px "Space Grotesk"', '400 24px "Noto Sans TC"', '700 24px "Noto Sans TC"', '400 24px "Sedgwick Ave Display"']
     await Promise.race([
       Promise.all(faces.map((face) => document.fonts.load(face, '選擇角色'))).catch(() => undefined),
       new Promise<void>((resolve) => { timeout = setTimeout(resolve, 2000) }),

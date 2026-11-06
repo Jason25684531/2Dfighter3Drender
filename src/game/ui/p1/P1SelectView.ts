@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
-import { p1MenuKeys, type OwnedUiAction, type PlayerSlotId, type UIAction } from '../../input/InputManager'
-import { keyLabel, loadProfiles } from '../../input/ControlProfile'
+import type { OwnedUiAction, PlayerSlotId, UIAction } from '../../input/InputManager'
+import { keyLabel, loadProfiles, menuKeys } from '../../input/ControlProfile'
 import { GRID_COLUMNS, NICKNAME_MAX, sectionCounts, sectionOf, type P1SelectionModel, type SelectFeedback, type Slot } from '../../select/P1SelectionModel'
 import { ActionButton, AngularPanel } from '../VisualComponents'
 import { spriteDisplayHeight, spriteOriginY, spriteTextureFrame, spriteTextureKey } from '../animation/TemporarySpriteManifest'
@@ -19,13 +19,15 @@ export type P1ViewHooks = {
 }
 
 const { p1, colors, type } = uiTokens
-const identity: Record<PlayerSlotId, { main: number; glow: number; text: UiColorToken; tag: string; label: string; keys: string; back: string; confirm: string }> = {
-  // 1P 鍵名跟著已存的自訂鍵位（與 InputManager.p1MenuKeys 同一規則）。
-  P1: { main: colors.playerPrimary, glow: colors.playerGlow, text: 'playerGlow', tag: '1P', label: 'PLAYER 1',
-    get keys() { const k = p1MenuKeys(loadProfiles().P1); return [k.NAV_UP, k.NAV_LEFT, k.NAV_DOWN, k.NAV_RIGHT].map((codes) => keyLabel(codes?.[0] ?? '')).join(' ') },
-    get confirm() { return keyLabel(p1MenuKeys(loadProfiles().P1).CONFIRM?.[0] ?? '') },
-    get back() { return keyLabel(p1MenuKeys(loadProfiles().P1).BACK?.[0] ?? '') } },
-  P2: { main: colors.enemyPrimary, glow: colors.enemyGlow, text: 'enemyGlow', tag: '2P', label: 'PLAYER 2', keys: '↑ ↓ ← →', confirm: 'ENTER', back: 'BACKSPACE' },
+type Identity = { main: number; glow: number; text: UiColorToken; tag: string; label: string }
+// 鍵名跟著已存的自訂鍵位（與 InputManager 同一規則：menuKeys）。
+const withKeys = (owner: PlayerSlotId, base: Identity): Identity & { keys: string; back: string; confirm: string } => ({ ...base,
+  get keys() { const k = menuKeys(loadProfiles()[owner], owner); return [k.NAV_UP, k.NAV_LEFT, k.NAV_DOWN, k.NAV_RIGHT].map((codes) => keyLabel(codes[0] ?? '')).join(' ') },
+  get confirm() { return keyLabel(menuKeys(loadProfiles()[owner], owner).CONFIRM[0] ?? '') },
+  get back() { return keyLabel(menuKeys(loadProfiles()[owner], owner).BACK[0] ?? '') } })
+const identity = {
+  P1: withKeys('P1', { main: colors.playerPrimary, glow: colors.playerGlow, text: 'playerGlow', tag: '1P', label: 'PLAYER 1' }),
+  P2: withKeys('P2', { main: colors.enemyPrimary, glow: colors.enemyGlow, text: 'enemyGlow', tag: '2P', label: 'PLAYER 2' }),
 }
 const pad = (index: number): string => String(index).padStart(2, '0')
 // 第 2 列起下移一段，讓 ROSTER 標題有位置；所有游標／格子都經過 cellCenter，導覽不受影響。
@@ -90,8 +92,8 @@ class HeroPreview extends Phaser.GameObjects.Container {
       this.figure = image
       this.addAt(image, 1)
     } else this.figure = undefined
-    this.title.setText(slot ? (nickname || slot.entry?.displayName || 'EMPTY') : 'PRESS ENTER')
-    this.kind.setText(slot ? `${pad(slot.index)} · ${slot.type === 'BODY_TEMPLATE' ? 'CUSTOM BODY · CREATE YOUR FIGHTER' : slotKind(slot)}${nickname ? ' · ' + (slot.entry?.displayName ?? '') : ''}` : 'TO JOIN · 按 ENTER 加入')
+    this.title.setText(slot ? (nickname || slot.entry?.displayName || 'EMPTY') : `PRESS ${identity.P2.confirm}`)
+    this.kind.setText(slot ? `${pad(slot.index)} · ${slot.type === 'BODY_TEMPLATE' ? 'CUSTOM BODY · CREATE YOUR FIGHTER' : slotKind(slot)}${nickname ? ' · ' + (slot.entry?.displayName ?? '') : ''}` : `TO JOIN · 按 ${identity.P2.confirm} 加入`)
     this.pulse?.stop(); this.title.setAlpha(1)
     if (!slot && !reducedMotion) this.pulse = this.scene.tweens.add({ targets: this.title, alpha: 0.45, duration: 600, yoyo: true, repeat: -1 })
     if (stamp) {
@@ -304,9 +306,9 @@ export class P1SelectView {
       const plate = this.plates[owner]
       if (plate) {
         const status = model.status(owner)
-        const statusText = status === 'JOIN' ? 'PRESS ENTER TO JOIN' : status === 'WAITING' ? 'READY · WAITING' : status === 'OPPONENT' ? 'SELECT OPPONENT · 1P 選擇' : status === 'DIFFICULTY' ? `◀ ${rival?.difficulty} ▶ · 1P ← → 難度` : status === 'CPU_READY' ? `CPU READY · ${rival?.difficulty}` : status
+        const statusText = status === 'JOIN' ? `PRESS ${identity.P2.confirm} TO JOIN` : status === 'WAITING' ? 'READY · WAITING' : status === 'OPPONENT' ? 'SELECT OPPONENT · 1P 選擇' : status === 'DIFFICULTY' ? `◀ ${rival?.difficulty} ▶ · 1P ← → 難度` : status === 'CPU_READY' ? `CPU READY · ${rival?.difficulty}` : status
         plate.status.setText(statusText).setColor(colorHex(status === 'READY' || status === 'WAITING' || status === 'CPU_READY' ? 'statusLime' : status === 'CUSTOMIZE' || status === 'DIFFICULTY' ? 'resultGold' : status === 'OPPONENT' ? 'enemyGlow' : 'textSecondary'))
-        plate.detail.setText(hero ? `${pad(hero.index)} · ${hero.entry?.displayName ?? 'EMPTY'} · ${slotKind(hero)}` : 'ENTER 加入 · 2P 角色由 CPU 操作')
+        plate.detail.setText(hero ? `${pad(hero.index)} · ${hero.entry?.displayName ?? 'EMPTY'} · ${slotKind(hero)}` : `${identity.P2.confirm} 加入 · 2P 真人對戰`)
       }
       const cursor = this.cursors[owner]
       if (cursor) {
@@ -323,11 +325,11 @@ export class P1SelectView {
       const player = model.player(owner), id = identity[owner]
       if (owner === 'P1' && model.phase === 'OPPONENT') return `1P  ${id.keys} 選對手 · ${id.confirm} 確認 · ${id.back} 返回`
       if (owner === 'P1' && (model.phase === 'DIFFICULTY' || (model.rival && model.phase === 'ALL_READY'))) return `1P  A D 難度 · ${id.confirm} 確認 · ${id.back} 返回`
-      return !player.joined ? '2P  ENTER 加入' : player.locked !== undefined ? `${id.tag}  ${id.back} 解除鎖定` : `${id.tag}  ${id.keys} 移動 · ${id.confirm} 確認${owner === 'P2' ? ' · BACKSPACE 退出' : ''}`
+      return !player.joined ? `2P  ${id.confirm} 加入` : player.locked !== undefined ? `${id.tag}  ${id.back} 解除鎖定` : `${id.tag}  ${id.keys} 移動 · ${id.confirm} 確認${owner === 'P2' ? ` · ${id.back} 退出` : ''}`
     }
     this.keysP1?.setText(commands('P1'))
     this.stepLabel?.setText(customizing ? '02 / 04 · 自訂角色' : `01 / ${model.slots.some(slot => slot.type === 'BODY_TEMPLATE' && (model.player('P1').locked === slot.index || model.player('P2').locked === slot.index)) ? '04' : '03'} · 選擇角色`)
-    this.modeText?.setText(duo ? '1P · 2P  —  2P = CPU · 2P 角色由 CPU 操作' : '1P VS CPU · 單人挑戰')
+    this.modeText?.setText(duo ? '1P VS 2P · 雙人對戰' : '1P VS CPU · 單人挑戰')
     this.keysP2?.setText(commands('P2'))
     if (model.phase === 'ALL_READY' && !this.banner) this.showBanner()
     if (model.phase !== 'ALL_READY' && this.banner) { this.bannerTimer?.remove(); this.bannerTween?.stop(); this.banner.destroy(); this.banner = undefined }

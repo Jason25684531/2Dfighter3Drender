@@ -3,11 +3,11 @@ import type { AttackAction } from '../../input/ControlProfile'
 import type { Facing } from '../../combat/CombatWorld'
 import { reducedMotion } from '../tokens/uiTokens'
 
-// 暫用素材：assest/VFX/*/sheet-transparent.png（256 格、左到右再上到下）。hit 第 8 格為空故只用 7 格。
+// 暫用素材：public/test-assets/vfx/*-impact-fx/sheet-transparent.png（256 格、左到右再上到下）。hit 第 8 格為空故只用 7 格。
 // 素材弧面凸向右；尺寸只在這裡調。
 export const impactFx = {
-  hit: { key: 'fx-hit', url: '/test-assets/vfx/hit-impact.png', frames: 7, peak: 3, scale: { light: 0.9, heavy: 1.5 } },
-  guard: { key: 'fx-guard', url: '/test-assets/vfx/guard-impact.png', frames: 6, peak: 2, scale: { light: 1.3, heavy: 1.3 } },
+  hit: { key: 'fx-hit', url: '/test-assets/vfx/hit-impact-fx/sheet-transparent.png', frames: 7, peak: 3, scale: { light: 0.9, heavy: 1.5 } },
+  guard: { key: 'fx-guard', url: '/test-assets/vfx/guard-impact-fx/sheet-transparent.png', frames: 6, peak: 2, scale: { light: 1.3, heavy: 1.3 } },
 } as const
 export type ImpactKind = keyof typeof impactFx
 const CELL = 256, FPS = 24

@@ -6,6 +6,7 @@ import { ExperienceContext } from './ExperienceContext'
 
 const toBattle = (flow: ExperienceFlow): void => { [AppState.READY, AppState.SETUP, AppState.LOADING, AppState.BATTLE].forEach((state) => flow.app.transitionTo(state)) }
 const toPresentation = (flow: ExperienceFlow): void => { toBattle(flow); for (let tick = 0; tick < 10000 && flow.app.getCurrentState() === AppState.BATTLE; tick += 1) flow.tick() }
+const toBattleFromSetup = (flow: ExperienceFlow): void => { [AppState.LOADING, AppState.BATTLE].forEach((state) => flow.app.transitionTo(state)) }
 const playToEnd = (flow: ExperienceFlow): void => {
   toPresentation(flow); expect(flow.app.getCurrentState()).toBe(AppState.PRESENTATION); expect(flow.result).toBeDefined()
   flow.app.transitionTo(AppState.RESULT); flow.app.transitionTo(AppState.END)
@@ -45,5 +46,22 @@ describe('ExperienceFlow', () => {
   it('completes the same flow when every API request fails', () => {
     const { flow } = fakePersistence(true)
     playToEnd(flow); expect(flow.ui.navigation.dispatch('FINISH')).toBe(true); expect(flow.app.getCurrentState()).toBe(AppState.IDLE)
+  })
+
+  it('lets 2P drive the enemy without AI, keeps it on Replay, and still records the result for the leaderboard', () => {
+    const { flow } = fakePersistence()
+    flow.setPlayers({ P1: { characterId: 'preset-a' }, P2: { characterId: 'preset-b' } }); toBattle(flow)
+    for (let tick = 0; tick < 240; tick += 1) flow.tick()
+    expect(flow.match.getSnapshot().world.fighters.PLAYER.currentHP).toBe(flow.match.world.getConfig().maxHp)
+    const before = flow.match.getSnapshot().world.fighters.ENEMY.x
+    for (let tick = 0; tick < 10; tick += 1) flow.tick(undefined, { moveX: -1, jumpPressed: false, attackPressed: false })
+    expect(flow.match.getSnapshot().world.fighters.ENEMY.x).toBeLessThan(before)
+    const duo = fakePersistence(); duo.flow.setPlayers({ P1: { characterId: 'preset-a' }, P2: { characterId: 'preset-b' } })
+    toBattle(duo.flow)
+    for (let tick = 0; tick < 10000 && duo.flow.app.getCurrentState() === AppState.BATTLE; tick += 1) duo.flow.tick(undefined, { moveX: 0, jumpPressed: false, attackPressed: tick % 6 === 0, attack: 'LIGHT_PUNCH' })
+    expect(duo.flow.app.getCurrentState()).toBe(AppState.PRESENTATION); expect(duo.fake.finishMatch).toHaveBeenCalledTimes(1)
+    duo.flow.app.transitionTo(AppState.RESULT); duo.flow.app.transitionTo(AppState.END); duo.flow.ui.navigation.dispatch('REPLAY'); toBattleFromSetup(duo.flow)
+    for (let tick = 0; tick < 240; tick += 1) duo.flow.tick()
+    expect(duo.flow.match.getSnapshot().world.fighters.PLAYER.currentHP).toBe(duo.flow.match.world.getConfig().maxHp)
   })
 })

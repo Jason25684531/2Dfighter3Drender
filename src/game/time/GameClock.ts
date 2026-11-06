@@ -17,7 +17,6 @@ export class GameClock {
   resume(): void { if (this.running) this.paused = false }
   reset(): void { this.accumulator = 0; this.tickNumber = 0 }
   isPaused(): boolean { return this.paused }
-  isRunning(): boolean { return this.running }
   getTick(): number { return this.tickNumber }
   getRemainderMs(): number { return this.accumulator }
   subscribe(listener: TickListener): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener) }

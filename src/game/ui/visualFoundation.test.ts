@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { aspectCover } from './tokens/layout'
-import { battleAnnouncement, battleViewModel, endViewModel, finishAnnouncements, loadingViewModel, leaderboardPanelModel, resultViewModel, stageSelectViewModel } from './ViewModels'
+import { battleAnnouncement, battleViewModel, comboCallout, endViewModel, finishAnnouncements, loadingViewModel, leaderboardPanelModel, resultViewModel, stageSelectViewModel } from './ViewModels'
 import { characterEntries, resolveStageAsset, testCharacterManifest, testStageManifest } from './assets/TestAssetManifest'
 import { ExperienceContext } from '../app/ExperienceContext'
 import { p6SubStateForRank } from '../match/ResultResolver'
@@ -107,5 +107,9 @@ describe('visual foundation', () => {
     const rows = Array.from({ length: 12 }, (_, i) => ({ rank: i + 1, match_id: i, session_id: i, nickname: `P${i}`, score: 100 - i, title: 'T', remaining_hp: 1, max_combo: 1, finished_at: '' }))
     expect(leaderboardPanelModel(undefined).status).toBe('LOADING'); expect(leaderboardPanelModel([]).status).toBe('EMPTY'); expect(leaderboardPanelModel(rows, false).status).toBe('OFFLINE')
     const ready = leaderboardPanelModel(rows); expect(ready.status).toBe('READY'); expect(ready.rows).toHaveLength(10); expect(ready.rows[0]).toEqual({ rank: 1, name: 'P0', score: 100, title: 'T' })
+  })
+
+  it('names combo tiers at the 2 / 4 / 6 hit boundaries and hides single hits', () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 12].map((hits) => { const c = comboCallout(hits); return c && `${c.count} ${c.word} ${c.color}` })).toEqual([undefined, undefined, '2 HITS COMBO! statusLime', '3 HITS COMBO! statusLime', '4 HITS GREAT! resultGold', '5 HITS GREAT! resultGold', '6 HITS AWESOME! comboMagenta', '12 HITS AWESOME! comboMagenta'])
   })
 })

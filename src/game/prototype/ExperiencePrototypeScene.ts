@@ -149,7 +149,7 @@ export class ExperiencePrototypeScene extends BootScene {
         const actor = this.add.sprite(ARENA_WIDTH / 2 + (i ? 400 : -400), 820, 'kevin-idle', 0).setOrigin(0.5, 0.9).setScale(3.2).setFlipX(Boolean(i))
         this.world!.add(actor); return actor
       })
-      this.match.world.setHitTest(createSpriteHitTest(this, { PLAYER: this.actors[0], ENEMY: this.actors[1] }, () => ({ crouch: this.held.has(combatMapping.P1.CROUCH) })))
+      this.match.world.setHitTest(createSpriteHitTest(this, { PLAYER: this.actors[0], ENEMY: this.actors[1] }, (id) => id === 'PLAYER' ? { crouch: this.held.has(combatMapping.P1.CROUCH) } : undefined))
       this.demoLabels = owners.map((owner, i) => this.text(i ? 1440 : 480, 270, `${owner} IDLE`, 32, i ? '#b5a2ff' : '#ff6576'))
       this.text(960, 100, '動作語意展示 / 無傷害、無勝負', 48)
       this.text(960, 990, '1P: ADWS · F/U/G/I　　2P: 方向鍵 · Numpad 1/2/4/5', 28)

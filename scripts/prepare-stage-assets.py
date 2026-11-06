@@ -1,10 +1,10 @@
-"""由 assest/ 原始素材建立遊戲衍生檔；需要 ffmpeg 與 Pillow。原始檔不修改。"""
+"""由 public/test-assets/ 原始素材建立遊戲衍生檔；需要 ffmpeg 與 Pillow。原始檔不修改。"""
 from pathlib import Path
 import subprocess
 from PIL import Image, ImageChops
 
 root = Path(__file__).resolve().parents[1]
-source = root / 'assest'
+source = root / 'public/test-assets'
 lab = root / 'public/test-assets/stages/laboratory'
 attract = root / 'public/test-assets/attract'
 lab.mkdir(parents=True, exist_ok=True)

@@ -28,12 +28,15 @@ describe('ExperiencePersistence', () => {
     await persistence.finishMatch(result); expect(api.finishMatch).toHaveBeenCalledTimes(1); expect(context.snapshot).toMatchObject({ backendRank: 7, persistence: 'SAVED' })
   })
 
-  it('keeps failed operations and retries them with the same request payload', async () => {
+  it('replays a failed match creation with the same request payload before finishing', async () => {
     const createMatch = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(match(3))
-    const api = { createMatch, addRound: vi.fn(), finishMatch: vi.fn(), getSession: vi.fn() } as unknown as ApiClient
+    const finishMatch = vi.fn().mockResolvedValue({ ...match(3, 2), status: 'FINISHED' } as Match)
+    const api = { createMatch, addRound: vi.fn(), finishMatch, getSession: vi.fn() } as unknown as ApiClient
     const context = new ExperienceContext(); context.set({ sessionId: 1, sessionStatus: 'ACTIVE' })
     const persistence = new ExperiencePersistence(api, context)
-    await expect(persistence.beginMatch()).rejects.toThrow('offline'); expect(context.snapshot.persistence).toBe('ERROR'); await persistence.retryPending(); expect(createMatch).toHaveBeenCalledTimes(2); expect(context.snapshot.matchId).toBe(3); expect(context.snapshot.persistence).toBe('SAVED')
+    await expect(persistence.beginMatch()).rejects.toThrow('offline'); expect(context.snapshot.persistence).toBe('ERROR')
+    await persistence.finishMatch(resolveMatchResult({ winner: 'PLAYER', finishReason: 'KO', playerRoundWins: 2, enemyRoundWins: 0, remainingPlayerHP: 80, maxPlayerCombo: 3 }))
+    expect(createMatch).toHaveBeenCalledTimes(2); expect(createMatch.mock.calls[0][0]).toEqual(createMatch.mock.calls[1][0]); expect(context.snapshot).toMatchObject({ matchId: 3, persistence: 'SAVED', backendRank: 2 })
   })
 
   it('coalesces session setup and creates one match after a delayed session', async () => {
@@ -76,8 +79,8 @@ describe('ExperiencePersistence', () => {
     expect(api.finishMatch).toHaveBeenCalledWith(9, expect.anything()); expect(context.snapshot.backendRank).toBe(3)
   })
 
-  it('reports failed finish and retries without inventing a saved rank', async () => {
-    const finishMatch = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...match(9, 5), status: 'FINISHED' } as Match)
+  it('reports failed finish without inventing a saved rank', async () => {
+    const finishMatch = vi.fn().mockRejectedValueOnce(new Error('offline'))
     const api = { createMatch: vi.fn().mockResolvedValue(match(9)), finishMatch } as unknown as ApiClient
     const context = new ExperienceContext(); context.set({ sessionId: 1, sessionStatus: 'ACTIVE' })
     const persistence = new ExperiencePersistence(api, context)
@@ -85,10 +88,6 @@ describe('ExperiencePersistence', () => {
     const result = resolveMatchResult({ winner: 'PLAYER', finishReason: 'KO', playerRoundWins: 2, enemyRoundWins: 0, remainingPlayerHP: 80, maxPlayerCombo: 3 })
     await expect(persistence.finishMatch(result)).rejects.toThrow('offline')
     expect(context.snapshot.persistence).toBe('ERROR'); expect(context.snapshot.backendRank).toBeUndefined()
-    await persistence.retryPending()
-    expect(finishMatch).toHaveBeenCalledTimes(2)
-    expect(finishMatch.mock.calls[0][1].finish_request_id).toBe(finishMatch.mock.calls[1][1].finish_request_id)
-    expect(context.snapshot).toMatchObject({ persistence: 'SAVED', backendRank: 5 })
   })
 
   it('retries a failed round before finishing', async () => {

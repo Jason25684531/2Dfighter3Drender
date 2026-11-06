@@ -68,7 +68,7 @@ describe('EnemyAI and MatchController', () => {
 
   it('resets round and match state and resolves deterministic results', () => {
     const match = new MatchController(closeConfig(100)); match.ai.getIntent = () => neutral; match.start(); match.tick({ ...neutral, attackPressed: true }); match.tick(); match.tick(); match.tick(); expect(match.getSnapshot().matchState).toBe('ROUND_END'); match.tick(); expect(match.getSnapshot().roundNumber).toBe(2); match.resetMatch(); expect(match.getSnapshot().matchState).toBe('READY'); expect(match.getSnapshot().playerRoundWins).toBe(0); expect(match.getSnapshot().remainingTicks).toBe(ROUND_TICKS)
-    const result = resolveMatchResult({ winner: 'PLAYER', finishReason: 'KO', playerRoundWins: 2, enemyRoundWins: 0, remainingPlayerHP: 80, maxPlayerCombo: 3 }); expect(result.outcome).toBe('WIN'); expect(result.score).toBe(1880); expect(result.title).toBe('UNTOUCHABLE'); expect(result.ranking).toBe('NOT_RANKED')
+    const result = resolveMatchResult({ winner: 'PLAYER', finishReason: 'KO', playerRoundWins: 2, enemyRoundWins: 0, remainingPlayerHP: 80, maxPlayerCombo: 3 }); expect(result.outcome).toBe('WIN'); expect(result.score).toBe(1880); expect(result.title).toBe('UNTOUCHABLE')
   })
 
   it('exposes one summary per resolved round and preserves draw round number', () => {
@@ -135,5 +135,14 @@ describe('MatchController round intro', () => {
 
   it('has no intro unless enabled', () => {
     const match = new MatchController(closeConfig(100)); match.start(); expect(match.getSnapshot().matchState).toBe('FIGHTING'); expect(match.getSnapshot().announce).toBeUndefined()
+  })
+
+  it('drives the enemy only from the 2P intent when one is given (no AI)', () => {
+    const versus = new MatchController(); versus.start()
+    for (let tick = 0; tick < 240; tick += 1) versus.tick(neutral, neutral)
+    const still = versus.getSnapshot().world.fighters
+    expect([still.ENEMY.x, still.PLAYER.currentHP, still.ENEMY.attackPhase]).toEqual([versus.world.getConfig().initialPositions.ENEMY, 100, 'NONE'])
+    versus.tick(neutral, { ...neutral, attackPressed: true, attack: 'LIGHT_PUNCH' })
+    expect(versus.getSnapshot().world.fighters.ENEMY.attackPhase).not.toBe('NONE')
   })
 })

@@ -18,7 +18,7 @@
 
 - P0 有【排行榜】按鈕，開啟 Top 10 覆蓋面板，離線時顯示提示。
 - P1 角色格分成三區：CUSTOMIZE（01–04）、OFFICERS（05–10）、ROSTER（11–40）。
-- 1P 模式在 P1 選角頁一次完成：鎖定角色 → 紫色 CPU 游標選對手 → ← → 選難度（EASY／NORMAL／HARD）→ 確認。P2 一律只選場景。選對手時 2P 按 ENTER 加入，會捨棄 CPU 選擇改為雙人選角。
+- 1P 模式在 P1 選角頁一次完成：鎖定角色 → 紫色 CPU 游標選對手 → ← → 選難度（EASY／NORMAL／HARD）→ 確認。P2 一律只選場景。選對手時 2P 按自己的確認鍵（預設 NUM 1）加入，會捨棄 CPU 選擇改為雙人選角；雙人時 2P 在戰鬥中真人操作 ENEMY，不使用 AI，結果照常以 1P 計入排行榜。
 - 戰鬥是單一水平軸（已移除 2.5D 縱深）：W 跳、S 蹲。四種攻擊（F／U／G／I）傷害相同，輕重只影響動畫與特效大小。
 - 命中時在接觸點播放爆炸特效（重拳重腳較大），防禦成功播放藍色波紋，弧面朝向攻擊者。
 - 播報統一由 Announcer 顯示：ROUND n → READY?（只第 1 回合）→ FIGHT!；回合結束先停約 1.5 秒顯示 K.O.／TIME UP，再顯示上一回合 YOU WIN／YOU LOSE／DRAW；最後一回合直接進 P5，用同一元件顯示結束方式與勝負。
@@ -115,13 +115,15 @@
 
 | 情境 | 1P | 2P |
 |---|---|---|
-| 選單／選角 | W A S D 移動 · J 確認 · K 返回 | 方向鍵 · ENTER 加入／確認 · BACKSPACE 返回 |
+| 選單／選角 | W A S D 移動 · F 確認 · K 返回 | 方向鍵 · NUM 1 加入／確認 · BACKSPACE 返回 |
 | 選場景（P2） | A D 或 ←→ 切換場景 · J／ENTER 確認 · K／ESC 返回 | — |
-| 選 CPU 對手（單人） | W A S D 移動 CPU 游標 · J 確認；難度用 A D | 按 ENTER 改為雙人 |
-| 戰鬥 | A D 移動 · W 跳 · S 蹲 · F 輕拳 · U 重拳 · G 輕腳 · I 重腳 · 按住後方向防禦 · ESC 暫停；S／W＋攻擊＝蹲／空中攻擊 | 由 CPU 控制，選角只決定外觀 |
-| 手把 | 十字鍵移動 · ↑ 跳 · ↓ 蹲 · X Y 拳 · A B 腳 · 按住後方向防禦 · START 暫停 | — |
+| 選 CPU 對手（單人） | W A S D 移動 CPU 游標 · F 確認；難度用 A D | 按 NUM 1 改為雙人 |
+| 戰鬥 | A D 移動 · W 跳 · S 蹲 · F 輕拳 · U 重拳 · G 輕腳 · I 重腳 · 按住後方向防禦 · ESC 暫停；S／W＋攻擊＝蹲／空中攻擊 | ← → 移動 · ↑ 跳 · ↓ 蹲 · NUM 1 輕拳 · NUM 2 重拳 · NUM 4 輕腳 · NUM 5 重腳 · NUM 3 防禦 · ESC 暫停 |
+| 手把 | 十字鍵移動 · ↑ 跳 · ↓ 蹲 · X Y 拳 · A B 腳 · 按住後方向防禦 · START 暫停（雙人時用第 1 支） | 雙人時用第 2 支，按鍵同 1P |
 
-戰鬥鍵可在 P0 按 C 重新綁定，存在 `localStorage` 的 `exp2.controls.v3`；舊版存檔會被忽略並使用預設。面板下方唯讀列出依目前鍵位推導的組合操作。
+戰鬥鍵可在 P0 按 C 重新綁定（← → 切換 PLAYER 1／PLAYER 2），存在 `localStorage` 的 `exp2.controls.v3`；舊版存檔會被忽略並使用預設。兩位玩家的選單鍵都跟著自己的戰鬥鍵（跳／蹲／左右＝上下左右、輕拳＝確認）。綁定另一位玩家已用的鍵（含對方返回鍵：1P 的 K、2P 的 Backspace）會被拒絕；兩人可共用暫停鍵。面板下方唯讀列出依目前鍵位推導的組合操作。雙人同時操作時，部分鍵盤多鍵同按會漏鍵（ghosting），屬硬體限制。
+
+戰鬥中任一方連擊 ≥ 2 會在該側顯示 `N HITS` 與 COMBO!／GREAT!／AWESOME! 標語；倒地時畫面震動（減少動態效果時不震動）。
 
 四種攻擊各有招式資料（幀數、傷害、判定框），在 `combat/CombatWorld.ts` 的 `DEFAULT_COMBAT_CONFIG.attack`（輕拳）與 `moves` 調整。
 
@@ -151,8 +153,7 @@
 | `src/game/ui`、`scenes` | 呈現元件、view model、Phaser 畫面 |
 | `src/game/config` | AI 難度、舞台調校 |
 | `backend/app` | FastAPI 路由、服務、SQLite schema、計分 |
-| `public/test-assets` | 暫用舞台、角色、特效（`vfx/`）、開頭影片素材；不進 git |
-| `assest/VFX` | 特效原始產出（`hit-impact-fx`、`guard-impact-fx`），取 `sheet-transparent.png` 複製到 `public/test-assets/vfx/` |
+| `public/test-assets` | 暫用素材唯一來源（不進 git）：舞台、角色（Customize Body 01–04 = `S1AW`／`S2AM`／`S2LW`／`S3WW`）、特效（`vfx/*-impact-fx/sheet-transparent.png` 直接載入）、開頭影片，以及 `prepare-stage-assets.py` 的原始檔 |
 | `scripts` | Playwright 實機驗證與素材處理腳本 |
 | `docs/architecture` | 系統架構圖、遊戲流程圖與校正說明 |
 | `openspec/specs` | 已接受的需求規格 |

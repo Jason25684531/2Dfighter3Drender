@@ -251,6 +251,18 @@ describe('CombatWorld', () => {
     expect(world.getFighter('ENEMY')).toMatchObject({ state: 'IDLE', knockdownTicks: 0, invulnerableTicks: 0 })
   })
 
+  it('freezes the knockdown hit longer than any normal hit', () => {
+    const config = closeConfig(), world = new CombatWorld({ ...config, attack: { ...config.attack, hitStunTicks: 20, hitFreeze: 2 } }), freezes: number[] = []
+    world.subscribe((e) => { if (e.type === 'HIT') freezes.push(-1) })
+    for (let n = 0; n < 3; n += 1) {
+      tick(world, { ...neutral, attackPressed: true })
+      while (world.getFighter('PLAYER').attackPhase !== 'NONE') { tick(world); if (freezes.at(-1) === -1) { let ticks = 0; while (world.isFrozen()) { tick(world); ticks += 1 } freezes[freezes.length - 1] = ticks } }
+    }
+    expect(world.getFighter('ENEMY').state).toBe('KNOCKDOWN')
+    expect(freezes).toEqual([2, 2, KNOCKDOWN.hitFreeze])
+    expect(KNOCKDOWN.hitFreeze).toBeGreaterThan(Math.max(...Object.values(DEFAULT_COMBAT_CONFIG.moves ?? {}).map((move) => move.hitFreeze ?? 0)))
+  })
+
   it('does not count blocked hits toward knockdown', () => {
     const world = new CombatWorld(closeConfig())
     for (let n = 0; n < 3; n += 1) { tick(world, { ...neutral, attackPressed: true }, { ...neutral, moveX: 1 }); while (world.getFighter('PLAYER').attackPhase !== 'NONE') tick(world, neutral, { ...neutral, moveX: 1 }) }

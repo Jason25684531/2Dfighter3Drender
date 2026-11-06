@@ -1,6 +1,7 @@
 /**
  * 敵方 AI 難度與行為參數；只改這個檔案即可調整手感。單位：world px／tick（24Hz）。
- * spacing：玩家攻擊距離「之外」的間距帶，AI 平時在帶內進退而不貼身。
+ * spacing：從「兩人輪廓貼身」的距離往外算的間距帶，AI 平時在帶內進退（沒有輪廓時從 AABB 攻擊距離起算）。
+ * 防禦只來自 guardChance：玩家出招中 AI 不會因撤退／保持間距而「順便」後退防禦（EnemyAI.getIntent）。
  */
 export type AiProfileId = 'EASY' | 'NORMAL' | 'HARD'
 export type AiProfile = {
@@ -15,8 +16,8 @@ export type AiProfile = {
 }
 
 export const AI_PROFILES: Readonly<Record<AiProfileId, AiProfile>> = {
-  // 2026-11-03 調降：防禦機率、撤退時間與間距帶都縮小，玩家較容易打中 NPC。
-  EASY: { id: 'EASY', spacingMin: 30, spacingMax: 180, aggression: 0.25, guardChance: 0.05, retreatTicks: 10, attackCooldownTicks: 24, decisionTicks: 16 },
+  // 2026-11-05 EASY：不主動退開（spacingMin 0），玩家可以走到貼身；出招更少、出招後只短暫退開。
+  EASY: { id: 'EASY', spacingMin: 0, spacingMax: 140, aggression: 0.2, guardChance: 0.05, retreatTicks: 6, attackCooldownTicks: 30, decisionTicks: 18 },
   NORMAL: { id: 'NORMAL', spacingMin: 20, spacingMax: 150, aggression: 0.45, guardChance: 0.15, retreatTicks: 6, attackCooldownTicks: 12, decisionTicks: 10 },
   HARD: { id: 'HARD', spacingMin: 10, spacingMax: 120, aggression: 0.7, guardChance: 0.3, retreatTicks: 4, attackCooldownTicks: 6, decisionTicks: 6 },
 }

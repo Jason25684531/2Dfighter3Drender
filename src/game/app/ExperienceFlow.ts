@@ -33,10 +33,11 @@ export class ExperienceFlow {
 
   async refreshLeaderboard(): Promise<void> { if (this.persistence) this.leaderboard = await this.persistence.leaderboard() }
 
-  tick(intent: FighterIntent = NEUTRAL_INTENT): void {
+  /** 2P 已加入時 ENEMY 只吃 p2Intent（沒輸入＝中立），不使用 AI。 */
+  tick(intent: FighterIntent = NEUTRAL_INTENT, p2Intent: FighterIntent = NEUTRAL_INTENT): void {
     if (this.app.getCurrentState() !== AppState.BATTLE) return
     const persistence = this.persistence
-    this.match.tick(intent); void persistence?.recordRounds(this.match.getRoundSummaries()).catch(() => undefined)
+    this.match.tick(intent, this.players.P2 ? p2Intent : undefined); void persistence?.recordRounds(this.match.getRoundSummaries()).catch(() => undefined)
     this.ui.substates.set(AppState.BATTLE, this.match.getP4SubState())
     const completed = this.match.getCompletedMatch()
     if (!completed || this.result) return
@@ -55,7 +56,7 @@ export class ExperienceFlow {
     if (next === AppState.READY) void persistence?.ensureSession().then(() => { if (this.app.getCurrentState() === AppState.IDLE) return persistence.finishSession() }).catch(() => this.onOffline?.())
     // 任何畫面回 P0 都結束 session；後端會把未完成的對戰標為 ABANDONED。
     if (next === AppState.IDLE) void persistence?.finishSession().catch(() => undefined)
-    if (next === AppState.BATTLE) { this.match.setAiProfile(resolveAiProfile(this.players.P2 ? undefined : this.opponent?.difficulty)); this.match.start(); void persistence?.beginMatch().catch(() => undefined) }
+    if (next === AppState.BATTLE) { if (!this.players.P2) this.match.setAiProfile(resolveAiProfile(this.opponent?.difficulty)); this.match.start(); void persistence?.beginMatch().catch(() => undefined) }
     if (next === AppState.SETUP || next === AppState.IDLE) { this.match.resetMatch(); persistence?.resetMatch(); this.result = undefined; this.nextPlayerName = undefined }
     if (next === AppState.IDLE) { this.players = {}; this.opponent = undefined }
   }

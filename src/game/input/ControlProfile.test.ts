@@ -63,4 +63,30 @@ describe('control profiles', () => {
     e.focus = RESET_ROW; e.activate(); e.activate()
     expect(combinationRows(e.bindings)[0].keys).toBe('S + F / U / G / I')
   })
+
+  it('rejects a key used by the other player (combat or fixed back key) but allows a shared Pause', () => {
+    const store = memory(), profiles = loadProfiles(store), p2 = new ControlsEditor(profiles, (next) => saveProfiles(next, store), 'P2'), p1 = new ControlsEditor(profiles, (next) => saveProfiles(next, store))
+    focus(p2, COMBAT_ACTIONS.indexOf('JUMP')); p2.capture('KeyF')
+    expect([p2.message, p2.bindings.JUMP, p2.state]).toEqual(['F IS USED BY PLAYER 1', 'ArrowUp', 'LISTENING_FOR_KEY'])
+    focus(p1, COMBAT_ACTIONS.indexOf('LIGHT_KICK')); p1.capture('Backspace')
+    expect([p1.message, p1.bindings.LIGHT_KICK]).toEqual(['BACKSPACE IS USED BY PLAYER 2', 'KeyG'])
+    p2.capture('Escape'); focus(p2, COMBAT_ACTIONS.indexOf('LIGHT_PUNCH')); p2.capture('KeyL')
+    expect(loadProfiles(store).P2.LIGHT_PUNCH).toBe('KeyL'); expect(loadProfiles(store).P1.PAUSE).toBe(loadProfiles(store).P2.PAUSE)
+  })
+  it('refuses a reset that would collide with the other player and resets P2 alone otherwise', () => {
+    const store = memory(), profiles = loadProfiles(store), p1 = new ControlsEditor(profiles, (next) => saveProfiles(next, store)), p2 = new ControlsEditor(profiles, (next) => saveProfiles(next, store), 'P2')
+    focus(p2, COMBAT_ACTIONS.indexOf('LIGHT_PUNCH')); p2.capture('KeyL'); focus(p1, COMBAT_ACTIONS.indexOf('LIGHT_PUNCH')); p1.capture('KeyQ')
+    focus(p2, COMBAT_ACTIONS.indexOf('LIGHT_PUNCH')); p2.capture('KeyF') // 1P 已改 Q，F 可用
+    focus(p1, RESET_ROW); p1.activate()
+    expect([p1.message, p1.bindings.LIGHT_PUNCH]).toEqual(['F IS USED BY PLAYER 2', 'KeyQ'])
+    focus(p2, RESET_ROW); p2.activate()
+    expect(p2.bindings).toEqual(DEFAULT_KEYBOARD_BINDINGS.P2); expect(p1.bindings.LIGHT_PUNCH).toBe('KeyQ')
+  })
+  it('falls back P2, then P1, when stored profiles collide across players and never saves a collision', () => {
+    const p1Arrows = { ...DEFAULT_KEYBOARD_BINDINGS.P1, JUMP: 'ArrowUp' }
+    expect(loadProfiles(memory(JSON.stringify({ version: 3, profiles: { P1: p1Arrows, P2: DEFAULT_KEYBOARD_BINDINGS.P2 } }))).P1.JUMP).toBe('KeyW')
+    const p2Custom = { ...DEFAULT_KEYBOARD_BINDINGS.P2, LIGHT_PUNCH: 'KeyQ' }, p1Q = { ...DEFAULT_KEYBOARD_BINDINGS.P1, LIGHT_PUNCH: 'KeyQ' }
+    expect(loadProfiles(memory(JSON.stringify({ version: 3, profiles: { P1: p1Q, P2: p2Custom } })))).toEqual({ P1: p1Q, P2: DEFAULT_KEYBOARD_BINDINGS.P2 })
+    expect(saveProfiles({ P1: p1Q, P2: p2Custom }, memory())).toBe(false)
+  })
 })

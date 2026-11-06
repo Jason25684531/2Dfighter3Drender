@@ -88,9 +88,9 @@ describe('InputManager', () => {
     ;[AppState.READY, AppState.SETUP, AppState.LOADING, AppState.BATTLE].forEach((state) => app.transitionTo(state))
     input.handleKeyDown('Escape'); input.update(); input.consumeUiActions().forEach((action) => nav.dispatch(action)); expect(nav.isOverlayOpen()).toBe(true)
   })
-  it('tags P1 (WASD/F/K) and P2 (arrows/Enter/Backspace) actions without changing the unowned stream', () => {
+  it('tags P1 (WASD/F/K) and P2 (arrows/NUM 1/Backspace, following P2 combat keys) actions without changing the unowned stream', () => {
     const input = new InputManager()
-    ;['KeyW', 'KeyF', 'KeyK', 'ArrowLeft', 'Enter', 'Backspace'].forEach((code) => input.handleKeyDown(code))
+    ;['KeyW', 'KeyF', 'KeyK', 'ArrowLeft', 'Enter', 'Numpad1', 'Backspace'].forEach((code) => input.handleKeyDown(code))
     input.handleKeyDown('KeyW')
     expect(input.consumeOwnedUiActions()).toEqual([{ owner: 'P1', action: 'NAV_UP' }, { owner: 'P1', action: 'CONFIRM' }, { owner: 'P1', action: 'BACK' }, { owner: 'P2', action: 'NAV_LEFT' }, { owner: 'P2', action: 'CONFIRM' }, { owner: 'P2', action: 'BACK' }])
     expect(input.consumeOwnedUiActions()).toEqual([])
@@ -127,7 +127,7 @@ describe('InputManager', () => {
   })
   it('rebinds Light Punch from F to Q and moves the P1 confirm key with it', () => {
     const input = new InputManager()
-    input.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS.P1, LIGHT_PUNCH: 'KeyQ' })
+    input.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS, P1: { ...DEFAULT_KEYBOARD_BINDINGS.P1, LIGHT_PUNCH: 'KeyQ' } })
     input.handleKeyDown('KeyF'); input.update(); expect(input.consumeGameplaySnapshot().attackPressed).toBe(false)
     input.handleKeyDown('KeyQ'); input.update(); expect(input.consumeGameplaySnapshot().attack).toBe('LIGHT_PUNCH')
     // 確認鍵＝輕拳鍵，跟著改到 Q。
@@ -135,9 +135,47 @@ describe('InputManager', () => {
   })
   it('routes Player 1 menu input through the custom bindings', () => {
     const input = new InputManager()
-    input.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS.P1, MOVE_LEFT: 'KeyJ', JUMP: 'KeyT', LIGHT_PUNCH: 'KeyK' })
+    input.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS, P1: { ...DEFAULT_KEYBOARD_BINDINGS.P1, MOVE_LEFT: 'KeyJ', JUMP: 'KeyT', LIGHT_PUNCH: 'KeyK' } })
     for (const code of ['KeyJ', 'KeyT', 'KeyK', 'KeyW', 'KeyU']) { input.handleKeyDown(code); input.handleKeyUp(code) }
     // 確認＝輕拳（K）→ 返回改用重拳 U；W 不再是上。
     expect(input.consumeOwnedUiActions().filter(({ owner }) => owner === 'P1').map(({ action }) => action)).toEqual(['NAV_LEFT', 'NAV_UP', 'CONFIRM', 'BACK'])
+  })
+
+  it('gives a key bound by Player 1 to Player 1 only, so arrows / Enter fire once', () => {
+    // 1P 改用方向鍵＋Enter：同一鍵不能再觸發未標記選單鍵（P0／選地圖會派送兩次＝原地不動）或 2P 鍵（Enter 讓 2P 加入）。
+    const input = new InputManager()
+    input.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS, P1: { ...DEFAULT_KEYBOARD_BINDINGS.P1, MOVE_LEFT: 'ArrowLeft', MOVE_RIGHT: 'ArrowRight', JUMP: 'ArrowUp', CROUCH: 'ArrowDown', LIGHT_PUNCH: 'Enter' } })
+    for (const code of ['ArrowLeft', 'Enter']) { input.handleKeyDown(code); input.update(); input.handleKeyUp(code); input.update() }
+    expect(input.consumeOwnedUiActions()).toEqual([{ owner: 'P1', action: 'NAV_LEFT' }, { owner: 'P1', action: 'CONFIRM' }])
+    expect(input.consumeUiActions()).toEqual([])
+    // 1P 沒用到的鍵照舊：Escape 返回、Backspace 給 2P。
+    for (const code of ['Escape', 'Backspace']) { input.handleKeyDown(code); input.update(); input.handleKeyUp(code); input.update() }
+    expect(input.consumeUiActions()).toEqual(['BACK']); expect(input.consumeOwnedUiActions()).toEqual([{ owner: 'P2', action: 'BACK' }])
+  })
+
+  it('keeps P1 and P2 gameplay snapshots separate, each consuming its own edges', () => {
+    const input = new InputManager()
+    input.handleKeyDown('KeyF'); input.handleKeyDown('Numpad2'); input.handleKeyDown('KeyD'); input.handleKeyDown('ArrowLeft'); input.update()
+    expect(input.consumeGameplaySnapshot()).toMatchObject({ attack: 'LIGHT_PUNCH', moveX: 1 })
+    expect(input.consumeGameplaySnapshot('P2')).toMatchObject({ attack: 'HEAVY_PUNCH', moveX: -1 })
+    input.handleKeyDown('Numpad4'); input.update(); input.consumeGameplaySnapshot()
+    expect(input.consumeGameplaySnapshot('P2').attack).toBe('LIGHT_KICK')
+    input.handleKeyDown('ArrowDown'); input.update(); expect(input.consumeGameplaySnapshot('P2').crouchHeld).toBe(true); expect(input.consumeGameplaySnapshot().crouchHeld).toBe(false)
+  })
+  it('applies saved P2 bindings to P2 combat and P2 menu keys', () => {
+    const input = new InputManager()
+    input.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS, P2: { ...DEFAULT_KEYBOARD_BINDINGS.P2, LIGHT_PUNCH: 'KeyL' } })
+    input.handleKeyDown('KeyL'); input.update()
+    expect(input.consumeGameplaySnapshot('P2').attack).toBe('LIGHT_PUNCH'); expect(input.consumeOwnedUiActions()).toEqual([{ owner: 'P2', action: 'CONFIRM' }])
+    input.handleKeyDown('Numpad1'); input.update(); expect(input.consumeGameplaySnapshot('P2').attackPressed).toBe(false)
+  })
+  it('splits gamepads only in versus and lets either player pause', () => {
+    const x = { buttons: [{}, {}, { pressed: true }] }, none = { buttons: [] }
+    const solo = new InputManager(); solo.update([none, x])
+    expect(solo.consumeGameplaySnapshot().attack).toBe('LIGHT_PUNCH'); expect(solo.consumeGameplaySnapshot('P2').attackPressed).toBe(false)
+    const versus = new InputManager(); versus.setVersus(true); versus.update([none, x])
+    expect(versus.consumeGameplaySnapshot().attackPressed).toBe(false); expect(versus.consumeGameplaySnapshot('P2').attack).toBe('LIGHT_PUNCH')
+    versus.setCombatBindings({ ...DEFAULT_KEYBOARD_BINDINGS, P2: { ...DEFAULT_KEYBOARD_BINDINGS.P2, PAUSE: 'KeyP' } })
+    versus.handleKeyDown('KeyP'); versus.update(); expect(versus.consumePause()).toBe(true); expect(versus.consumePause()).toBe(false)
   })
 })

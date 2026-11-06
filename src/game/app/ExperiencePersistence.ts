@@ -136,15 +136,6 @@ export class ExperiencePersistence {
     return this.enqueue({ key: `session-finish:${sessionId}`, run: async () => { await this.api.finishSession(sessionId, { client_request_id: requestId }); this.clear() } })
   }
 
-  async retryPending(): Promise<void> {
-    const pending = [...this.pending]
-    for (const operation of pending) {
-      try { await operation.run(); this.pending = this.pending.filter((item) => item !== operation) }
-      catch { this.context.set({ persistence: 'ERROR' }); this.persist() }
-    }
-    if (this.pending.length === 0 && this.context.snapshot.persistence === 'ERROR') { this.context.set({ persistence: 'SAVED' }); this.persist() }
-  }
-
   async leaderboard(limit = 20): Promise<LeaderboardEntry[]> { try { const rows = await this.api.leaderboard(limit); this.lastLeaderboardOk = true; return rows } catch { this.lastLeaderboardOk = false; return [] } }
   async nextQueuedPlayer(): Promise<string | undefined> { try { const next = (await this.api.queue())[0]; return next ? (await this.api.getPlayer(next.player_id)).nickname : undefined } catch { return undefined } }
   resetMatch(): void { this.context.set({ matchId: undefined, backendRank: undefined, persistence: 'IDLE' }); this.attemptId = undefined; this.matchPromise = undefined; this.finishRequestId = undefined; this.queuedRounds.clear(); this.pending = this.pending.filter((operation) => !operation.key.startsWith('match:') && !operation.key.startsWith('rounds:') && !operation.key.startsWith('finish:')) }

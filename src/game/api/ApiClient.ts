@@ -24,7 +24,6 @@ export class ApiClient {
   async getPlayer(id: number): Promise<Player> { return this.request(`/players/${id}`) }
   async createSession(payload: { player_id: number; selected_character?: string } & RequestId): Promise<Session> { return this.request('/sessions', 'POST', payload) }
   async getSession(id: number): Promise<Session> { return this.request(`/sessions/${id}`) }
-  async currentSession(): Promise<Session> { return this.request('/sessions/current') }
   async updateSession(id: number, payload: { selected_character?: string | null } & RequestId): Promise<Session> { return this.request(`/sessions/${id}`, 'PATCH', payload) }
   async finishSession(id: number, payload: RequestId): Promise<Session> { return this.request(`/sessions/${id}/finish`, 'POST', payload) }
   async activateNext(payload: RequestId): Promise<Session> { return this.request('/queue/activate-next', 'POST', payload) }

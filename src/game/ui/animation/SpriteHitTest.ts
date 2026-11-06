@@ -3,9 +3,11 @@ import type { FighterId, FighterSnapshot, HitTest } from '../../combat/CombatWor
 import type { PresentationContext } from './TemporarySpriteManifest'
 import { SHEET_FRAME_COUNT } from './SheetSpriteManifest'
 import type { TemporarySpriteRenderer } from './TemporarySpriteRenderer'
+import { HIT_TUNING, reachFor } from '../../config/hitTuning'
 
-/** 角色輪廓往外推多少 world 單位仍算命中（world ≈ 畫面 px / 0.9）。手感調這裡。 */
-export const HIT_EDGE = 5
+/** 角色輪廓往外推多少 world 單位仍算命中；推擠間隙。數值在 config/hitTuning.ts 調。 */
+export const HIT_EDGE = HIT_TUNING.edge
+export const PUSH_EDGE = HIT_TUNING.pushEdge
 const ALPHA_THRESHOLD = 32
 
 export type Mask = { width: number; height: number; solid: Uint8Array }
@@ -71,28 +73,87 @@ const readMask = (scene: Phaser.Scene, key: string, frameName: string | number):
   masks.set(id, mask); return mask
 }
 
-/** 攻擊 sheet 中往前（右）伸最遠的影格；讀不到貼圖回 undefined。 */
-const peaks = new Map<string, number | undefined>()
-export const peakFrame = (scene: Phaser.Scene, key: string): number | undefined => {
-  if (peaks.has(key)) return peaks.get(key)
-  let best: number | undefined, bestReach = -1
+/** sheet 中 score 最大的影格（同分取前面）；讀不到貼圖回 undefined。 */
+const bests = new Map<string, number | undefined>()
+const bestFrame = (scene: Phaser.Scene, key: string, kind: string, score: (mask: Mask) => number): number | undefined => {
+  const id = `${kind}:${key}`
+  if (bests.has(id)) return bests.get(id)
+  let best: number | undefined, bestScore = -1
   for (let frame = 0; frame < SHEET_FRAME_COUNT; frame += 1) {
     const mask = readMask(scene, key, frame)
     if (!mask) break
-    let reach = -1
-    mask.solid.forEach((solid, i) => { if (solid) reach = Math.max(reach, i % mask.width) })
-    if (reach > bestReach) { bestReach = reach; best = frame }
+    const value = score(mask)
+    if (value > bestScore) { bestScore = value; best = frame }
   }
-  peaks.set(key, best); return best
+  bests.set(id, best); return best
+}
+/** 攻擊 sheet 中往前（右）伸最遠的影格。 */
+export const peakFrame = (scene: Phaser.Scene, key: string): number | undefined => bestFrame(scene, key, 'reach', (mask) => {
+  let reach = -1
+  mask.solid.forEach((solid, i) => { if (solid) reach = Math.max(reach, i % mask.width) })
+  return reach
+})
+/** 蹲姿 sheet 中頭頂最低（蹲最深）的影格；05_Crouch 前段是站姿，防禦固定顯示這格。 */
+export const crouchFrame = (scene: Phaser.Scene, key: string): number | undefined => bestFrame(scene, key, 'crouch', (mask) => Math.floor(mask.solid.indexOf(1) / mask.width))
+
+type Stance = Pick<Placement, 'mask' | 'scale' | 'originY'>
+/** 兩人面對面（腳底對齊）、輪廓水平間隙剛好 edge 時的中心距離；逐列取「前緣＋前緣」最大值。沒有同高的列回 undefined。 */
+export const contactWidth = (a: Stance, b: Stance, edge = PUSH_EDGE): number | undefined => {
+  const front = ({ mask: { width, solid }, scale }: Stance, v: number): number | undefined => { for (let u = width - 1; u >= 0; u -= 1) if (solid[v * width + u]) return (u + 1 - width / 2) * scale; return undefined }
+  let widest: number | undefined
+  for (let v = 0; v < a.mask.height; v += 1) {
+    const y = (v + 0.5 - a.originY * a.mask.height) * a.scale, vb = Math.floor(y / b.scale + b.originY * b.mask.height)
+    const fa = front(a, v), fb = vb >= 0 && vb < b.mask.height ? front(b, vb) : undefined
+    if (fa !== undefined && fb !== undefined) widest = Math.max(widest ?? -Infinity, fa + fb)
+  }
+  return widest === undefined ? undefined : widest + edge
+}
+// ponytail: 只量開場站姿一格、整場固定，避免換影格時互推抖動；出招伸出的手腳照樣可以疊到對方身上（本來就該命中）。
+export const stancePushWidth = (scene: Phaser.Scene, renderers: Record<FighterId, TemporarySpriteRenderer>, fighters: Record<FighterId, FighterSnapshot>): number | undefined => {
+  const stance = (id: FighterId): Stance | undefined => { const pose = renderers[id].pose(fighters[id]), mask = pose && readMask(scene, pose.key, pose.frame); return pose && mask && { mask, scale: pose.scale, originY: pose.originY } }
+  const a = stance('PLAYER'), b = stance('ENEMY')
+  return a && b ? contactWidth(a, b) : undefined
+}
+
+/** 頭像直徑（影格像素）；256 格 Body 的頭寬約 32。 */
+export const HEAD_PX = 32
+// ponytail: 頭＝輪廓最上緣往下 HEAD_PX 的中心；舉手過頭、倒地的影格會偏。接上 ComfyUI 正式算圖後連同頭像整段移除。
+export const headOf = ({ width, height, solid }: Mask): { x: number; y: number } | undefined => {
+  const top = Math.floor(solid.indexOf(1) / width)
+  let sx = 0, count = 0
+  if (top >= 0) for (let v = top; v < Math.min(height, top + HEAD_PX); v += 1) for (let u = 0; u < width; u += 1) if (solid[v * width + u]) { sx += u; count += 1 }
+  return count ? { x: sx / count, y: top + HEAD_PX / 2 } : undefined
+}
+const heads = new Map<string, { x: number; y: number } | undefined>()
+export const headPoint = (scene: Phaser.Scene, key: string, frameName: string | number): { x: number; y: number } | undefined => {
+  const id = `${key}:${frameName}`
+  if (!heads.has(id)) { const mask = readMask(scene, key, frameName); heads.set(id, mask && headOf(mask)) }
+  return heads.get(id)
 }
 
 /** 以畫面上的角色輪廓判定命中；任一方沒有貼圖時回 undefined，Combat 退回 AABB。 */
-export const createSpriteHitTest = (scene: Phaser.Scene, renderers: Record<FighterId, TemporarySpriteRenderer>, context: () => PresentationContext | undefined): HitTest => (attacker, defender) => {
+/**
+ * 貼身必中：兩人同在地面、中心距離 ≤ 推擠距離 + edge（身體已被擋住、不可能再靠近）時，伸不到的短招也算中。
+ * 推擠以站姿最寬的列（常是護胸的拳頭）計算，腿較短的踢擊在那列之下伸不過去，不補這條就永遠打不到。
+ * 接觸點：兩人中點、攻擊輪廓最前緣那一列的高度。
+ */
+export const touchContact = (a: Placement, d: Placement, contact: number, edge = HIT_EDGE): { x: number; y: number } | null => {
+  if (a.y !== d.y || Math.abs(d.x - a.x) > contact + edge) return null
+  const { width, height, solid } = a.mask
+  let tip = -1, row = 0
+  for (let i = 0; i < solid.length; i += 1) if (solid[i] && i % width > tip) { tip = i % width; row = Math.floor(i / width) }
+  return tip < 0 ? null : { x: (a.x + d.x) / 2, y: a.y + (row + 0.5 - a.originY * height) * a.scale }
+}
+
+/** contact：目前的推擠距離（CombatWorld.contactWidth）；有值時啟用貼身必中。 */
+export const createSpriteHitTest = (scene: Phaser.Scene, renderers: Record<FighterId, TemporarySpriteRenderer>, context: (id: FighterId) => PresentationContext | undefined, contact: () => number | undefined = () => undefined): HitTest => (attacker, defender) => {
   const place = (fighter: FighterSnapshot): Placement | undefined => {
-    const pose = renderers[fighter.id].pose(fighter, fighter.id === 'PLAYER' ? context() : undefined)
+    const pose = renderers[fighter.id].pose(fighter, context(fighter.id))
     const mask = pose && readMask(scene, pose.key, pose.frame)
     return pose && mask && { mask, x: fighter.x, y: fighter.y, dir: fighter.facing === 'LEFT' ? -1 : 1, scale: pose.scale, originY: pose.originY }
   }
   const a = place(attacker), d = place(defender)
-  return a && d ? silhouetteContact(a, d) : undefined
+  if (!a || !d) return undefined
+  const width = contact()
+  return silhouetteContact(a, d, HIT_EDGE + reachFor(renderers[attacker.id].spriteId, attacker.attack)) ?? (width === undefined ? null : touchContact(a, d, width))
 }

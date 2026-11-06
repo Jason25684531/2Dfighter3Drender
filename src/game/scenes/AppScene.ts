@@ -18,10 +18,10 @@ import { LeaderboardPanel } from '../ui/board/LeaderboardPanel'
 import { P1SelectView } from '../ui/p1/P1SelectView'
 import { endViewModel, leaderboardPanelModel, loadingViewModel, finishAnnouncements, resultViewModel, stageSelectViewModel, type ResultViewModel } from '../ui/ViewModels'
 import { characterEntry, resolveStageAsset, stageTextureKey, testCharacterManifest, type CharacterEntry, type StageId } from '../ui/assets/TestAssetManifest'
-import { TemporarySpriteRenderer } from '../ui/animation/TemporarySpriteRenderer'
+import { faceKey, TemporarySpriteRenderer } from '../ui/animation/TemporarySpriteRenderer'
 import { spriteTextureFrame, spriteTextureKey, type PresentationContext, type SpriteId } from '../ui/animation/TemporarySpriteManifest'
 import { isSheetSprite } from '../ui/animation/SheetSpriteManifest'
-import { ControlsEditor, keyLabel, loadProfiles, saveProfiles, type CombatAction } from '../input/ControlProfile'
+import { keyLabel, loadProfiles, saveProfiles, type CombatAction } from '../input/ControlProfile'
 import { ControlsPanel } from '../ui/controls/ControlsPanel'
 import { BattleStage } from '../ui/stage/BattleStage'
 import { BattleView } from '../ui/battle/BattleView'
@@ -73,6 +73,7 @@ export class AppScene extends Phaser.Scene {
   private boardPanel?: LeaderboardPanel
   private boardRequest = 0
   private readonly playerContext: PresentationContext = {}
+  private readonly enemyContext: PresentationContext = {}
   private readonly noteActivity = (): void => { this.lastActivity = this.time.now }
 
   constructor(appStateMachine: AppStateMachine, ui: UIFramework, private readonly flow: ExperienceFlow) {
@@ -85,7 +86,7 @@ export class AppScene extends Phaser.Scene {
     this.selectedStageId = resolveStageAsset(this.persistence?.context.snapshot.selectedStageId).id
     this.input.on('pointermove', this.noteActivity); this.input.on('pointerdown', this.noteActivity)
     if (typeof window !== 'undefined') this.inputManager.attachKeyboard(window)
-    this.inputManager.setCombatBindings(this.controls.P1)
+    this.inputManager.setCombatBindings(this.controls)
     this.input.keyboard?.on('keydown', this.attractKey); this.noteActivity()
     this.clock.start()
     void this.flow.refreshLeaderboard()
@@ -93,7 +94,7 @@ export class AppScene extends Phaser.Scene {
     this.flow.onResultStored = () => this.render(this.appStateMachine.getCurrentState())
     // 轉移副作用（session／match／persistence）由 ExperienceFlow 先處理；這裡只管呈現。
     this.unsubscribe = this.appStateMachine.subscribe(({ previousState, nextState }) => {
-      if (nextState === AppState.BATTLE) { this.audio?.loop('amb-cheer') }
+      if (nextState === AppState.BATTLE) { this.audio?.loop('amb-cheer'); this.inputManager.setVersus(Boolean(this.flow.players.P2)) }
       if (previousState === AppState.BATTLE && nextState === AppState.PRESENTATION && this.flow.result) {
         this.audio?.playSequence(combatCues(this.tickEvents.splice(0)))
         this.audio?.playSequence(finishCues(this.flow.result, Boolean(this.flow.players.P2), this.flow.match.world.getConfig().maxHp, this.flow.match.getRoundSummaries().at(-1)))
@@ -110,10 +111,12 @@ export class AppScene extends Phaser.Scene {
     })
     this.clockUnsubscribe = this.clock.subscribe(() => {
       if (this.appStateMachine.getCurrentState() !== AppState.BATTLE) return
-      const input = this.inputManager.consumeGameplaySnapshot()
-      // 蹲是純呈現：只在可操作時顯示（起手序列與回合結束停留不蹲）。
-      this.playerContext.crouch = this.flow.match.getSnapshot().matchState === 'FIGHTING' && input.crouchHeld
-      this.flow.tick(intentFromInput(input))
+      const input = this.inputManager.consumeGameplaySnapshot(), p2 = this.inputManager.consumeGameplaySnapshot('P2')
+      // 蹲是純呈現：只在可操作時顯示（起手序列與回合結束停留不蹲）；ENEMY 只有 2P 真人時才看 2P 的蹲鍵。
+      const fighting = this.flow.match.getSnapshot().matchState === 'FIGHTING'
+      this.playerContext.crouch = fighting && input.crouchHeld
+      this.enemyContext.crouch = fighting && Boolean(this.flow.players.P2) && p2.crouchHeld
+      this.flow.tick(intentFromInput(input), intentFromInput(p2))
       if (this.appStateMachine.getCurrentState() === AppState.BATTLE) this.updateBattle(this.flow.match.getSnapshot())
     })
     this.uiUnsubscribers.push(this.ui.events.on('SUBSTATE_CHANGED', ({ screen }) => { if (screen === AppState.BATTLE && this.battleRoot) return; this.render(this.appStateMachine.getCurrentState()) }))
@@ -168,7 +171,7 @@ export class AppScene extends Phaser.Scene {
     this.attractInputConsumed = false
     this.checkIdle(_time)
     // 選單或暫停中的跳躍／攻擊按下不留到戰鬥（手把 A 同時是 CONFIRM 與 JUMP）。
-    if (!battling || this.clock.isPaused()) this.inputManager.consumeGameplaySnapshot()
+    if (!battling || this.clock.isPaused()) { this.inputManager.consumeGameplaySnapshot(); this.inputManager.consumeGameplaySnapshot('P2') }
     this.clock.advance(delta)
     if (this.appStateMachine.getCurrentState() === AppState.BATTLE) {
       const alpha = Phaser.Math.Clamp(this.clock.getRemainderMs() / FIXED_STEP_MS, 0, 1)
@@ -190,12 +193,8 @@ export class AppScene extends Phaser.Scene {
   private addBackground(container: Phaser.GameObjects.Container, state: AppStateValue): void {
     if (state === AppState.BATTLE || state === AppState.PRESENTATION) return
     const darkness = state === AppState.IDLE ? uiTokens.backdrop.empty : state === AppState.END ? uiTokens.backdrop.end : state === AppState.RESULT ? uiTokens.backdrop.result : uiTokens.backdrop.content
-    this.addArenaBackdrop(container, darkness)
-  }
-
-  private addArenaBackdrop(container: Phaser.GameObjects.Container, darkness: number, stageId = this.selectedStageId): void {
     const cover = aspectCover(2752, 1536, uiTokens.logicalWidth, uiTokens.logicalHeight)
-    const backdrop = this.add.image(cover.x + cover.width / 2, cover.y + cover.height / 2, stageTextureKey(stageId)).setDisplaySize(cover.width, cover.height)
+    const backdrop = this.add.image(cover.x + cover.width / 2, cover.y + cover.height / 2, stageTextureKey(this.selectedStageId)).setDisplaySize(cover.width, cover.height)
     container.add(backdrop)
     if (container === this.screen) this.stageBackdrop = backdrop
     this.addAtmosphere(container, darkness)
@@ -275,7 +274,26 @@ export class AppScene extends Phaser.Scene {
     const players = this.p1Model?.result() ?? {}
     if (!players.P1 || this.p1Model?.phase !== 'ALL_READY') return
     this.flow.setPlayers(players); this.flow.opponent = this.p1Model.opponent()
+    this.applyFaces()
     this.appStateMachine.transitionTo(AppState.SETUP)
+  }
+  // ponytail: 拍照頭像暫以圓形貼在 Body 頭部，示意 ComfyUI 算圖結果；接上生成服務後改用回傳的角色 sheet、移除這段。
+  private applyFaces(): void {
+    (['P1', 'P2'] as const).forEach((id) => {
+      const key = faceKey(id), photo = this.p1Model?.player(id).photo
+      if (this.textures.exists(key)) this.textures.remove(key)
+      if (!photo) return
+      const image = new Image()
+      image.onload = () => {
+        const size = Math.min(image.width, image.height), canvas = Object.assign(document.createElement('canvas'), { width: 256, height: 256 }), context = canvas.getContext('2d')
+        if (!context || this.textures.exists(key)) return
+        context.beginPath(); context.arc(128, 128, 124, 0, Math.PI * 2); context.clip()
+        context.drawImage(image, (image.width - size) / 2, (image.height - size) / 2, size, size, 0, 0, 256, 256)
+        context.lineWidth = 12; context.strokeStyle = '#ffffff'; context.stroke()
+        this.textures.addCanvas(key, canvas)
+      }
+      image.src = photo
+    })
   }
   private checkIdle(now: number): void {
     if (!this.lastActivity) return
@@ -335,7 +353,7 @@ export class AppScene extends Phaser.Scene {
     root.add(this.add.text(130, 565, 'PLAYER', { ...typography.note, color: colorHex('playerGlow') }))
     root.add(this.add.text(130, 600, vm.playerName, typography.title))
     if (vm.character.type === 'BODY_TEMPLATE') root.add(this.add.text(130, 680, vm.character.displayName + ' · TEMP BODY', { ...typography.note, color: colorHex('resultGold') }))
-    root.add(this.add.text(1780, 565, this.flow.players.P2 ? 'ENEMY · 2P · CPU' : 'ENEMY · CPU', { ...typography.note, color: colorHex('enemyGlow') }).setOrigin(1, 0))
+    root.add(this.add.text(1780, 565, this.flow.players.P2 ? 'ENEMY · 2P' : 'ENEMY · CPU', { ...typography.note, color: colorHex('enemyGlow') }).setOrigin(1, 0))
     root.add(this.add.text(1780, 600, vm.enemyName, typography.title).setOrigin(1, 0))
     root.add(this.add.text(960, 330, 'VS', { ...typography.title, fontSize: uiTokens.type.hero, stroke: colorHex('systemBlue'), strokeThickness: 8 }).setOrigin(0.5).setRotation(-0.08))
     root.add(this.label(vm.stage, 960, 670, uiTokens.type.body))
@@ -387,14 +405,14 @@ export class AppScene extends Phaser.Scene {
     return this.stage.world
   }
   private updateBattle(snapshot: MatchSnapshot): void {
-    this.battleView?.update(snapshot, this.tickEvents.splice(0), this.playerContext, this.flow.match.getRoundSummaries().at(-1))
+    this.battleView?.update(snapshot, this.tickEvents.splice(0), this.playerContext, this.flow.match.getRoundSummaries().at(-1), this.enemyContext)
   }
   private renderP5(): void {
     this.battleRoot = this.add.container(0, 0); this.screen?.add(this.battleRoot); const world = this.addBattleStage(this.battleRoot, uiTokens.backdrop.presentation)
     const snapshot = this.flow.match.getSnapshot()
-    this.battlePlayer = new TemporarySpriteRenderer(this, this.playerSpriteId(), this.flow.match.world.getConfig().floorY)
+    this.battlePlayer = new TemporarySpriteRenderer(this, this.playerSpriteId(), this.flow.match.world.getConfig().floorY, faceKey('P1'))
     this.battlePlayer.update(snapshot.world.fighters.PLAYER, snapshot.world.tick)
-    this.battleEnemy = new TemporarySpriteRenderer(this, this.enemySpriteId(), this.flow.match.world.getConfig().floorY)
+    this.battleEnemy = new TemporarySpriteRenderer(this, this.enemySpriteId(), this.flow.match.world.getConfig().floorY, faceKey('P2'))
     this.battleEnemy.update(snapshot.world.fighters.ENEMY, snapshot.world.tick)
     world.add([this.battlePlayer, this.battleEnemy])
     this.battleRoot.add(this.add.rectangle(960, 540, 1920, 1080, uiTokens.colors.background0, uiTokens.backdrop.impact))
@@ -528,7 +546,7 @@ export class AppScene extends Phaser.Scene {
 
   private playerEntry(): CharacterEntry { return characterEntry(this.flow.players.P1?.characterId) ?? testCharacterManifest.presetA }
   private playerName(): string { return this.flow.players.P1?.nickname || this.playerEntry().displayName }
-  // D-01：2P 的選擇只決定 CPU 敵人的外觀與名稱，戰鬥仍由 EnemyAI 控制。
+  // 單人：ENEMY 為選定的 CPU 對手；雙人：ENEMY 為 2P 的選擇，由 2P 操作。
   private opponentEntry(): CharacterEntry | undefined { return this.flow.players.P2 ? undefined : characterEntry(this.flow.opponent?.characterId) }
   private enemyName(): string { const p2 = this.flow.players.P2; if (!p2 && this.opponentEntry()) return this.opponentEntry()?.displayName ?? 'ROG_SAGA'; return p2 ? p2.nickname || characterEntry(p2.characterId)?.displayName || 'ROG_SAGA' : 'ROG_SAGA' }
   /** 流程總步數：選角（含拍照、1P 選對手）＋選場景。 */
@@ -565,7 +583,7 @@ export class AppScene extends Phaser.Scene {
     if (this.attract) { this.stopAttract(); this.attractInputConsumed = true; return }
     this.noteActivity()
     if (event.code === 'KeyP') this.playAttract()
-    else if (event.code === 'KeyC' && !this.attract) this.controlsPanel = new ControlsPanel(this, new ControlsEditor(this.controls, (profiles) => { saveProfiles(profiles); this.inputManager.setCombatBindings(profiles.P1) }), () => { this.closeControls(); this.render(AppState.IDLE) }) // 重繪 P0：提示鍵名跟著新鍵位
+    else if (event.code === 'KeyC' && !this.attract) this.controlsPanel = new ControlsPanel(this, this.controls, (profiles) => { saveProfiles(profiles); this.inputManager.setCombatBindings(profiles) }, () => { this.closeControls(); this.render(AppState.IDLE) }) // 重繪 P0：提示鍵名跟著新鍵位
   }
   private closeControls(): void { this.controlsPanel?.destroy(); this.controlsPanel = undefined; this.noteActivity() }
   /** 開頭動畫：播完或輸入後回 P0 並重新計算閒置。 */

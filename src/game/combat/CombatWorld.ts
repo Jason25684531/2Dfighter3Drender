@@ -47,7 +47,8 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
 }
 
 // 24Hz：倒地 0.5 秒、起身無敵 1 秒；輕攻擊累計 3 下或重攻擊累計 2 下倒地（分開計，起身歸零）。
-export const KNOCKDOWN = { downTicks: 12, invulnerableTicks: 24, lightHits: 3, heavyHits: 2 } as const
+// hitFreeze：造成倒地（含 K.O.）那一擊的頓幀，0.25 秒，須大於任何招式的 hitFreeze。
+export const KNOCKDOWN = { downTicks: 12, invulnerableTicks: 24, lightHits: 3, heavyHits: 2, hitFreeze: 6 } as const
 
 export type CombatEvent =
   | { type: 'JUMP'; fighter: FighterId }
@@ -87,6 +88,7 @@ export class CombatWorld {
   private readonly intents: Record<FighterId, FighterIntent> = { PLAYER: { ...NEUTRAL_INTENT }, ENEMY: { ...NEUTRAL_INTENT } }
   private freezeTicks = 0
   private hitTest?: HitTest
+  private stancePush?: number
 
   constructor(config: CombatConfig = DEFAULT_COMBAT_CONFIG) {
     this.config = config
@@ -101,6 +103,9 @@ export class CombatWorld {
   getConfig(): CombatConfig { return this.config }
   /** 呈現層提供；Combat 本身不讀畫面。 */
   setHitTest(test?: HitTest): void { this.hitTest = test }
+  /** 呈現層量出的站姿輪廓接觸距離；設定後推擠改用它，undefined 回到 config.pushWidth。 */
+  setPushWidth(width?: number): void { this.stancePush = width }
+  get contactWidth(): number | undefined { return this.stancePush }
   /** AI 用：id 此刻出 attack，判定期打不打得到（依輪廓）；沒有輪廓判定回 undefined。 */
   reaches(id: FighterId, attack: AttackAction): boolean | undefined {
     const probe: FighterSnapshot = { ...this.getFighter(id), attack, attackPhase: 'ACTIVE', attackTicks: 1, attackId: -1 }
@@ -181,7 +186,7 @@ export class CombatWorld {
 
   /** 推擠：高度重疊時，兩人中心至少相距一個身寬；牆邊由另一人讓出。再限制最大距離，由往外走的一方停下。 */
   private separate(before: Record<FighterId, number>): void {
-    const { PLAYER: a, ENEMY: b } = this.fighters, width = this.config.pushWidth ?? this.config.fighterWidth, low = this.config.wallMargin ?? this.config.fighterWidth / 2, high = this.config.arenaWidth - low
+    const { PLAYER: a, ENEMY: b } = this.fighters, width = this.stancePush ?? this.config.pushWidth ?? this.config.fighterWidth, low = this.config.wallMargin ?? this.config.fighterWidth / 2, high = this.config.arenaWidth - low
     const dir = a.x !== b.x ? Math.sign(b.x - a.x) : a.facing === 'RIGHT' ? 1 : -1
     if (Math.abs(a.y - b.y) < this.config.fighterHeight * 0.75 && Math.abs(b.x - a.x) < width) {
       const overlap = width - Math.abs(b.x - a.x)
@@ -222,7 +227,7 @@ export class CombatWorld {
       defender.pushTicks = move.knockbackTicks ?? 0; defender.pushVx = direction * (move.knockback ?? 0); this.freezeTicks = move.hitFreeze ?? 0
       const previousHP = defender.currentHP; defender.currentHP = Math.max(0, defender.currentHP - move.damage); defender.attackPhase = 'NONE'; defender.attackTicks = 0; this.setCombo(attacker, attacker.comboWindowTicks > 0 ? attacker.combo + 1 : 1); attacker.comboWindowTicks = move.hitStunTicks; this.setCombo(defender, 0)
       if (attacker.attack.startsWith('HEAVY')) defender.heavyHits += 1; else defender.lightHits += 1
-      if (defender.heavyHits >= KNOCKDOWN.heavyHits || defender.lightHits >= KNOCKDOWN.lightHits || defender.currentHP === 0) { defender.hitStunTicks = 0; defender.knockdownTicks = KNOCKDOWN.downTicks; defender.state = 'KNOCKDOWN'; this.emit({ type: 'KNOCKDOWN', fighter: defenderId }) }
+      if (defender.heavyHits >= KNOCKDOWN.heavyHits || defender.lightHits >= KNOCKDOWN.lightHits || defender.currentHP === 0) { defender.hitStunTicks = 0; defender.knockdownTicks = KNOCKDOWN.downTicks; defender.state = 'KNOCKDOWN'; this.freezeTicks = KNOCKDOWN.hitFreeze; this.emit({ type: 'KNOCKDOWN', fighter: defenderId }) }
       else { defender.hitStunTicks = move.hitStunTicks; defender.state = 'HIT_STUN' }
       this.emit({ type: 'DAMAGE', attacker: attackerId, defender: defenderId, amount: previousHP - defender.currentHP, attackId: attacker.attackId }); this.emit({ type: 'HP_CHANGED', fighter: defenderId, currentHP: defender.currentHP, previousHP })
     })

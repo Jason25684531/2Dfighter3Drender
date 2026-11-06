@@ -20,8 +20,8 @@ export const testCharacterManifest = {
   presetE: { id: 'preset-e', displayName: 'CUSTOM01', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'body01' },
 } as const satisfies Record<string, CharacterEntry>
 
-// ponytail: Body 01 已有正式身形素材；其餘 spriteId 仍是戰鬥暫用替身（shared-ia §4.4）。P1 一律畫剪影。其餘 spriteId 取得正式身形素材後移除替身。
-const bodySprites: readonly SpriteId[] = ['body01', 'kael', 'riven', 'aria']
+// Body 01–04 依序對應 S1AW／S2AM／S2LW／S3WW 正式身形；選角畫面一律畫剪影（shared-ia §4.4）。
+const bodySprites: readonly SpriteId[] = ['s1aw', 's2am', 's2lw', 's3ww']
 export const bodyTemplates: readonly CharacterEntry[] = bodySprites.map((spriteId, i) => ({ id: `body-0${i + 1}`, displayName: `BODY 0${i + 1}`, type: 'BODY_TEMPLATE', status: 'AVAILABLE', spriteId, bodyTemplateId: `body-0${i + 1}` }))
 
 export const characterEntries = (): CharacterEntry[] => [...bodyTemplates, ...Object.values(testCharacterManifest)]

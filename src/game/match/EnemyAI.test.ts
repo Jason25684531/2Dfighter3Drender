@@ -62,6 +62,22 @@ describe('EnemyAI profiles', () => {
     expect(world.getFighter('ENEMY').currentHP).toBe(100)
     expect(world.getFighter('ENEMY').state).toBe('GUARD')
   })
+  it('does not block by backing off while the player attacks unless it rolled a guard', () => {
+    // 想退開（spacingMin 很大）但沒擲中防禦：玩家出招期間站住，拳頭打中而不是 BLOCK。
+    const world = new CombatWorld({ ...cfg, initialPositions: { PLAYER: 1300, ENEMY: 1520 } }), events: string[] = []
+    world.subscribe((event) => events.push(event.type))
+    const ai = new EnemyAI(cfg, { ...AI_PROFILES.EASY, aggression: 0, guardChance: 0, spacingMin: 1000 })
+    expect(ai.getIntent(world.getSnapshot()).moveX).toBe(1) // 平時照樣退開
+    world.tick({ ...neutral, attackPressed: true }, neutral)
+    for (let i = 0; i < 4; i++) { const intent = ai.getIntent(world.getSnapshot()); expect(intent.moveX).not.toBe(1); world.tick(neutral, intent) }
+    expect(events).toContain('DAMAGE'); expect(events).not.toContain('BLOCK')
+  })
+  it('measures spacing from body contact when given', () => {
+    const snapshot = new CombatWorld({ ...cfg, initialPositions: { PLAYER: 1300, ENEMY: 1560 } }).getSnapshot(), profile = { ...AI_PROFILES.EASY, aggression: 0 }
+    // 260 < attackDistance：AABB 基準會退開；貼身距離 250 + spacingMin 0 → 不退。
+    expect(new EnemyAI(cfg, { ...profile, spacingMin: 30 }).getIntent(snapshot).moveX).toBe(1)
+    expect(new EnemyAI(cfg, profile).getIntent(snapshot, undefined, 250).moveX).not.toBe(1)
+  })
   it('closes in until the silhouette reach says the attack connects', () => {
     const world = new CombatWorld({ ...cfg, initialPositions: { PLAYER: 1300, ENEMY: 1600 } }), profile = { ...DEFAULT_AI_PROFILE, aggression: 1, attackCooldownTicks: 0 }
     expect(world.reaches('ENEMY', 'LIGHT_PUNCH')).toBeUndefined()
