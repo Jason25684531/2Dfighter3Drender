@@ -57,7 +57,8 @@
 | 層 | 模組 | 職責 | 不負責 |
 |---|---|---|---|
 | 輸入 | `input/InputManager` | 實體鍵與手把轉成語意動作，P1／P2 鍵位分離 | 判斷目前在哪個畫面 |
-| 輸入 | `input/ControlProfile` | 戰鬥鍵位設定與儲存（P0 按 C 開啟，`exp2.controls.v3`） | 選單鍵位 |
+| 輸入 | `input/ControlProfile` | 戰鬥鍵位設定與儲存（P0 按 C 開啟，`exp2.controls.v3`），鍵盤與手把共用的改鍵狀態機 | 選單鍵位 |
+| 輸入 | `input/GamepadProfile` | 手把所有權（依 `Gamepad.index`）、遲滯取樣、手把鍵位與儲存（`exp2.gamepad.v1`） | 判斷目前在哪個畫面 |
 | 流程 | `state/AppStateMachine` | P0–P7 狀態與合法轉移，唯一真相 | 任何副作用 |
 | 流程 | `ui/UIFramework` | 畫面子狀態、焦點群組、導覽、UI 事件 | 畫面繪製 |
 | 流程 | `app/ExperienceFlow` | 轉移時建立／結束 session、開始／重置對戰、寫入後端、結算 | 畫面繪製、輸入 |
@@ -118,10 +119,23 @@
 | 選單／選角 | W A S D 移動 · F 確認 · K 返回 | 方向鍵 · NUM 1 加入／確認 · BACKSPACE 返回 |
 | 選場景（P2） | A D 或 ←→ 切換場景 · J／ENTER 確認 · K／ESC 返回 | — |
 | 選 CPU 對手（單人） | W A S D 移動 CPU 游標 · F 確認；難度用 A D | 按 NUM 1 改為雙人 |
-| 戰鬥 | A D 移動 · W 跳 · S 蹲 · F 輕拳 · U 重拳 · G 輕腳 · I 重腳 · 按住後方向防禦 · ESC 暫停；S／W＋攻擊＝蹲／空中攻擊 | ← → 移動 · ↑ 跳 · ↓ 蹲 · NUM 1 輕拳 · NUM 2 重拳 · NUM 4 輕腳 · NUM 5 重腳 · NUM 3 防禦 · ESC 暫停 |
-| 手把 | 十字鍵移動 · ↑ 跳 · ↓ 蹲 · X Y 拳 · A B 腳 · 按住後方向防禦 · START 暫停（雙人時用第 1 支） | 雙人時用第 2 支，按鍵同 1P |
+| 戰鬥 | A D 移動 · W 跳 · S 蹲 · F 輕拳 · U 重拳 · G 輕腳 · I 重腳 · 按住 S（下）或後方向防禦 · ESC 暫停；S／W＋攻擊＝蹲／空中攻擊 | ← → 移動 · ↑ 跳 · ↓ 蹲 · NUM 1 輕拳 · NUM 2 重拳 · NUM 4 輕腳 · NUM 5 重腳 · 按住 ↓ 或後方向防禦 · ESC 暫停 |
+| 搖桿（戰鬥） | 十字鍵／左類比／右類比移動 · 上跳 · 下蹲＝防禦 · □ 輕拳 · △ 重拳 · ✕ 輕腳 · ○ 重腳 · OPTIONS 暫停 | 擁有第 2 支搖桿的玩家，按鍵同 1P |
+| 搖桿（選單） | 方向導航 · ✕ 確認 · R1 返回（○ 在選單沒有作用）；P1 選角最上層按 R1 回標題；P0 按 L3 開啟操作設定 | 只在 P1 選角頁有效（加入＝✕）；L3 無效 |
 
-戰鬥鍵可在 P0 按 C 重新綁定（← → 切換 PLAYER 1／PLAYER 2），存在 `localStorage` 的 `exp2.controls.v3`；舊版存檔會被忽略並使用預設。兩位玩家的選單鍵都跟著自己的戰鬥鍵（跳／蹲／左右＝上下左右、輕拳＝確認）。綁定另一位玩家已用的鍵（含對方返回鍵：1P 的 K、2P 的 Backspace）會被拒絕；兩人可共用暫停鍵。面板下方唯讀列出依目前鍵位推導的組合操作。雙人同時操作時，部分鍵盤多鍵同按會漏鍵（ghosting），屬硬體限制。
+沒有獨立的防禦鍵：按住下（蹲）或後方向即防禦，按住下時按攻擊照常出招。戰鬥鍵可在 P0 按 C 重新綁定（← → 切換 PLAYER 1／PLAYER 2），存在 `localStorage` 的 `exp2.controls.v3`；舊版存檔會被忽略並使用預設，v3 存檔裡已移除的 Guard 欄位載入時丟棄。兩位玩家的選單鍵都跟著自己的戰鬥鍵（跳／蹲／左右＝上下左右、輕拳＝確認）。綁定另一位玩家已用的鍵（含對方返回鍵：1P 的 K、2P 的 Backspace）會被拒絕；兩人可共用暫停鍵。面板下方唯讀列出依目前鍵位推導的組合操作。雙人同時操作時，部分鍵盤多鍵同按會漏鍵（ghosting），屬硬體限制。
+
+### 搖桿（Qanba Drone 2 等 XInput 手把）
+
+- 一人一台。手把第一次按下按鈕時取得空位（先 1P 再 2P），以 `Gamepad.index` 記錄，拔掉 1P 不會讓 2P 變成 1P。推搖桿不算取得。
+- 斷線即釋放：該玩家按住的輸入全部放開、不補按下；戰鬥中會自動開啟暫停選單。重新插上後要再按一次按鈕才重新屬於原位置。
+- 畫面上的搖桿鍵名使用機台面板的 PS 標示。Windows 把 Qanba Drone 2 認成 Xbox 360（XInput），依 standard mapping 位置對應為 0＝✕、1＝○、2＝□、3＝△、4＝L1、5＝R1、6＝L2、7＝R2、8＝SHARE、9＝OPTIONS、10＝L3、11＝R3、12–15＝十字鍵（推論，待實機確認）。
+- 系統鍵固定、不能綁定：R1＝返回（每位玩家自己的搖桿），L3＝在 P0 開啟 CONTROLS（只認 1P）。
+- 單人時 2P 擁有的手把不操作 1P。P1 選角頁兩位玩家的手把都有效；其他選單（P0、P2、P3、P5–P7、暫停、排行榜）只聽 1P（鍵盤或手把），2P 手把只能用 OPTIONS 暫停。
+- 搖桿的 DP／LS／RS 模式都能用：方向同時接受十字鍵、左類比（軸 0／1）與右類比（軸 2／3）。類比當數位方向時達 0.5 按下、低於 0.35 放開。
+- 改鍵（全程可只用 1P 搖桿）：P0 按 L3（或鍵盤 C）開啟 CONTROLS；1P 已擁有搖桿時預設 GAMEPAD 分頁（鍵盤 TAB 可切換）。十字鍵上下選一列、左右切換 PLAYER 1／PLAYER 2，按 ✕ 後再按該玩家自己搖桿上要綁定的按鈕（按 ✕ 的那一下不會被綁定）；擷取中 R1 取消，列表時 R1 關閉面板。同玩家重複會詢問交換（左右選、✕ 確認）；兩位玩家可用相同按鈕；R1、L3 與左右類比不能綁定。存在 `exp2.gamepad.v1`，與鍵盤存檔分開；含 R1／L3 的舊存檔該玩家退回預設。選單的確認跟著輕腳的按鈕。
+- 診斷頁：`npm run dev` 後開 `/?gamepadDebug=1`（正式建置不包含）。即時顯示每支手把的 id、index、mapping、每顆按鈕與軸、目前屬於哪位玩家，可複製 JSON 報告。實機驗收步驟與索引對照表在 `docs/qanba-drone2-hardware-test.md`。
+- 已知限制：目前只用 Mock Gamepad 驗證（`scripts/verify-gamepad.mjs`），尚未完成雙機實機驗證；`mapping` 不是 `standard` 的手把（例如 D-pad 以 hat 軸回報）不支援；兩台同型號無法區分，設定跟著玩家位置而非裝置；PS4／PS5 模式、震動不處理；搖桿無法切換 KEYBOARD／GAMEPAD 分頁（用鍵盤 TAB）。
 
 戰鬥中任一方連擊 ≥ 2 會在該側顯示 `N HITS` 與 COMBO!／GREAT!／AWESOME! 標語；倒地時畫面震動（減少動態效果時不震動）。
 
@@ -192,13 +206,15 @@ npx vite --port 5189 --host 127.0.0.1
 | `http://127.0.0.1:5189/prototype.html` | 隔離原型，不寫入 API |
 | `http://127.0.0.1:5189/?inputDebug=1` | P4 顯示按鍵 → 語意 → 呈現的診斷面板 |
 | `http://127.0.0.1:5189/?hitbox` | P4 畫出 hurtbox（藍）與出招判定框（紅），對照動畫調招式表 |
+| `http://127.0.0.1:5189/?gamepadDebug=1` | 手把診斷頁（只在開發伺服器），不啟動遊戲 |
 
 Playwright 腳本在前端啟動後執行，截圖輸出到 `outputs/*-verification/`：
 
 | 腳本 | 驗證範圍 |
 |---|---|
 | `scripts/verify-opponent-flow.mjs` | 排行榜、1P 選對手與難度、P2 只選場景、Announcer、命中／防禦特效、回合 K.O. 停留、P5、Replay |
-| `scripts/verify-controls.mjs` | 改鍵、衝突、重設、存檔 v3、四種攻擊的站立／空中／蹲姿圖、W 跳 S 蹲、防禦、推擠、鏡頭 |
+| `scripts/verify-controls.mjs` | 改鍵、衝突、重設、存檔 v3、四種攻擊的站立／空中／蹲姿圖、W 跳 S 蹲、按住下／後防禦、推擠、鏡頭 |
+| `scripts/verify-gamepad.mjs` | Mock Gamepad：診斷頁、單台 P0→P7＋Replay、雙台各自操作、熱插拔、LS／RS、長按、鍵盤備援、手把改鍵保存、R1 返回、L3 開面板並以搖桿改鍵（結束碼 2＝SKIPPED） |
 | `scripts/verify-audio.mjs` | 音效 cue 序列及 Chrome FLAC／WAV 解碼 |
 | `scripts/verify-p1.mjs` | 選角格、雙人、自訂拍照、單人選對手、閒置逾時、離線 |
 | `scripts/verify-experience.mjs` | P0–P4 完整流程、相機、舞台後備 |

@@ -23,6 +23,7 @@ import { spriteTextureFrame, spriteTextureKey, type PresentationContext, type Sp
 import { isSheetSprite } from '../ui/animation/SheetSpriteManifest'
 import { keyLabel, loadProfiles, saveProfiles, type CombatAction } from '../input/ControlProfile'
 import { ControlsPanel } from '../ui/controls/ControlsPanel'
+import { loadPadProfiles, PAD_SYSTEM, padLabel, savePadProfiles, type PadProfiles } from '../input/GamepadProfile'
 import { BattleStage } from '../ui/stage/BattleStage'
 import { BattleView } from '../ui/battle/BattleView'
 import { GameAudio } from '../audio/GameAudio'
@@ -69,6 +70,7 @@ export class AppScene extends Phaser.Scene {
   private audio?: GameAudio
   private battleView?: BattleView
   private readonly controls = loadProfiles()
+  private readonly padProfiles = loadPadProfiles()
   private controlsPanel?: ControlsPanel
   private boardPanel?: LeaderboardPanel
   private boardRequest = 0
@@ -86,7 +88,9 @@ export class AppScene extends Phaser.Scene {
     this.selectedStageId = resolveStageAsset(this.persistence?.context.snapshot.selectedStageId).id
     this.input.on('pointermove', this.noteActivity); this.input.on('pointerdown', this.noteActivity)
     if (typeof window !== 'undefined') this.inputManager.attachKeyboard(window)
-    this.inputManager.setCombatBindings(this.controls)
+    this.inputManager.setCombatBindings(this.controls); this.inputManager.setPadBindings(this.padProfiles)
+    // 所有權以每幀輪詢為準；連線事件只算操作，重設閒置計時。
+    window.addEventListener('gamepadconnected', this.noteActivity); window.addEventListener('gamepaddisconnected', this.noteActivity)
     this.input.keyboard?.on('keydown', this.attractKey); this.noteActivity()
     this.clock.start()
     void this.flow.refreshLeaderboard()
@@ -94,7 +98,7 @@ export class AppScene extends Phaser.Scene {
     this.flow.onResultStored = () => this.render(this.appStateMachine.getCurrentState())
     // 轉移副作用（session／match／persistence）由 ExperienceFlow 先處理；這裡只管呈現。
     this.unsubscribe = this.appStateMachine.subscribe(({ previousState, nextState }) => {
-      if (nextState === AppState.BATTLE) { this.audio?.loop('amb-cheer'); this.inputManager.setVersus(Boolean(this.flow.players.P2)) }
+      if (nextState === AppState.BATTLE) this.audio?.loop('amb-cheer')
       if (previousState === AppState.BATTLE && nextState === AppState.PRESENTATION && this.flow.result) {
         this.audio?.playSequence(combatCues(this.tickEvents.splice(0)))
         this.audio?.playSequence(finishCues(this.flow.result, Boolean(this.flow.players.P2), this.flow.match.world.getConfig().maxHp, this.flow.match.getRoundSummaries().at(-1)))
@@ -135,43 +139,56 @@ export class AppScene extends Phaser.Scene {
     this.render(this.appStateMachine.getCurrentState())
   }
 
-  update(_time: number, delta: number): void { const gamepads = typeof navigator !== 'undefined' && navigator.getGamepads ? Array.from(navigator.getGamepads()).filter((pad): pad is Gamepad => pad !== null) : []; this.inputManager.update(gamepads)
-    const padButtons = new Set(gamepads.flatMap((pad, p) => pad.buttons.flatMap((button, b) => button.pressed || button.value >= 0.5 ? [`${p}:${b}`] : [])))
+  update(_time: number, delta: number): void {
+    // 保留 null：陣列位置就是 Gamepad.index，玩家依所有權對應手把。
+    const gamepads = typeof navigator !== 'undefined' && navigator.getGamepads ? Array.from(navigator.getGamepads()) : [], lostPad = this.inputManager.update(gamepads).some((id) => id === 'P1' || Boolean(this.flow.players.P2))
+    const padButtons = new Set(gamepads.flatMap((pad, p) => pad ? pad.buttons.flatMap((button, b) => button.pressed || button.value >= 0.5 ? [`${p}:${b}`] : []) : []))
     if ([...padButtons].some(button => !this.attractPadButtons.has(button))) {
       this.lastActivity = _time
       if (this.attract) { this.stopAttract(); this.attractInputConsumed = true }
     }
     this.attractPadButtons = padButtons
-    const battling = this.appStateMachine.getCurrentState() === AppState.BATTLE
+    const battling = this.appStateMachine.getCurrentState() === AppState.BATTLE, pausedBefore = this.clock.isPaused()
     const visualState = this.appStateMachine.getCurrentState()
     // P1／P2 逐層返回；P3／P5／P6 返回主畫面（backRoutes）。
     const backScreen = ([AppState.READY, AppState.SETUP, AppState.LOADING, AppState.PRESENTATION, AppState.RESULT] as AppStateValue[]).includes(visualState)
-    const owned = this.inputManager.consumeOwnedUiActions(), actions = this.inputManager.consumeUiActions()
-    if (owned.length || actions.length) this.lastActivity = _time
+    const allOwned = this.inputManager.consumeOwnedUiActions(), allActions = this.inputManager.consumeUiActions()
+    if (allOwned.length || allActions.length) this.lastActivity = _time
+    // 打字時只擋鍵盤（字母鍵也是選單鍵）；手把不會打字，暱稱框 focus 時仍要能確認／取消。
     const typing = document.activeElement instanceof HTMLInputElement, pause = this.inputManager.consumePause()
+    const owned = typing ? allOwned.filter(({ device }) => device) : allOwned, actions = typing ? [] : allActions, p1Owned = owned.filter(({ owner }) => owner === 'P1').map(({ action }) => action)
     if (this.attract || this.attractInputConsumed || this.controlsPanel || this.boardPanel) {
-      // 開頭動畫、操作設定或排行榜開啟中：UI 輸入不穿透到 P0；手把的 BACK／CONFIRM 可關閉排行榜。
-      if (this.boardPanel && actions.some((action) => action === 'BACK' || action === 'CONFIRM')) this.closeBoard()
-    } else if (!typing && visualState === AppState.READY && this.p1Model) {
+      // 開頭動畫、操作設定或排行榜開啟中：UI 輸入不穿透到 P0；1P（含手把）的 BACK／CONFIRM 可關閉排行榜。
+      if (this.boardPanel && [...actions, ...p1Owned].some((action) => action === 'BACK' || action === 'CONFIRM')) this.closeBoard()
+      // 面板開啟時鍵盤由面板自己攔截；這裡只把 1P 手把的選單動作交給面板（共用選單只認 1P）。
+      this.controlsPanel?.updatePad(owned.filter(({ owner, device }) => owner === 'P1' && device).map(({ action }) => action))
+    } else if (visualState === AppState.IDLE && this.inputManager.controlsPress('P1')) {
+      this.openControls()
+    } else if (visualState === AppState.READY && this.p1Model) {
       // P1 由 1P/2P 擁有者鍵位操作；未標記輸入只保留 Esc（選角中返回標題）。
-      if (this.p1View?.exitOpen) this.p1View.handleExit([...actions, ...owned.filter(({ owner }) => owner === 'P1').map(({ action }) => action)])
+      if (this.p1View?.exitOpen) this.p1View.handleExit([...actions, ...p1Owned])
       else if (actions.includes('BACK')) {
         if (this.p1Model.owner) this.p1View?.confirmExit(() => { this.p1Model?.abortCustomize(); this.syncP1() })
         else this.ui.navigation.dispatch('BACK')
-      } else owned.forEach(({ owner, action }) => this.p1Input(owner, action))
+      } else owned.forEach(({ owner, action, device }) => {
+        // 手把只有一顆返回鍵：1P 在最上層（未鎖定）時等同鍵盤 Esc，回到標題。
+        if (device && this.p1View?.nameKey(owner, action)) this.noteActivity()
+        else if (device && owner === 'P1' && action === 'BACK' && this.p1Model?.phase === 'GRID' && this.p1Model.player('P1').locked === undefined) this.ui.navigation.dispatch('BACK')
+        else this.p1Input(owner, action)
+      })
     } else if (battling && !this.ui.navigation.isOverlayOpen()) {
-      // P4 未暫停：只看 Combat profile 的 PAUSE，選單鍵不作用；暫停後才交給選單鍵。
-      if (pause) this.ui.navigation.dispatch('OPEN_MENU')
-    } else if (!typing) {
+      // P4 未暫停：只看 Combat profile 的 PAUSE，選單鍵不作用；暫停後才交給選單鍵。本場操作者（1P，雙人時含 2P）的手把斷線也暫停。
+      if (pause || lostPad) this.ui.navigation.dispatch('OPEN_MENU')
+    } else {
       // 暫停選單只屬於 P4；其他畫面的 Escape／M 不開啟選單。
-      // 1P 選單鍵（跟自訂鍵位，預設 WASD/J/K）在後續選單同樣有效；2P 鍵與未標記鍵重複（方向鍵/Enter），不併入以免重複觸發。
-      actions.push(...owned.filter(({ owner }) => owner === 'P1').map(({ action }) => action))
+      // 1P 選單鍵（鍵盤跟自訂鍵位，或 1P 的手把）在後續選單同樣有效；2P 的鍵盤與手把都不併入（2P 鍵與未標記鍵重複，會重複觸發）。
+      actions.push(...p1Owned)
       actions.filter((action) => !(visualState === AppState.SETUP && this.stageNav(action))).filter((action) => this.ui.navigation.isOverlayOpen() || battling || (action === 'BACK' && backScreen) || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => { if (!this.ui.navigation.isExitConfirmationOpen() || performance.now() >= this.exitLockedUntil) this.ui.navigation.dispatch(action) })
     }
     this.attractInputConsumed = false
     this.checkIdle(_time)
-    // 選單或暫停中的跳躍／攻擊按下不留到戰鬥（手把 A 同時是 CONFIRM 與 JUMP）。
-    if (!battling || this.clock.isPaused()) { this.inputManager.consumeGameplaySnapshot(); this.inputManager.consumeGameplaySnapshot('P2') }
+    // 選單或暫停中的跳躍／攻擊按下不留到戰鬥（手把 A／B 同時是確認／返回與輕踢／重踢）；關閉暫停的那一下也算選單輸入。
+    if (!battling || pausedBefore || this.clock.isPaused()) { this.inputManager.consumeGameplaySnapshot(); this.inputManager.consumeGameplaySnapshot('P2') }
     this.clock.advance(delta)
     if (this.appStateMachine.getCurrentState() === AppState.BATTLE) {
       const alpha = Phaser.Math.Clamp(this.clock.getRemainderMs() / FIXED_STEP_MS, 0, 1)
@@ -222,8 +239,10 @@ export class AppScene extends Phaser.Scene {
     const begin = (): void => { this.appStateMachine.transitionTo(AppState.READY) }
     start.on('pointerup', () => { this.audio?.ui('CONFIRM'); begin() }); board.on('pointerup', () => { this.audio?.ui('CONFIRM'); this.openBoard() })
     this.screen?.add([start, board]); this.register('p0', 'p0-start', start, begin); this.register('p0', 'p0-board', board, () => this.openBoard()); this.ui.focus.activate('p0', 'p0-start')
-    this.screen?.add(this.label(`${keyLabel(this.controls.P1.LIGHT_PUNCH)} / ENTER 確認 · ← → 切換 · P 播放開頭動畫 · C 操作設定`, 960, 960, uiTokens.type.label))
+    this.screen?.add(this.label(`${keyLabel(this.controls.P1.LIGHT_PUNCH)} / ENTER / ${this.padConfirm()} 確認 · ← → 切換 · P 播放開頭動畫 · C / ${padLabel(PAD_SYSTEM.CONTROLS)} 操作設定`, 960, 960, uiTokens.type.label))
   }
+  /** 選單只認 1P：手把確認鍵＝1P 的輕踢鍵（預設 ✕）。 */
+  private padConfirm(): string { return padLabel(this.padProfiles.P1.LIGHT_KICK) }
   /** 首頁排行榜：開啟時才查詢；回應晚於關閉（序號不符）即丟棄。 */
   private openBoard(): void {
     if (this.boardPanel) return
@@ -360,8 +379,9 @@ export class AppScene extends Phaser.Scene {
     const controls = new AngularPanel(this, 1030, 294, uiTokens.colors.panelRaised).setPosition(620, 865)
     controls.add(this.add.text(-465, -120, 'CONTROLS ・ 操作說明', typography.secondaryAction))
     const key = (...actions: CombatAction[]): string => actions.map((action) => keyLabel(this.controls.P1[action])).join(' ')
-    controls.add(this.add.text(475, -112, `${key('CROUCH')} 蹲 · ${key('GUARD')}／← 後退＝防禦 · ${key('PAUSE')} 暫停`, typography.note).setOrigin(1, 0))
-    const bindings = [['MOVE', key('MOVE_LEFT', 'MOVE_RIGHT'), '← →'], ['JUMP', key('JUMP'), '↑'], ['PUNCH', key('LIGHT_PUNCH', 'HEAVY_PUNCH'), 'X Y'], ['KICK', key('LIGHT_KICK', 'HEAVY_KICK'), 'A B']]
+    controls.add(this.add.text(475, -112, `${key('CROUCH')} 蹲 · 按住 ${key('CROUCH')}／← 後退＝防禦 · ${key('PAUSE')} 暫停`, typography.note).setOrigin(1, 0))
+    const padKey = (...actions: CombatAction[]): string => actions.map((action) => padLabel(this.padProfiles.P1[action])).join(' ')
+    const bindings = [['MOVE', key('MOVE_LEFT', 'MOVE_RIGHT'), padKey('MOVE_LEFT', 'MOVE_RIGHT')], ['JUMP', key('JUMP'), padKey('JUMP')], ['PUNCH', key('LIGHT_PUNCH', 'HEAVY_PUNCH'), padKey('LIGHT_PUNCH', 'HEAVY_PUNCH')], ['KICK', key('LIGHT_KICK', 'HEAVY_KICK'), padKey('LIGHT_KICK', 'HEAVY_KICK')]]
     bindings.forEach(([action, keyboard, pad], i) => {
       const x = -455 + (i % 2) * 500, y = -25 + Math.floor(i / 2) * 104
       controls.add(this.add.text(x, y - 35, action, typography.note))
@@ -375,7 +395,7 @@ export class AppScene extends Phaser.Scene {
     loading.add(this.add.rectangle(0, -40, 520, 14, uiTokens.colors.background0))
     this.loadingBar = this.add.rectangle(-260, -40, 520, 14, uiTokens.colors.systemBlue).setOrigin(0, 0.5)
     this.loadingPercent = this.add.text(260, -82, '', typography.note).setOrigin(1, 0.5)
-    this.loadingButton = new ActionButton(this, 'FIGHT!', 440, 92, uiTokens.colors.playerPrimary, 'ENTER / A ・ 開始').setPosition(0, 55).setEnabled(false)
+    this.loadingButton = new ActionButton(this, 'FIGHT!', 440, 92, uiTokens.colors.playerPrimary, `ENTER / ${this.padConfirm()} ・ 開始`).setPosition(0, 55).setEnabled(false)
     const fight = (): void => { if (this.loadingReady) this.appStateMachine.transitionTo(AppState.BATTLE) }
     this.loadingButton.on('pointerup', fight); loading.add([this.loadingBar, this.loadingPercent, this.loadingButton]); root.add(loading)
     this.register('loading', 'loading-fight', this.loadingButton, fight, false); this.updateLoading()
@@ -523,7 +543,7 @@ export class AppScene extends Phaser.Scene {
     panel.add(this.add.text(0, -140, confirmMode ? 'EXIT GAME?' : 'PAUSED', typography.title).setOrigin(0.5))
     if (confirmMode) panel.add(this.add.text(0, -74, '將回到首頁，本局成績不列入排行榜', typography.note).setOrigin(0.5))
     panel.add(this.add.rectangle(0, -92, 560, 1, uiTokens.colors.lineDim, 0.9))
-    panel.add(this.add.text(0, 160, 'ENTER / A 確認 ・ ESC / B 返回', typography.note).setOrigin(0.5))
+    panel.add(this.add.text(0, 160, `ENTER / ${this.padConfirm()} 確認 ・ ESC / ${padLabel(PAD_SYSTEM.BACK)} 返回`, typography.note).setOrigin(0.5))
     const actions = confirmMode ? ['CANCEL', 'CONFIRM'] : ['CONTINUE', 'EXIT']
     actions.forEach((action, index) => {
       const buttonColor = action === 'CONTINUE' || action === 'CONFIRM' ? uiTokens.colors.playerPrimary : uiTokens.colors.panel
@@ -583,7 +603,14 @@ export class AppScene extends Phaser.Scene {
     if (this.attract) { this.stopAttract(); this.attractInputConsumed = true; return }
     this.noteActivity()
     if (event.code === 'KeyP') this.playAttract()
-    else if (event.code === 'KeyC' && !this.attract) this.controlsPanel = new ControlsPanel(this, this.controls, (profiles) => { saveProfiles(profiles); this.inputManager.setCombatBindings(profiles) }, () => { this.closeControls(); this.render(AppState.IDLE) }) // 重繪 P0：提示鍵名跟著新鍵位
+    else if (event.code === 'KeyC' && !this.attract) this.openControls()
+  }
+  /** 鍵盤 C 或 1P 手把 L3 開啟；1P 已擁有手把（L3 開啟時必然如此）就先顯示 GAMEPAD 分頁。 */
+  private openControls(): void {
+    const pad = { profiles: this.padProfiles, onSave: (profiles: PadProfiles) => { savePadProfiles(profiles); this.inputManager.setPadBindings(profiles) }, input: this.inputManager }
+    const device = this.inputManager.padOwner('P1') === undefined ? 'KEYBOARD' : 'GAMEPAD'
+    this.controlsPanel = new ControlsPanel(this, this.controls, (profiles) => { saveProfiles(profiles); this.inputManager.setCombatBindings(profiles) }, pad, () => { this.closeControls(); this.render(AppState.IDLE) }, device) // 重繪 P0：提示鍵名跟著新鍵位
+    this.noteActivity()
   }
   private closeControls(): void { this.controlsPanel?.destroy(); this.controlsPanel = undefined; this.noteActivity() }
   /** 開頭動畫：播完或輸入後回 P0 並重新計算閒置。 */
@@ -604,5 +631,5 @@ export class AppScene extends Phaser.Scene {
     video.pause(); video.removeAttribute('src'); video.load()
     this.attract.destroy(); this.attract = undefined; this.noteActivity()
   }
-  private destroyScene(): void { this.audio?.destroy(); this.audio = undefined; this.stopAttract(); this.closeControls(); this.closeBoard(false); this.input.keyboard?.off('keydown', this.attractKey); this.destroyScreen(); this.input.off('pointermove', this.noteActivity); this.input.off('pointerdown', this.noteActivity); this.combatUnsubscribe?.(); this.unsubscribe?.(); this.clockUnsubscribe?.(); this.uiUnsubscribers.forEach((unsubscribe) => unsubscribe()); this.inputManager.detachKeyboard(); this.clock.stop() }
+  private destroyScene(): void { this.audio?.destroy(); this.audio = undefined; this.stopAttract(); this.closeControls(); this.closeBoard(false); this.input.keyboard?.off('keydown', this.attractKey); window.removeEventListener('gamepadconnected', this.noteActivity); window.removeEventListener('gamepaddisconnected', this.noteActivity); this.destroyScreen(); this.input.off('pointermove', this.noteActivity); this.input.off('pointerdown', this.noteActivity); this.combatUnsubscribe?.(); this.unsubscribe?.(); this.clockUnsubscribe?.(); this.uiUnsubscribers.forEach((unsubscribe) => unsubscribe()); this.inputManager.detachKeyboard(); this.clock.stop() }
 }

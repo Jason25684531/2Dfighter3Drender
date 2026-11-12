@@ -8,6 +8,7 @@ import { isSheetSprite } from '../animation/SheetSpriteManifest'
 import { colorHex, reducedMotion, uiTokens, type UiColorToken } from '../tokens/uiTokens'
 import { typography } from '../tokens/typography'
 import { stopOwnedTweens } from '../tweens'
+import { NAME_KEYS, NameKeyboard } from './NameKeyboard'
 
 export type P1ViewHooks = {
   offline: boolean
@@ -234,6 +235,8 @@ export class P1SelectView {
   private takePhoto?: ActionButton
   private nameHint?: Phaser.GameObjects.Text
   private nameCount?: Phaser.GameObjects.Text
+  private nameKeyboard?: NameKeyboard
+  private keyCells: Phaser.GameObjects.Rectangle[][] = []
   private hint?: Phaser.GameObjects.Text
   private offlineLabel?: Phaser.GameObjects.Text
   private exitPanel?: Phaser.GameObjects.Container
@@ -469,6 +472,7 @@ export class P1SelectView {
       button('BACK', `${id.back} · 返回`, 790, colors.panelRaised, 'BACK')
       this.takePhoto = button('TAKE PHOTO', `${id.confirm} · 拍照`, 1130, id.main, 'CONFIRM')
       this.nameHint = label(scene, 960, 856, 'ENTER A NAME FIRST · 請先輸入名稱', 'danger').setOrigin(0.5); root.add(this.nameHint)
+      this.buildNameKeyboard(owner)
       this.refreshName(owner)
     } else if (model.phase === 'REVIEW') {
       if (player.photo) {
@@ -526,6 +530,40 @@ export class P1SelectView {
     const element = this.scene.add.dom(960, 392, input)
     input.focus()
     return element
+  }
+
+  /** 手把在拍照頁：方向選字、確認輸入。選到 OK 或不在拍照頁時回傳 false，讓確認照常拍照。 */
+  nameKey(owner: PlayerSlotId, action: OwnedUiAction): boolean {
+    const keyboard = this.nameKeyboard
+    if (!keyboard || this.model.phase !== 'CUSTOMIZE' || owner !== this.model.owner) return false
+    if (keyboard.move(action)) { this.paintKeys(); return true }
+    const name = action === 'CONFIRM' ? keyboard.type(this.model.player(owner).nickname, NICKNAME_MAX) : undefined
+    if (name === undefined) return false
+    const input = this.nameInput?.node as HTMLInputElement | undefined
+    if (input) input.value = name
+    this.hooks.onNickname(owner, name); this.refreshName(owner)
+    return true
+  }
+
+  private buildNameKeyboard(owner: PlayerSlotId): void {
+    const { scene, root } = this, keyboard = this.nameKeyboard = new NameKeyboard()
+    root.add(label(scene, 1400, 456, 'STICK KEYBOARD · 搖桿選字 ✕ 輸入 · 選 OK 拍照', 'textSecondary').setOrigin(0, 0.5))
+    this.keyCells = NAME_KEYS.map((keys, r) => keys.map((key, c) => {
+      const width = keys.length === 3 ? 152 : 44, x = 1400 + c * (width + 4) + width / 2, y = 500 + r * 52
+      const cell = scene.add.rectangle(x, y, width, 46, colors.background1).setStrokeStyle(2, colors.lineDim).setInteractive({ useHandCursor: true })
+      cell.on('pointerup', () => { keyboard.row = r; keyboard.col = c; this.paintKeys(); if (!this.nameKey(owner, 'CONFIRM')) this.hooks.onInput(owner, 'CONFIRM') })
+      root.add([cell, label(scene, x, y, key, 'textPrimary', type.body).setOrigin(0.5)])
+      return cell
+    }))
+    this.paintKeys()
+  }
+
+  private paintKeys(): void {
+    const keyboard = this.nameKeyboard
+    this.keyCells.forEach((row, r) => row.forEach((cell, c) => {
+      const on = keyboard?.row === r && keyboard.col === c
+      cell.setFillStyle(on ? colors.systemBlue : colors.background1).setStrokeStyle(2, on ? colors.lineBright : colors.lineDim)
+    }))
   }
 
   private refreshName(owner: PlayerSlotId): void {

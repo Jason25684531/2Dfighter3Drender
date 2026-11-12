@@ -1,7 +1,7 @@
 import type { OwnedUiAction, PlayerSlotId } from './InputManager'
 
-// 防禦：按住 GUARD 鍵，或按住後方向。
-export const COMBAT_ACTIONS = ['MOVE_LEFT', 'MOVE_RIGHT', 'JUMP', 'CROUCH', 'LIGHT_PUNCH', 'HEAVY_PUNCH', 'LIGHT_KICK', 'HEAVY_KICK', 'GUARD', 'PAUSE'] as const
+// 沒有獨立防禦鍵：按住下（CROUCH）或後方向即防禦。
+export const COMBAT_ACTIONS = ['MOVE_LEFT', 'MOVE_RIGHT', 'JUMP', 'CROUCH', 'LIGHT_PUNCH', 'HEAVY_PUNCH', 'LIGHT_KICK', 'HEAVY_KICK', 'PAUSE'] as const
 export type CombatAction = (typeof COMBAT_ACTIONS)[number]
 export type AttackAction = Extract<CombatAction, 'LIGHT_PUNCH' | 'HEAVY_PUNCH' | 'LIGHT_KICK' | 'HEAVY_KICK'>
 export const ATTACK_ACTIONS: readonly AttackAction[] = ['LIGHT_PUNCH', 'HEAVY_PUNCH', 'LIGHT_KICK', 'HEAVY_KICK']
@@ -10,8 +10,8 @@ export type ControlProfiles = Record<PlayerSlotId, Bindings>
 
 // 以 KeyboardEvent.code 綁定實體鍵位，不受鍵盤語系影響。
 export const DEFAULT_KEYBOARD_BINDINGS: ControlProfiles = {
-  P1: { MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', GUARD: 'KeyC', PAUSE: 'Escape' },
-  P2: { MOVE_LEFT: 'ArrowLeft', MOVE_RIGHT: 'ArrowRight', JUMP: 'ArrowUp', CROUCH: 'ArrowDown', LIGHT_PUNCH: 'Numpad1', HEAVY_PUNCH: 'Numpad2', LIGHT_KICK: 'Numpad4', HEAVY_KICK: 'Numpad5', GUARD: 'Numpad3', PAUSE: 'Escape' },
+  P1: { MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', PAUSE: 'Escape' },
+  P2: { MOVE_LEFT: 'ArrowLeft', MOVE_RIGHT: 'ArrowRight', JUMP: 'ArrowUp', CROUCH: 'ArrowDown', LIGHT_PUNCH: 'Numpad1', HEAVY_PUNCH: 'Numpad2', LIGHT_KICK: 'Numpad4', HEAVY_KICK: 'Numpad5', PAUSE: 'Escape' },
 }
 export const CONTROLS_STORAGE_KEY = 'exp2.controls.v3'
 
@@ -29,7 +29,6 @@ export const crossConflict = (profiles: ControlProfiles, player: PlayerSlotId, a
   return COMBAT_ACTIONS.some((candidate) => theirs[candidate] === code) || menuKeys(theirs, other).BACK.includes(code) ? other : undefined
 }
 const crossClean = (profiles: ControlProfiles): boolean => (['P1', 'P2'] as const).every((id) => COMBAT_ACTIONS.every((action) => !crossConflict(profiles, id, action, profiles[id][action])))
-const usedBy = (code: string, owner: PlayerSlotId): string => `${keyLabel(code)} IS USED BY PLAYER ${owner.slice(1)}`
 
 export const actionLabel = (action: CombatAction): string => action.replace('_', ' ')
 const symbols: Record<string, string> = {
@@ -39,12 +38,12 @@ const symbols: Record<string, string> = {
 export const keyLabel = (code: string): string => symbols[code] ?? code.replace(/^Key|^Digit/, '').replace(/^Numpad/, 'NUM ').toUpperCase()
 
 /** 組合操作（唯讀）：由目前綁定推導，不能單獨改鍵。 */
-export const combinationRows = (bindings: Bindings): { label: string; keys: string }[] => {
-  const attacks = ATTACK_ACTIONS.map((action) => keyLabel(bindings[action])).join(' / ')
+export const combinationRows = (bindings: Record<CombatAction, string>, label: (code: string) => string = keyLabel): { label: string; keys: string }[] => {
+  const attacks = ATTACK_ACTIONS.map((action) => label(bindings[action])).join(' / ')
   return [
-    { label: 'CROUCH ATTACK 蹲攻擊', keys: `${keyLabel(bindings.CROUCH)} + ${attacks}` },
-    { label: 'AIR ATTACK 空中攻擊', keys: `${keyLabel(bindings.JUMP)} + ${attacks}` },
-    { label: 'GUARD 防禦', keys: `${keyLabel(bindings.GUARD)} / HOLD BACK ${keyLabel(bindings.MOVE_LEFT)} / ${keyLabel(bindings.MOVE_RIGHT)}` },
+    { label: 'CROUCH ATTACK 蹲攻擊', keys: `${label(bindings.CROUCH)} + ${attacks}` },
+    { label: 'AIR ATTACK 空中攻擊', keys: `${label(bindings.JUMP)} + ${attacks}` },
+    { label: 'GUARD 防禦', keys: `HOLD ${label(bindings.CROUCH)} / HOLD BACK ${label(bindings.MOVE_LEFT)} / ${label(bindings.MOVE_RIGHT)}` },
   ]
 }
 
@@ -62,14 +61,18 @@ const validBindings = (value: unknown): value is Bindings => {
 }
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>
-const browserStore = (): Store | undefined => { try { return globalThis.localStorage } catch { return undefined } }
+export const browserStore = (): Store | undefined => { try { return globalThis.localStorage } catch { return undefined } }
 
-/** 缺少、損壞、版本不符或無效時，該玩家退回預設；舊存檔缺的新動作（如 GUARD）以預設補齊；兩人鍵位互撞時先退 2P、仍撞再退 1P。 */
+/** 缺少、損壞、版本不符或無效時，該玩家退回預設；舊存檔缺的動作以預設補齊、已移除的動作（GUARD）丟棄；兩人鍵位互撞時先退 2P、仍撞再退 1P。 */
 export const loadProfiles = (store = browserStore()): ControlProfiles => {
   let saved: { version?: unknown; profiles?: Partial<Record<PlayerSlotId, unknown>> } = {}
   try { saved = JSON.parse(store?.getItem(CONTROLS_STORAGE_KEY) ?? '{}') ?? {} } catch { /* 損壞 → 預設 */ }
   const profiles = saved.version === 3 ? saved.profiles ?? {} : {}
-  const pick = (id: PlayerSlotId): Bindings => { const merged = { ...DEFAULT_KEYBOARD_BINDINGS[id], ...(profiles[id] && typeof profiles[id] === 'object' ? profiles[id] : {}) }; return validBindings(merged) ? merged : { ...DEFAULT_KEYBOARD_BINDINGS[id] } }
+  const pick = (id: PlayerSlotId): Bindings => {
+    const stored = (profiles[id] && typeof profiles[id] === 'object' ? profiles[id] : {}) as Record<string, unknown>
+    const merged = Object.fromEntries(COMBAT_ACTIONS.map((action) => [action, stored[action] ?? DEFAULT_KEYBOARD_BINDINGS[id][action]]))
+    return validBindings(merged) ? merged : { ...DEFAULT_KEYBOARD_BINDINGS[id] }
+  }
   const loaded = { P1: pick('P1'), P2: pick('P2') }
   if (crossClean(loaded)) return loaded
   const p2Default = { P1: loaded.P1, P2: { ...DEFAULT_KEYBOARD_BINDINGS.P2 } }
@@ -84,15 +87,25 @@ export const saveProfiles = (profiles: ControlProfiles, store = browserStore()):
 export type EditorState = 'SELECT_BINDING' | 'LISTENING_FOR_KEY' | 'CONFLICT' | 'CONFIRM_RESET'
 export const RESET_ROW = COMBAT_ACTIONS.length
 
+type Profiles<C extends string> = Record<PlayerSlotId, Record<CombatAction, C>>
+/** 鍵碼規則：鍵盤與手把共用同一個改鍵狀態機，只換驗證、標籤、預設值與跨玩家檢查。 */
+export type KeyRules<C extends string> = {
+  problem: (code: string) => string | undefined
+  label: (code: string) => string
+  defaults: Profiles<C>
+  cross?: (profiles: Profiles<C>, player: PlayerSlotId, action: CombatAction, code: C) => PlayerSlotId | undefined
+}
+export const KEYBOARD_RULES: KeyRules<string> = { problem: keyProblem, label: keyLabel, defaults: DEFAULT_KEYBOARD_BINDINGS, cross: crossConflict }
+
 /** 改鍵 UI 的狀態機；只改 profiles，存檔與套用由 onSave 決定。 */
-export class ControlsEditor {
+export class ControlsEditor<C extends string = string> {
   state: EditorState = 'SELECT_BINDING'
   focus = 0
   choice = 0 // 對話框：0 = SWAP／RESET（預設），1 = CANCEL
   message = ''
-  conflict?: { action: CombatAction; code: string; other: CombatAction }
-  constructor(readonly profiles: ControlProfiles, private readonly onSave: (profiles: ControlProfiles) => void, readonly player: PlayerSlotId = 'P1') {}
-  get bindings(): Bindings { return this.profiles[this.player] }
+  conflict?: { action: CombatAction; code: C; other: CombatAction }
+  constructor(readonly profiles: Profiles<C>, private readonly onSave: (profiles: Profiles<C>) => void, readonly player: PlayerSlotId = 'P1', readonly rules: KeyRules<C> = KEYBOARD_RULES as unknown as KeyRules<C>) {}
+  get bindings(): Record<CombatAction, C> { return this.profiles[this.player] }
 
   move(delta: number): void {
     if (this.state === 'SELECT_BINDING') this.focus = (this.focus + delta + RESET_ROW + 1) % (RESET_ROW + 1)
@@ -104,15 +117,15 @@ export class ControlsEditor {
     else if (this.state === 'CONFIRM_RESET') { if (this.choice === 0) this.reset(); else this.state = 'SELECT_BINDING' }
   }
   /** LISTENING 時：Escape 取消；其他鍵驗證後套用、衝突或拒絕。 */
-  capture(code: string): void {
+  capture(input: string): void {
     if (this.state !== 'LISTENING_FOR_KEY') return
-    if (code === 'Escape') { this.state = 'SELECT_BINDING'; this.message = 'CANCELLED'; return }
-    const problem = keyProblem(code)
+    if (input === 'Escape') { this.state = 'SELECT_BINDING'; this.message = 'CANCELLED'; return }
+    const problem = this.rules.problem(input)
     if (problem) { this.message = problem; return }
-    const action = COMBAT_ACTIONS[this.focus], owner = crossConflict(this.profiles, this.player, action, code)
-    if (owner) { this.message = usedBy(code, owner); return }
+    const code = input as C, action = COMBAT_ACTIONS[this.focus], owner = this.rules.cross?.(this.profiles, this.player, action, code)
+    if (owner) { this.message = this.usedBy(code, owner); return }
     const other = COMBAT_ACTIONS.find((candidate) => candidate !== action && this.bindings[candidate] === code)
-    if (other) { this.conflict = { action, code, other }; this.choice = 0; this.state = 'CONFLICT'; this.message = `${keyLabel(code)} IS ALREADY ASSIGNED TO ${actionLabel(other)}`; return }
+    if (other) { this.conflict = { action, code, other }; this.choice = 0; this.state = 'CONFLICT'; this.message = `${this.rules.label(code)} IS ALREADY ASSIGNED TO ${actionLabel(other)}`; return }
     this.bindings[action] = code; this.save('SAVED')
   }
   /** BACK：取消子狀態；已在列表時回傳 true 代表關閉面板。 */
@@ -122,6 +135,7 @@ export class ControlsEditor {
     else this.cancelDialog()
     return false
   }
+  private usedBy(code: string, owner: PlayerSlotId): string { return `${this.rules.label(code)} IS USED BY PLAYER ${owner.slice(1)}` }
   private resolveConflict(swap: boolean): void {
     const conflict = this.conflict
     if (!conflict || !swap) { this.cancelDialog(); return }
@@ -131,9 +145,9 @@ export class ControlsEditor {
   }
   /** 重設會撞到另一位玩家的鍵時拒絕，綁定不變。 */
   private reset(): void {
-    const defaults = DEFAULT_KEYBOARD_BINDINGS[this.player], next = { ...this.profiles, [this.player]: defaults }
-    const action = COMBAT_ACTIONS.find((candidate) => crossConflict(next, this.player, candidate, defaults[candidate]))
-    if (action) { this.state = 'SELECT_BINDING'; this.message = usedBy(defaults[action], otherPlayer(this.player)); return }
+    const defaults = this.rules.defaults[this.player], next = { ...this.profiles, [this.player]: defaults }
+    const action = COMBAT_ACTIONS.find((candidate) => this.rules.cross?.(next, this.player, candidate, defaults[candidate]))
+    if (action) { this.state = 'SELECT_BINDING'; this.message = this.usedBy(defaults[action], otherPlayer(this.player)); return }
     Object.assign(this.bindings, defaults); this.save('RESET TO DEFAULT')
   }
   private cancelDialog(): void { this.conflict = undefined; this.state = 'SELECT_BINDING'; this.message = 'CANCELLED' }

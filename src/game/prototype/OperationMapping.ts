@@ -16,9 +16,9 @@ export function resolveDemo(held: ReadonlySet<string>, facing: 'LEFT' | 'RIGHT',
     if (down('CROUCH')) return punch ? 'PUNCH_CROUCH' : 'KICK_CROUCH'
     return punch ? down('HEAVY_PUNCH') ? 'PUNCH_HEAVY' : 'PUNCH_LIGHT' : down('HEAVY_KICK') ? 'KICK_HEAVY' : 'KICK_LIGHT'
   }
-  if (down('GUARD')) return 'BLOCK'
+  // 按住下＝防禦，與戰鬥一致（地面防禦優先於跳）；BLOCK 與 CROUCH 都用蹲姿圖。
+  if (down('CROUCH')) return 'BLOCK'
   if (down('JUMP')) return 'JUMP'
-  if (down('CROUCH')) return 'CROUCH'
   const direction = Number(down('MOVE_RIGHT')) - Number(down('MOVE_LEFT'))
   if (direction === (facing === 'RIGHT' ? -1 : 1)) return 'BLOCK'
   return direction ? 'MOVE' : 'IDLE'

@@ -11,6 +11,8 @@ describe('隔離操作展示', () => {
     expect(resolveDemo(new Set(['KeyZ']), 'RIGHT', { ...combatMapping.P1, LIGHT_KICK: 'KeyZ' })).toBe('KICK_LIGHT')
     expect(resolveDemo(new Set(['KeyA']), 'RIGHT', combatMapping.P1)).toBe('BLOCK')
     expect(resolveDemo(new Set(['KeyA']), 'LEFT', combatMapping.P1)).toBe('MOVE')
+    expect(resolveDemo(new Set(['KeyS']), 'RIGHT', combatMapping.P1)).toBe('BLOCK')
+    expect(resolveDemo(new Set(['KeyC']), 'RIGHT', combatMapping.P1)).toBe('IDLE')
   })
   it('空中、蹲姿與拳腳語意不同', () => {
     for (const [modifier, attack, result] of [['KeyW', 'KeyF', 'PUNCH_AIR'], ['KeyS', 'KeyU', 'PUNCH_CROUCH'], ['KeyW', 'KeyI', 'KICK_AIR'], ['KeyS', 'KeyG', 'KICK_CROUCH']])
