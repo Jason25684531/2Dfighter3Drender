@@ -13,10 +13,11 @@ export type P1Phase = 'GRID' | 'OPPONENT' | 'DIFFICULTY' | 'CUSTOMIZE' | 'REVIEW
 export type GenerationState = 'PHOTO_CONFIRMED' | 'REQUESTING' | 'PROCESSING' | 'API_READY' | 'DOWNLOADING' | 'DECODED' | 'RUNTIME_READY' | 'FAILED'
 export type PlayerStatus = 'JOIN' | 'SELECTING' | 'READY' | 'WAITING' | 'CUSTOMIZE' | 'OPPONENT' | 'DIFFICULTY' | 'CPU_READY'
 export type OpponentChoice = { characterId: string; difficulty: AiProfileId }
-export type SelectFeedback = 'REJECTED' | 'JOIN_HINT' | 'NAME_REQUIRED'
+export type SelectFeedback = 'REJECTED' | 'JOIN_HINT' | 'NAME_REQUIRED' | 'FACE_GENERATION_USED'
 export type SelectionInputResult = SelectFeedback | 'CONFIRMED'
 // photo：本機擷取的 dataURL，只存在記憶體、不進 result()／API。
-type PlayerState = { joined: boolean; cursor: number; locked?: number; nickname: string; customized: boolean; generation?: GenerationState; photo?: string }
+type PlayerState = { joined: boolean; cursor: number; locked?: number; nickname: string; customized: boolean; faceGenUsed?: boolean; generation?: GenerationState; photo?: string }
+export type P1SelectionSeed = { players?: Partial<Record<PlayerSlotId, PlayerSelection>>; faceGenUsed?: Partial<Record<PlayerSlotId, boolean>> }
 
 const players: readonly PlayerSlotId[] = ['P1', 'P2']
 
@@ -60,7 +61,19 @@ export class P1SelectionModel {
     P2: { joined: false, cursor: 6, nickname: '', customized: false },
   }
 
-  constructor(entries?: readonly CharacterEntry[]) { this.slots = buildSlots(entries) }
+  constructor(entries?: readonly CharacterEntry[], seed: P1SelectionSeed = {}) {
+    this.slots = buildSlots(entries)
+    players.forEach((id) => {
+      const saved = seed.players?.[id], state = this.state[id]
+      state.faceGenUsed = Boolean(seed.faceGenUsed?.[id])
+      if (saved) {
+        const cursor = this.slots.findIndex((slot) => slot.entry?.id === saved.characterId)
+        if (cursor >= 0) state.cursor = cursor + 1
+        state.nickname = saved.nickname ?? ''
+        if (id === 'P2') state.joined = true
+      }
+    })
+  }
 
   player(id: PlayerSlotId): Readonly<PlayerState> { return this.state[id] }
   slot(index: number): Slot { return this.slots[index - 1] }
@@ -91,15 +104,18 @@ export class P1SelectionModel {
   input(id: PlayerSlotId, action: OwnedUiAction): SelectionInputResult | undefined {
     if (this.phase === 'FAILED') {
       if (id === this.owner && action === 'BACK') this.abortCustomize()
-      else if (id === this.owner && action === 'CONFIRM') { this.state[id].generation = 'PHOTO_CONFIRMED'; this.phase = 'PROCESSING'; return 'CONFIRMED' }
+      else if (id === this.owner && action === 'CONFIRM') return 'FACE_GENERATION_USED'
       return undefined
     }
     if (this.phase === 'PROCESSING') return undefined
     if (this.phase === 'CUSTOMIZE' || this.phase === 'REVIEW') {
       if (id !== this.owner) return undefined
-      if (this.phase === 'CUSTOMIZE' && action === 'CONFIRM') { if (!this.nicknameValid(id)) return 'NAME_REQUIRED'; this.phase = 'REVIEW'; return 'CONFIRMED' }
+      if (this.phase === 'CUSTOMIZE' && action === 'CONFIRM') { if (this.state[id].faceGenUsed) return 'FACE_GENERATION_USED'; if (!this.nicknameValid(id)) return 'NAME_REQUIRED'; this.phase = 'REVIEW'; return 'CONFIRMED' }
       else if (this.phase === 'CUSTOMIZE' && action === 'BACK') this.abortCustomize()
-      else if (this.phase === 'REVIEW' && action === 'CONFIRM') { this.state[id].generation = 'PHOTO_CONFIRMED'; this.phase = 'PROCESSING'; return 'CONFIRMED' }
+      else if (this.phase === 'REVIEW' && action === 'CONFIRM') {
+        if (this.state[id].faceGenUsed) return 'FACE_GENERATION_USED'
+        this.state[id].faceGenUsed = true; this.state[id].generation = 'PHOTO_CONFIRMED'; this.phase = 'PROCESSING'; return 'CONFIRMED'
+      }
       else if (this.phase === 'REVIEW' && action === 'BACK') this.phase = 'CUSTOMIZE'
       return undefined
     }
@@ -152,7 +168,8 @@ export class P1SelectionModel {
   result(): Partial<Record<PlayerSlotId, PlayerSelection>> {
     return Object.fromEntries(players.filter((id) => this.isReady(id)).map((id) => {
       const entry = this.slot(this.state[id].locked as number).entry as CharacterEntry
-      return [id, this.isBody(id) ? { characterId: entry.id, nickname: this.state[id].nickname.trim() } : { characterId: entry.id }]
+      const nickname = this.state[id].nickname.trim()
+      return [id, this.isBody(id) || nickname ? { characterId: entry.id, nickname } : { characterId: entry.id }]
     }))
   }
 

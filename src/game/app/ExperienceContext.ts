@@ -5,7 +5,7 @@ export type PersistenceState = 'IDLE' | 'SAVING' | 'SAVED' | 'ERROR'
 export type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 // 1P/2P 選角結果只存前端（D-08）。
 export type PlayerSelection = { characterId: string; nickname?: string }
-export type ExperienceContextData = { players?: Partial<Record<PlayerSlotId, PlayerSelection>>; playerId?: number; sessionId?: number; sessionStatus?: SessionStatus; matchId?: number; persistence: PersistenceState; backendRank?: number | null; selectedStageId?: string }
+export type ExperienceContextData = { players?: Partial<Record<PlayerSlotId, PlayerSelection>>; faceGenUsed?: Partial<Record<PlayerSlotId, boolean>>; playerId?: number; sessionId?: number; sessionStatus?: SessionStatus; matchId?: number; persistence: PersistenceState; backendRank?: number | null; selectedStageId?: string }
 
 export class ExperienceContext {
   static readonly key = 'exp2.session'

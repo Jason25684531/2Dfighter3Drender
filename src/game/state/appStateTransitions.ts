@@ -8,7 +8,7 @@ export const appStateTransitions: Readonly<Record<AppStateValue, readonly AppSta
   [AppState.BATTLE]: [AppState.PRESENTATION, AppState.IDLE],
   [AppState.PRESENTATION]: [AppState.RESULT, AppState.IDLE],
   [AppState.RESULT]: [AppState.END, AppState.IDLE],
-  [AppState.END]: [AppState.SETUP, AppState.IDLE],
+  [AppState.END]: [AppState.READY, AppState.IDLE],
 }
 
 export const backRoutes: Partial<Record<AppStateValue, AppStateValue>> = {

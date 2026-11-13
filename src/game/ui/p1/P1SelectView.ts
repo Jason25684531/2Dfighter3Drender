@@ -342,6 +342,7 @@ export class P1SelectView {
   }
 
   feedback(owner: PlayerSlotId, feedback: SelectFeedback): void {
+    if (feedback === 'FACE_GENERATION_USED') { this.nameHint?.setText('FACE GENERATION USED · 已使用本次換臉額度').setVisible(true) }
     if (feedback === 'REJECTED') {
       const rival = owner === 'P1' ? this.model.rival : undefined // 單人選對手時被拒絕的是對手游標
       this.cursors[rival ? 'P2' : owner]?.shake()
@@ -479,7 +480,8 @@ export class P1SelectView {
       this.nameCount = label(scene, 1280, 352, '', 'textSecondary').setOrigin(1, 0.5); root.add(this.nameCount)
       this.nameInput = this.createNameInput(owner, player.nickname)
       button('BACK', `${id.back} · 返回`, 790, colors.panelRaised, 'BACK')
-      this.takePhoto = button('TAKE PHOTO', `${id.confirm} · 拍照`, 1130, id.main, 'CONFIRM')
+      this.takePhoto = button('TAKE PHOTO', `${id.confirm} · 拍照`, 1130, id.main, 'CONFIRM').setEnabled(!player.faceGenUsed)
+      if (player.faceGenUsed) root.add(label(scene, 960, 856, 'FACE GENERATION USED · 已使用本次換臉額度', 'textSecondary').setOrigin(0.5))
       const skip = new ActionButton(scene, 'SKIP PHOTO', 300, 58, colors.panelRaised, '輕攻擊 · 跳過拍照').setPosition(960, 1020)
       skip.on('pointerup', () => this.hooks.onSkip?.()); root.add(skip)
       this.nameHint = label(scene, 960, 856, 'ENTER A NAME FIRST · 請先輸入名稱', 'danger').setOrigin(0.5); root.add(this.nameHint)
@@ -500,9 +502,9 @@ export class P1SelectView {
       button('CONFIRM', `${id.confirm} · 確認`, 1130, id.main, 'CONFIRM')
     } else if (model.phase === 'FAILED') {
       root.add(label(scene, 960, 600, 'GENERATION FAILED', 'danger', type.h2).setOrigin(0.5))
-      root.add(label(scene, 960, 680, '處理未完成，請重試或重新選角', 'textPrimary', type.body).setOrigin(0.5))
+      root.add(label(scene, 960, 680, '本次生成已送出，不能重試；請返回選角', 'textPrimary', type.body).setOrigin(0.5))
       button('CHOOSE ANOTHER', `${id.back} · 返回選角`, 790, colors.panelRaised, 'BACK')
-      button('RETRY', `${id.confirm} · 重試`, 1130, id.main, 'CONFIRM')
+      button('USED', `${id.confirm} · 已送出`, 1130, id.main, 'CONFIRM').setEnabled(false)
     } else {
       this.buildProcessing(slot, player.nickname.trim())
     }

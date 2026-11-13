@@ -3,6 +3,7 @@ import { ApiError } from '../api/ApiError'
 import type { LeaderboardEntry, Match, RoundCreate } from '../api/ApiTypes'
 import type { MatchResult } from '../match/ResultResolver'
 import type { RoundSummary } from '../match/MatchController'
+import type { PlayerSlotId } from '../input/InputManager'
 import { ExperienceContext, type StorageLike } from './ExperienceContext'
 
 type PendingOperation = { key: string; run: () => Promise<void> }
@@ -37,7 +38,7 @@ export class ExperiencePersistence {
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 404) throw error
       }
-      this.context.set({ playerId: undefined, sessionId: undefined, sessionStatus: undefined, matchId: undefined, backendRank: undefined, persistence: 'IDLE' })
+      this.context.set({ playerId: undefined, sessionId: undefined, sessionStatus: undefined, matchId: undefined, backendRank: undefined, faceGenUsed: undefined, persistence: 'IDLE' })
       this.storage?.removeItem(ExperienceContext.key)
       this.playerRequestId = undefined; this.sessionRequestId = undefined; this.queueRequestId = undefined; this.sessionFinishRequestId = undefined
     }
@@ -138,7 +139,11 @@ export class ExperiencePersistence {
 
   async leaderboard(limit = 20): Promise<LeaderboardEntry[]> { try { const rows = await this.api.leaderboard(limit); this.lastLeaderboardOk = true; return rows } catch { this.lastLeaderboardOk = false; return [] } }
   async nextQueuedPlayer(): Promise<string | undefined> { try { const next = (await this.api.queue())[0]; return next ? (await this.api.getPlayer(next.player_id)).nickname : undefined } catch { return undefined } }
-  resetMatch(): void { this.context.set({ matchId: undefined, backendRank: undefined, persistence: 'IDLE' }); this.attemptId = undefined; this.matchPromise = undefined; this.finishRequestId = undefined; this.queuedRounds.clear(); this.pending = this.pending.filter((operation) => !operation.key.startsWith('match:') && !operation.key.startsWith('rounds:') && !operation.key.startsWith('finish:')) }
+  markFaceGenUsed(player: PlayerSlotId): boolean {
+    if (this.context.snapshot.faceGenUsed?.[player]) return false
+    this.context.set({ faceGenUsed: { ...this.context.snapshot.faceGenUsed, [player]: true } }); this.persist(); return true
+  }
+  resetMatch(): void { this.context.set({ matchId: undefined, backendRank: undefined, persistence: 'IDLE' }); this.persist(); this.attemptId = undefined; this.matchPromise = undefined; this.finishRequestId = undefined; this.queuedRounds.clear(); this.pending = this.pending.filter((operation) => !operation.key.startsWith('match:') && !operation.key.startsWith('rounds:') && !operation.key.startsWith('finish:')) }
   clear(): void { this.storage ? this.context.remove(this.storage) : this.context.clear(); this.attemptId = undefined; this.matchPromise = undefined; this.finishRequestId = undefined; this.sessionFinishRequestId = undefined; this.playerRequestId = undefined; this.sessionRequestId = undefined; this.queueRequestId = undefined; this.queuedRounds.clear(); this.pending = [] }
 
   private enqueue(operation: PendingOperation): Promise<void> {

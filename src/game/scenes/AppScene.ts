@@ -114,7 +114,7 @@ export class AppScene extends Phaser.Scene {
       }
       if (previousState === AppState.BATTLE && nextState !== AppState.PRESENTATION) this.audio?.stopLoop()
       if (previousState === AppState.PRESENTATION) this.audio?.stopLoop()
-      if (nextState === AppState.READY) { this.p1Offline = false; this.clearGeneration(); this.generatedEntriesReady = false; void this.refreshGeneratedEntries() }
+      if (nextState === AppState.READY) { this.p1Offline = false; this.p1Model = undefined; this.clearGeneration(); this.generatedEntriesReady = false; void this.refreshGeneratedEntries() }
       if (nextState === AppState.IDLE) this.clearGeneration()
       if (previousState === AppState.READY) this.p1Model = undefined
       this.lastActivity = this.time.now
@@ -201,7 +201,7 @@ export class AppScene extends Phaser.Scene {
       // 暫停選單只屬於 P4；其他畫面的 Escape／M 不開啟選單。
       // 1P 選單鍵（鍵盤跟自訂鍵位，或 1P 的手把）在後續選單同樣有效；2P 的鍵盤與手把都不併入（2P 鍵與未標記鍵重複，會重複觸發）。
       actions.push(...p1Owned)
-      actions.filter((action) => !(visualState === AppState.SETUP && this.stageNav(action))).filter((action) => this.ui.navigation.isOverlayOpen() || battling || (action === 'BACK' && backScreen) || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => { if (!this.ui.navigation.isExitConfirmationOpen() || performance.now() >= this.exitLockedUntil) this.ui.navigation.dispatch(action) })
+      actions.filter((action) => !(visualState === AppState.SETUP && (action === 'BACK' || this.stageNav(action)))).filter((action) => this.ui.navigation.isOverlayOpen() || battling || (action === 'BACK' && backScreen) || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => { if (!this.ui.navigation.isExitConfirmationOpen() || performance.now() >= this.exitLockedUntil) this.ui.navigation.dispatch(action) })
     }
     this.attractInputConsumed = false
     this.checkIdle(_time)
@@ -286,7 +286,7 @@ export class AppScene extends Phaser.Scene {
       this.screen?.add(this.label('載入已生成角色…', 960, 540))
       return
     }
-    this.p1Model ??= new P1SelectionModel([...characterEntries(), ...this.generatedEntries])
+    this.p1Model ??= new P1SelectionModel([...characterEntries(), ...this.generatedEntries], { players: this.flow.players, faceGenUsed: this.persistence?.context.snapshot.faceGenUsed })
     this.p1View = new P1SelectView(this, this.screen as Phaser.GameObjects.Container, this.p1Model, {
       offline: this.p1Offline || this.persistence?.lastLeaderboardOk === false,
       onInput: (owner, action) => this.p1Input(owner, action),
@@ -299,9 +299,12 @@ export class AppScene extends Phaser.Scene {
   private p1Input(owner: PlayerSlotId, action: OwnedUiAction): void {
     if (this.p1View?.exitOpen) return
     this.noteActivity()
+    const model = this.p1Model, phase = model?.phase
+    if (phase === 'CUSTOMIZE' && model?.owner === owner && action === 'CONFIRM' && model.player(owner).faceGenUsed) { this.p1View?.feedback(owner, 'FACE_GENERATION_USED'); return }
     this.p1View?.captureOnConfirm(owner, action)
-    if (this.p1Model?.phase === 'CUSTOMIZE' && this.p1Model.owner === owner && action === 'CONFIRM' && this.p1Model.nicknameValid(owner) && !this.p1Model.player(owner).photo) { this.p1View?.cameraUnavailable(); return }
+    if (phase === 'CUSTOMIZE' && model?.owner === owner && action === 'CONFIRM' && model.nicknameValid(owner) && !model.player(owner).photo) { this.p1View?.cameraUnavailable(); return }
     const result = this.p1Model?.input(owner, action)
+    if (phase === 'REVIEW' && result === 'CONFIRMED') this.persistence?.markFaceGenUsed(owner)
     if (this.generation[owner] && this.p1Model?.player(owner).locked === undefined) {
       this.generation[owner]?.controller.abort(); delete this.generation[owner]
     }
@@ -347,7 +350,12 @@ export class AppScene extends Phaser.Scene {
     this.generation[owner]?.controller.abort()
     const job: { name: string; template: number; photo: string; state: 'processing' | 'ready' | 'failed'; controller: AbortController; assetId?: string } = { name, template, photo, state: 'processing', controller: new AbortController() }
     this.generation[owner] = job
-    void generateCharacter(this, name, template, photo, job.controller.signal).then((assetId) => { job.assetId = assetId; job.state = 'ready' }, () => { if (!job.controller.signal.aborted) job.state = 'failed' })
+    void generateCharacter(this, name, template, photo, job.controller.signal).then((assetId) => {
+      if (this.generation[owner] !== job) return
+      job.assetId = assetId; job.state = 'ready'
+      const selected = this.flow.players[owner]
+      if (selected?.characterId === `body-0${template}`) this.flow.setPlayers({ ...this.flow.players, [owner]: { ...selected, characterId: `generated-${assetId}` } })
+    }, () => { if (!job.controller.signal.aborted) job.state = 'failed' })
   }
   /** Customize 各步驟是 P1 substate：切換時整頁重建，其餘只同步常駐物件。 */
   private syncP1(): void {
@@ -358,6 +366,7 @@ export class AppScene extends Phaser.Scene {
   private confirmPlayers(): void {
     const players = this.p1Model?.result() ?? {}
     if (!players.P1 || this.p1Model?.phase !== 'ALL_READY') return
+    ;(['P1', 'P2'] as const).forEach((id) => { const assetId = this.generation[id]?.assetId; if (assetId && players[id]) players[id] = { ...players[id], characterId: `generated-${assetId}` } })
     this.flow.setPlayers(players); this.flow.opponent = this.p1Model.opponent()
     this.applyFaces()
     this.loadSelectedAssets()
@@ -411,7 +420,6 @@ export class AppScene extends Phaser.Scene {
       // 滑鼠點卡＝選取並移到確認；鍵盤焦點即選取，確認鍵直接進 P3。
       card.setInteractive({ useHandCursor: true }).on('pointerup', pick); this.screen?.add(card); this.register('stage', `stage-${stage.id}`, card, () => this.confirmStage())
     })
-    this.addBackButton('stage')
     const confirm = new ActionButton(this, 'CONFIRM', 350, 88, uiTokens.colors.playerPrimary, '確認').setPosition(1610, 952)
     confirm.on('pointerup', () => this.confirmStage()); this.screen?.add(confirm); this.register('stage', 'stage-confirm', confirm, () => this.confirmStage()); this.ui.focus.activate('stage', `stage-${vm.selectedStageId}`)
   }
@@ -470,8 +478,6 @@ export class AppScene extends Phaser.Scene {
     this.loadingPercent = this.add.text(260, -82, '', typography.note).setOrigin(1, 0.5)
     this.loadingButton = new ActionButton(this, 'FIGHT!', 440, 92, uiTokens.colors.playerPrimary, `ENTER / ${this.padConfirm()} ・ 開始`).setPosition(0, 55).setEnabled(false)
     const fight = (): void => {
-      const failed = Object.entries(this.generation).filter(([, job]) => job.state === 'failed') as [PlayerSlotId, NonNullable<typeof this.generation[PlayerSlotId]>][]
-      if (failed.length) { failed.forEach(([owner, job]) => this.startGeneration(owner, job.name, job.template, job.photo)); return }
       if (this.selectedAssetsState === 'failed') { this.loadSelectedAssets(); return }
       if (this.loadingReady) this.appStateMachine.transitionTo(AppState.BATTLE)
     }
@@ -486,13 +492,13 @@ export class AppScene extends Phaser.Scene {
       this.loadingPortraits.add(id)
     })
     const boot = this.scene.get('BootScene').load
-    const jobs = Object.values(this.generation), failed = jobs.some((job) => job.state === 'failed') || this.selectedAssetsState === 'failed'
+    const jobs = Object.values(this.generation), generationFailed = jobs.some((job) => job.state === 'failed'), assetFailed = this.selectedAssetsState === 'failed'
     const busy = boot.isLoading() || this.load.isLoading() || jobs.some((job) => job.state === 'processing') || this.selectedAssetsState === 'loading'
     const progress = busy ? (this.load.isLoading() ? this.load.progress : boot.progress) : 1
-    this.loadingBar?.setScale(busy && jobs.some((job) => job.state === 'processing') ? 0.5 : progress, 1); this.loadingPercent?.setText(failed ? '生成失敗 · 可重試' : busy && jobs.some((job) => job.state === 'processing') ? '角色生成中' : busy ? Math.round(progress * 100) + '%' : 'READY')
-    this.loadingButton.label.setText(failed ? 'RETRY · 重試' : 'FIGHT!')
-    if (this.loadingReady !== (!busy && !failed) || this.loadingButton.input?.enabled !== !busy) {
-      this.loadingReady = !busy && !failed; this.loadingButton.setEnabled(!busy); this.ui.focus.setEnabled('loading', 'loading-fight', !busy)
+    this.loadingBar?.setScale(busy && jobs.some((job) => job.state === 'processing') ? 0.5 : progress, 1); this.loadingPercent?.setText(assetFailed ? '素材載入失敗 · 可重試' : generationFailed ? '生成失敗 · 使用原始角色' : busy && jobs.some((job) => job.state === 'processing') ? '角色生成中' : busy ? Math.round(progress * 100) + '%' : 'READY')
+    this.loadingButton.label.setText(assetFailed ? 'RETRY · 重試' : 'FIGHT!')
+    if (this.loadingReady !== (!busy && !assetFailed) || this.loadingButton.input?.enabled !== (!busy && !assetFailed)) {
+      this.loadingReady = !busy && !assetFailed; this.loadingButton.setEnabled(!busy && !assetFailed); this.ui.focus.setEnabled('loading', 'loading-fight', !busy && !assetFailed)
       this.loadingPulse?.stop(); this.loadingButton.label.setAlpha(1)
       if (!busy) { this.ui.focus.activate('loading', 'loading-fight'); this.loadingPulse = this.addScreenTween({ targets: this.loadingButton.label, alpha: 0.7, duration: 700, yoyo: true, repeat: -1 }) }
     }

@@ -31,6 +31,14 @@ export class ExperienceFlow {
     void this.persistence?.updateSession(players.P1?.characterId ?? null).catch(() => undefined)
   }
 
+  restartMatch(): boolean {
+    if (this.app.getCurrentState() !== AppState.BATTLE) return false
+    this.persistence?.resetMatch(); this.result = undefined; this.nextPlayerName = undefined
+    this.match.start(); this.ui.substates.set(AppState.BATTLE, this.match.getP4SubState())
+    void this.persistence?.beginMatch().catch(() => undefined)
+    return true
+  }
+
   async refreshLeaderboard(): Promise<void> { if (this.persistence) this.leaderboard = await this.persistence.leaderboard() }
 
   /** 2P 已加入時 ENEMY 只吃 p2Intent（沒輸入＝中立），不使用 AI。 */
@@ -57,7 +65,7 @@ export class ExperienceFlow {
     // 任何畫面回 P0 都結束 session；後端會把未完成的對戰標為 ABANDONED。
     if (next === AppState.IDLE) void persistence?.finishSession().catch(() => undefined)
     if (next === AppState.BATTLE) { if (!this.players.P2) this.match.setAiProfile(resolveAiProfile(this.opponent?.difficulty)); this.match.start(); void persistence?.beginMatch().catch(() => undefined) }
-    if (next === AppState.SETUP || next === AppState.IDLE) { this.match.resetMatch(); persistence?.resetMatch(); this.result = undefined; this.nextPlayerName = undefined }
+    if (next === AppState.READY || next === AppState.SETUP || next === AppState.IDLE) { this.match.resetMatch(); persistence?.resetMatch(); this.result = undefined; this.nextPlayerName = undefined }
     if (next === AppState.IDLE) { this.players = {}; this.opponent = undefined }
   }
 }
