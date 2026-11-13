@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import type { FighterSnapshot } from '../../combat/CombatWorld'
 import { uiTokens } from '../tokens/uiTokens'
-import { presentationSheet, resolvePresentation, spriteActionFor, spriteDisplayHeight, spriteFrameFor, spriteOriginY, spriteTextureFrame, spriteTextureKey, type Presentation, type PresentationContext, type SpriteAction, type SpriteId } from './TemporarySpriteManifest'
+import { presentationSheetFor, resolvePresentation, spriteActionFor, spriteDisplayHeight, spriteFrameFor, spriteOriginY, spriteTextureFrame, spriteTextureKey, type Presentation, type PresentationContext, type SpriteAction, type SpriteId } from './TemporarySpriteManifest'
 import { isSheetSprite } from './SheetSpriteManifest'
 import { crouchFrame, HEAD_PX, headPoint, peakFrame } from './SpriteHitTest'
 import type { PlayerSlotId } from '../../input/InputManager'
@@ -52,8 +52,8 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     if (action !== this.action || presentation !== this.presentation || fighter.state !== this.fighterState || (action === 'attack' && fighter.attackId !== this.attackId) || tick < this.actionStartTick) {
       this.action = action; this.fighterState = fighter.state; this.presentation = presentation; this.actionStartTick = tick; this.attackId = fighter.attackId
     }
-    const sheet = presentation && presentationSheet[presentation]
-    const frame = spriteFrameFor(fighter, action, tick - this.actionStartTick, this.spriteId, this.peak(action, sheet))
+    const sheet = presentation && presentationSheetFor(this.spriteId, presentation)
+    const frame = spriteFrameFor(fighter, action, tick - this.actionStartTick, this.spriteId, this.peak(action, sheet), sheet)
     const key = sheet ? `${this.spriteId}-${sheet}` : spriteTextureKey(this.spriteId, action, frame)
     const available = this.spriteId.startsWith('generated') && this.scene.textures.exists(key) ? this.scene.textures.get(key).frameTotal - 1 : 0
     const actualFrame = this.spriteId.startsWith('generated') && available > 0 ? (action === 'idle' || action === 'walk' ? frame % available : Math.min(frame, available - 1)) : frame
@@ -74,7 +74,7 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private peak(action: SpriteAction, sheet?: string): number | undefined {
     if (!sheet) return undefined
     const key = `${this.spriteId}-${sheet}`
-    return action === 'attack' ? peakFrame(this.scene, key) : action === 'guard' ? crouchFrame(this.scene, key) : undefined
+    return action === 'attack' ? peakFrame(this.scene, key) : action === 'guard' && sheet === 'crouch' ? crouchFrame(this.scene, key) : undefined
   }
 
   /** 命中判定用：攻擊中依 snapshot 算當下影格（與 update 同規則，招式鎖定），其餘用目前顯示的影格。 */
@@ -84,7 +84,7 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     const scale = displayHeight(id) / image.height, originY = spriteOriginY(id)
     if (spriteActionFor(fighter, context) !== 'attack') return { key: image.texture.key, frame: image.frame.name, scale, originY }
     const presentation = !isSheetSprite(id) ? undefined : fighter.attackId === this.attackId && this.action === 'attack' ? this.presentation : resolvePresentation(fighter, context)
-    const sheet = presentation && presentationSheet[presentation], frame = spriteFrameFor(fighter, 'attack', 0, id, this.peak('attack', sheet))
+    const sheet = presentation && presentationSheetFor(this.spriteId, presentation), frame = spriteFrameFor(fighter, 'attack', 0, id, this.peak('attack', sheet), sheet)
     return { key: sheet ? `${id}-${sheet}` : spriteTextureKey(id, 'attack', frame), frame: spriteTextureFrame(id, frame) ?? image.frame.name, scale, originY }
   }
 

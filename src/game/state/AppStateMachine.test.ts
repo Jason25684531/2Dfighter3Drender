@@ -8,14 +8,17 @@ const reachEnd = (machine: AppStateMachine): void => {
 }
 
 describe('AppStateMachine', () => {
-  it('allows P2 to P1 and P1 to P0 but rejects P3/P5/P6 backwards transitions', () => {
+  it('blocks P2 back navigation while preserving P1 back and forward workflow transitions', () => {
     const machine = new AppStateMachine()
     machine.transitionTo(AppState.READY); machine.transitionTo(AppState.SETUP)
-    expect(machine.transitionTo(AppState.READY)).toBe(true); expect(machine.transitionTo(AppState.IDLE)).toBe(true)
-    for (const state of [AppState.READY, AppState.SETUP, AppState.LOADING, AppState.BATTLE, AppState.PRESENTATION, AppState.RESULT]) {
-      machine.transitionTo(state)
-      const back = state === AppState.LOADING ? AppState.SETUP : state === AppState.PRESENTATION ? AppState.BATTLE : state === AppState.RESULT ? AppState.PRESENTATION : undefined
-      if (back) { expect(machine.transitionTo(back)).toBe(false); expect(machine.getCurrentState()).toBe(state) }
+    expect(machine.transitionTo(AppState.READY)).toBe(false); expect(machine.transitionTo(AppState.LOADING)).toBe(true)
+    expect(machine.transitionTo(AppState.IDLE)).toBe(true)
+    const p1 = new AppStateMachine(); p1.transitionTo(AppState.READY); expect(p1.transitionTo(AppState.IDLE)).toBe(true)
+    const path = [AppState.READY, AppState.SETUP, AppState.LOADING, AppState.BATTLE, AppState.PRESENTATION, AppState.RESULT]
+    for (const state of path) {
+      const progress = new AppStateMachine(); path.slice(0, path.indexOf(state)).forEach((step) => progress.transitionTo(step)); progress.transitionTo(state)
+      const back = state === AppState.PRESENTATION ? AppState.BATTLE : state === AppState.RESULT ? AppState.PRESENTATION : undefined
+      if (back) { expect(progress.transitionTo(back)).toBe(false); expect(progress.getCurrentState()).toBe(state) }
     }
   })
   it('starts in P0_IDLE', () => {
@@ -40,10 +43,10 @@ describe('AppStateMachine', () => {
     expect(machine.getCurrentState()).toBe(AppState.END)
   })
 
-  it('allows replay from P7 to P2', () => {
+  it('allows replay from P7 to P1', () => {
     const machine = new AppStateMachine()
     reachEnd(machine)
-    expect(machine.transitionTo(AppState.SETUP)).toBe(true)
+    expect(machine.transitionTo(AppState.READY)).toBe(true)
   })
 
   it('allows finish from P7 to P0', () => {

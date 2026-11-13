@@ -1,23 +1,21 @@
 import type { FighterId, FighterSnapshot } from '../../combat/CombatWorld'
-import { isSheetSprite, SHEET_FRAME_COUNT } from './SheetSpriteManifest'
+import { alignedAction, alignedSprite, isSheetSprite, SHEET_FRAME_COUNT } from './SheetSpriteManifest'
 import type { AttackAction } from '../../input/ControlProfile'
 
-export type SpriteId = 'aria' | 'kael' | 'riven' | 'kevin' | 'body01' | 's1aw' | 's2am' | 's2lw' | 's3ww' | `generated-${string}` | 'generated1' | 'generated2'
+export type SpriteId = 'tony' | 'chris' | 'go' | 'se7en' | 'kevin' | 'body01' | 's1aw' | 's2am' | 's2lw' | 's3ww' | `generated-${string}` | 'generated1' | 'generated2'
 // victory 只有 sheet 角色有素材；舊替身角色不載入，畫面停在前一張。
 export type SpriteAction = 'idle' | 'walk' | 'jump' | 'attack' | 'hurt' | 'guard' | 'victory'
 
 const counts: Record<SpriteAction, number> = { idle: 4, walk: 6, jump: 4, attack: 6, hurt: 4, guard: 4, victory: 1 }
-export const spriteIds: readonly SpriteId[] = ['aria', 'kael', 'riven', 'kevin', 'body01', 's1aw', 's2am', 's2lw', 's3ww']
+export const spriteIds: readonly SpriteId[] = ['tony', 'chris', 'go', 'se7en', 'kevin', 'body01', 's1aw', 's2am', 's2lw', 's3ww']
 export const spriteActions: readonly SpriteAction[] = ['idle', 'walk', 'jump', 'attack', 'hurt', 'guard']
 export const spriteTextureKey = (id: SpriteId, action: SpriteAction, frame = 0): string => isSheetSprite(id) ? `${id}-${action}` : `${id}-${action}-${frame + 1}`
 export const spriteTextureFrame = (id: SpriteId | undefined, frame = 0): number | undefined => isSheetSprite(id) ? frame : undefined
-export const spriteFrameUrl = (id: SpriteId, action: SpriteAction, frame: number): string => `/test-assets/characters/${id}/${action}/${id}-${action}-${frame + 1}.png`
-export const spriteFrameCount = (action: SpriteAction): number => counts[action]
 // 256px 共用畫布；Kael／Riven 角色本體約佔滿畫布，縮小至與 Aria 相近的畫面高度。
-export const spriteDisplayHeight = (id: SpriteId): number => id === 'aria' ? 700 : isSheetSprite(id) ? 650 : 520
+export const spriteDisplayHeight = (id: SpriteId): number => isSheetSprite(id) ? 650 : 520
 // character-scale-profile.json 的 ground_reference_y_px／256；body01 與 S1AW／S2AM／S2LW／S3WW 腳底同為 248/256。
 // ponytail: current generated sheets place idle baselines at 838–858/1024; use midpoint, derive it from manifest if templates expand.
-export const spriteOriginY = (id: SpriteId): number => id.startsWith('generated-') ? 848 / 1024 : id === 'aria' ? 240 / 256 : id === 'kevin' ? 117 / 128 : 248 / 256
+export const spriteOriginY = (id: SpriteId): number => alignedSprite(id)?.originY ?? (id.startsWith('generated-') ? 848 / 1024 : id === 'kevin' ? 117 / 128 : 248 / 256)
 
 export const spriteActionFor = (fighter: FighterSnapshot, { outcome }: PresentationContext = {}): SpriteAction => {
   if (outcome === 'WIN') return 'victory'
@@ -36,6 +34,7 @@ export const presentationSheet = {
   PUNCH_AIR: 'punch-jump', PUNCH_CROUCH: 'punch-crouch', KICK_AIR: 'kick-jump', KICK_CROUCH: 'kick-crouch',
   PRONE: 'prone', INTRO: 'intro-victory', VICTORY: 'intro-victory',
 } as const
+export const presentationSheetFor = (id: SpriteId | undefined, presentation: Presentation): string => presentation === 'BLOCK' && alignedSprite(id) ? 'block' : presentationSheet[presentation]
 export type Presentation = keyof typeof presentationSheet
 /** outcome：回合結束停留時由 scene 帶入；WIN 播勝利動態。 */
 export type PresentationContext = { crouch?: boolean; outcome?: 'WIN' }
@@ -58,7 +57,20 @@ export const resolvePresentation = (fighter: FighterSnapshot, { crouch = false, 
 }
 
 /** peak：攻擊＝手腳伸最遠的影格（ACTIVE 固定播它，起手／收招分在前後）；防禦＝蹲最深的影格（固定顯示）。皆由貼圖輪廓量出。 */
-export const spriteFrameFor = (fighter: FighterSnapshot, action: SpriteAction, elapsedTicks: number, id?: SpriteId, peak?: number): number => {
+export const spriteFrameFor = (fighter: FighterSnapshot, action: SpriteAction, elapsedTicks: number, id?: SpriteId, peak?: number, sheet?: string): number => {
+  const aligned = alignedSprite(id)
+  if (aligned) {
+    const key = sheet ?? presentationSheetFor(id, resolvePresentation(fighter)), count = alignedAction(id, key)!.frames, last = count - 1
+    if (action === 'attack') {
+      const hit = Math.min(last, peak ?? Math.floor(count / 2)), t = Math.max(0, fighter.attackTicks - 1)
+      if (fighter.attackPhase === 'STARTUP') return Math.min(Math.max(0, hit - 1), Math.floor(t * hit / 4))
+      if (fighter.attackPhase === 'ACTIVE') return hit
+      return Math.min(last, hit + 1 + Math.floor(t * (last - hit) / 12))
+    }
+    const frame = Math.floor(Math.max(0, elapsedTicks) * aligned.fps / 24)
+    if (action === 'hurt' && fighter.state === 'HIT_STUN') return Math.min(2, frame)
+    return key === 'idle' || key === 'walk' || key === 'crouch' ? frame % count : Math.min(last, frame)
+  }
   if (isSheetSprite(id)) {
     if (action === 'guard' && peak !== undefined) return peak
     if (action === 'attack' && peak !== undefined) {

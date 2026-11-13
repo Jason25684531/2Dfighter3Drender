@@ -201,7 +201,7 @@ export class AppScene extends Phaser.Scene {
       // 暫停選單只屬於 P4；其他畫面的 Escape／M 不開啟選單。
       // 1P 選單鍵（鍵盤跟自訂鍵位，或 1P 的手把）在後續選單同樣有效；2P 的鍵盤與手把都不併入（2P 鍵與未標記鍵重複，會重複觸發）。
       actions.push(...p1Owned)
-      actions.filter((action) => !(visualState === AppState.SETUP && (action === 'BACK' || this.stageNav(action)))).filter((action) => this.ui.navigation.isOverlayOpen() || battling || (action === 'BACK' && backScreen) || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => { if (!this.ui.navigation.isExitConfirmationOpen() || performance.now() >= this.exitLockedUntil) this.ui.navigation.dispatch(action) })
+      actions.filter((action) => !(visualState === AppState.SETUP && this.stageNav(action))).filter((action) => this.ui.navigation.isOverlayOpen() || battling || (action === 'BACK' && backScreen) || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => { if (!this.ui.navigation.isExitConfirmationOpen() || performance.now() >= this.exitLockedUntil) this.ui.navigation.dispatch(action) })
     }
     this.attractInputConsumed = false
     this.checkIdle(_time)
@@ -628,14 +628,15 @@ export class AppScene extends Phaser.Scene {
   private renderOverlay(): void {
     const overlay = this.overlay = this.add.container(0, 0)
     overlay.add(this.add.rectangle(960, 540, 1920, 1080, uiTokens.colors.background0, uiTokens.opacity.overlay))
-    const confirmMode = this.ui.navigation.isExitConfirmationOpen()
+    const confirmAction = this.ui.navigation.getConfirmationAction(), confirmMode = Boolean(confirmAction)
     if (confirmMode) this.exitLockedUntil = performance.now() + 400
     const panel = new AngularPanel(this, 650, 400, uiTokens.colors.panelRaised).setPosition(960, 540)
-    panel.add(this.add.text(0, -140, confirmMode ? 'EXIT GAME?' : 'PAUSED', typography.title).setOrigin(0.5))
-    if (confirmMode) panel.add(this.add.text(0, -74, '將回到首頁，本局成績不列入排行榜', typography.note).setOrigin(0.5))
+    panel.add(this.add.text(0, -140, confirmAction === 'RESTART' ? 'RESTART MATCH?' : confirmMode ? 'EXIT GAME?' : 'PAUSED', typography.title).setOrigin(0.5))
+    if (confirmAction === 'RESTART') panel.add(this.add.text(0, -74, '本局將從 Round 1 重開，保留角色素材與舞台；本局成績不列入排行榜', typography.note).setOrigin(0.5))
+    else if (confirmAction === 'EXIT') panel.add(this.add.text(0, -74, '將結束這場遊戲並回到首頁，本局成績不列入排行榜', typography.note).setOrigin(0.5))
     panel.add(this.add.rectangle(0, -92, 560, 1, uiTokens.colors.lineDim, 0.9))
     panel.add(this.add.text(0, 160, `ENTER / ${this.padConfirm()} 確認 ・ ESC / ${padLabel(PAD_SYSTEM.BACK)} 返回`, typography.note).setOrigin(0.5))
-    const actions = confirmMode ? ['CANCEL', 'CONFIRM'] : ['CONTINUE', 'EXIT']
+    const actions = confirmMode ? ['CONFIRM', 'CANCEL'] : ['CONTINUE', 'RESTART', 'EXIT']
     actions.forEach((action, index) => {
       const buttonColor = action === 'CONTINUE' || action === 'CONFIRM' ? uiTokens.colors.playerPrimary : uiTokens.colors.panel
       const button = new ActionButton(this, action, 380, 66, buttonColor).setPosition(0, -20 + index * 88)
@@ -644,15 +645,22 @@ export class AppScene extends Phaser.Scene {
       this.register(confirmMode ? 'overlay-confirm' : 'overlay', 'overlay-' + action, button, () => this.overlayAction(action))
     })
     overlay.add(panel); this.screen?.add(overlay)
-    this.ui.focus.activate(confirmMode ? 'overlay-confirm' : 'overlay')
+    this.ui.focus.activate(confirmMode ? 'overlay-confirm' : 'overlay', confirmMode ? 'overlay-CANCEL' : 'overlay-CONTINUE')
   }
 
   private overlayAction(action: string): void {
     if (this.ui.navigation.isExitConfirmationOpen() && performance.now() < this.exitLockedUntil) return
-    if (action === 'CONTINUE' || action === 'CANCEL') this.ui.navigation.dispatch('CLOSE_MENU')
-    else if (action === 'EXIT') this.ui.navigation.openExitConfirmation()
+    if (action === 'CONTINUE') this.ui.navigation.dispatch('CLOSE_MENU')
+    else if (action === 'CANCEL') this.ui.navigation.dispatch('BACK')
+    else if (action === 'RESTART') this.ui.navigation.openExitConfirmation('RESTART')
+    else if (action === 'EXIT') this.ui.navigation.openExitConfirmation('EXIT')
     // 先關選單讓時鐘恢復，再離開戰鬥；反過來時鐘會停在暫停狀態到下一場。
-    else if (action === 'CONFIRM') { this.ui.navigation.dispatch('CLOSE_MENU'); this.ui.navigation.dispatch('FINISH') }
+    else if (action === 'CONFIRM') {
+      const confirmation = this.ui.navigation.getConfirmationAction()
+      this.ui.navigation.dispatch('CLOSE_MENU')
+      if (confirmation === 'RESTART') { this.flow.restartMatch(); this.updateBattle(this.flow.match.getSnapshot()) }
+      else this.ui.navigation.dispatch('FINISH')
+    }
   }
 
   private playerEntry(): CharacterEntry { return this.rosterEntry(this.flow.players.P1?.characterId) ?? testCharacterManifest.presetA }
@@ -665,7 +673,7 @@ export class AppScene extends Phaser.Scene {
   private stepTotal(): number { return this.hasCustom() ? 4 : 3 }
   private hasCustom(): boolean { return Object.values(this.flow.players).some((player) => characterEntry(player?.characterId)?.type === 'BODY_TEMPLATE') }
   private playerSpriteId(): SpriteId | undefined { return this.generation.P1?.assetId ? `generated-${this.generation.P1.assetId}` : this.playerEntry().spriteId }
-  private enemySpriteId(): SpriteId { return this.generation.P2?.assetId ? `generated-${this.generation.P2.assetId}` : this.opponentEntry()?.spriteId ?? characterEntry(this.flow.players.P2?.characterId)?.spriteId ?? (this.playerSpriteId() === 'riven' ? 'kael' : 'riven') }
+  private enemySpriteId(): SpriteId { return this.generation.P2?.assetId ? `generated-${this.generation.P2.assetId}` : this.opponentEntry()?.spriteId ?? characterEntry(this.flow.players.P2?.characterId)?.spriteId ?? (this.playerSpriteId() === 'go' ? 'chris' : 'go') }
 
   private addCharacterPreview(parent: Phaser.GameObjects.Container, spriteId: SpriteId | undefined, x: number, y: number, width: number, height: number): Phaser.GameObjects.Sprite | undefined {
     const key = spriteId && spriteTextureKey(spriteId, 'idle')

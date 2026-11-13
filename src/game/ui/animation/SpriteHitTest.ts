@@ -1,7 +1,6 @@
 import type Phaser from 'phaser'
 import type { FighterId, FighterSnapshot, HitTest } from '../../combat/CombatWorld'
 import type { PresentationContext } from './TemporarySpriteManifest'
-import { SHEET_FRAME_COUNT } from './SheetSpriteManifest'
 import type { TemporarySpriteRenderer } from './TemporarySpriteRenderer'
 import { HIT_TUNING, reachFor } from '../../config/hitTuning'
 
@@ -79,7 +78,7 @@ const bestFrame = (scene: Phaser.Scene, key: string, kind: string, score: (mask:
   const id = `${kind}:${key}`
   if (bests.has(id)) return bests.get(id)
   let best: number | undefined, bestScore = -1
-  for (let frame = 0; frame < SHEET_FRAME_COUNT; frame += 1) {
+  for (let frame = 0; frame < scene.textures.get(key).frameTotal - 1; frame += 1) {
     const mask = readMask(scene, key, frame)
     if (!mask) break
     const value = score(mask)

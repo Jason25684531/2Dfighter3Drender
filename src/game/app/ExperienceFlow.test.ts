@@ -6,7 +6,7 @@ import { ExperienceContext } from './ExperienceContext'
 
 const toBattle = (flow: ExperienceFlow): void => { [AppState.READY, AppState.SETUP, AppState.LOADING, AppState.BATTLE].forEach((state) => flow.app.transitionTo(state)) }
 const toPresentation = (flow: ExperienceFlow): void => { toBattle(flow); for (let tick = 0; tick < 10000 && flow.app.getCurrentState() === AppState.BATTLE; tick += 1) flow.tick() }
-const toBattleFromSetup = (flow: ExperienceFlow): void => { [AppState.LOADING, AppState.BATTLE].forEach((state) => flow.app.transitionTo(state)) }
+const toBattleFromSetup = (flow: ExperienceFlow): void => { [AppState.SETUP, AppState.LOADING, AppState.BATTLE].forEach((state) => flow.app.transitionTo(state)) }
 const playToEnd = (flow: ExperienceFlow): void => {
   toPresentation(flow); expect(flow.app.getCurrentState()).toBe(AppState.PRESENTATION); expect(flow.result).toBeDefined()
   flow.app.transitionTo(AppState.RESULT); flow.app.transitionTo(AppState.END)
@@ -18,10 +18,11 @@ const fakePersistence = (fail = false) => {
 }
 
 describe('ExperienceFlow', () => {
-  it('completes a match and replays to P2 with clean match state, keeping the opponent', () => {
+  it('completes a match and replays to P1 with clean match state, keeping the opponent', () => {
     const flow = new ExperienceFlow(); flow.opponent = { characterId: 'preset-c', difficulty: 'HARD' }; playToEnd(flow)
-    expect(flow.ui.navigation.dispatch('REPLAY')).toBe(true); expect(flow.app.getCurrentState()).toBe(AppState.SETUP)
-    expect(flow.match.getSnapshot().matchState).toBe('READY'); expect(flow.result).toBeUndefined(); expect(flow.opponent?.difficulty).toBe('HARD'); expect(flow.ui.substates.get(AppState.SETUP)).toBe('DEFAULT')
+    flow.setPlayers({ P1: { characterId: 'generated-one', nickname: 'MOMO' } })
+    expect(flow.ui.navigation.dispatch('REPLAY')).toBe(true); expect(flow.app.getCurrentState()).toBe(AppState.READY)
+    expect(flow.match.getSnapshot().matchState).toBe('READY'); expect(flow.result).toBeUndefined(); expect(flow.opponent?.difficulty).toBe('HARD'); expect(flow.players.P1).toEqual({ characterId: 'generated-one', nickname: 'MOMO' })
   })
 
   it('finishes to clean P0 and ends the session', () => {
@@ -30,6 +31,18 @@ describe('ExperienceFlow', () => {
     expect(flow.ui.navigation.dispatch('FINISH')).toBe(true); expect(flow.app.getCurrentState()).toBe(AppState.IDLE)
     expect(flow.match.getSnapshot().playerRoundWins).toBe(0); expect(flow.result).toBeUndefined(); expect(flow.players).toEqual({})
     expect(fake.beginMatch).toHaveBeenCalledTimes(1); expect(fake.finishMatch).toHaveBeenCalledTimes(1); expect(fake.finishSession).toHaveBeenCalled()
+  })
+
+  it('restarts the active match at Round 1 without changing players or storing the abandoned result', () => {
+    const { fake, flow } = fakePersistence()
+    flow.setPlayers({ P1: { characterId: 'generated-one', nickname: 'MOMO' } }); flow.opponent = { characterId: 'preset-c', difficulty: 'HARD' }
+    fake.context.set({ faceGenUsed: { P1: true }, selectedStageId: 'company-building' })
+    toBattle(flow); fake.resetMatch.mockClear(); for (let i = 0; i < 20; i += 1) flow.match.tick()
+    expect(flow.match.getSnapshot().remainingTicks).toBeLessThan(1440)
+    expect(flow.restartMatch()).toBe(true)
+    expect(flow.match.getSnapshot()).toMatchObject({ matchState: 'FIGHTING', roundNumber: 1, playerRoundWins: 0, enemyRoundWins: 0, remainingTicks: 1440, maxPlayerCombo: 0, world: { fighters: { PLAYER: { currentHP: 100 }, ENEMY: { currentHP: 100 } } } })
+    expect(flow.players.P1).toEqual({ characterId: 'generated-one', nickname: 'MOMO' }); expect(fake.context.snapshot).toMatchObject({ faceGenUsed: { P1: true }, selectedStageId: 'company-building' })
+    expect(fake.resetMatch).toHaveBeenCalledTimes(1); expect(fake.beginMatch).toHaveBeenCalledTimes(2); expect(fake.finishMatch).not.toHaveBeenCalled()
   })
 
   it('returns home from P3, P5 and P6 with BACK and ends the session each time', () => {

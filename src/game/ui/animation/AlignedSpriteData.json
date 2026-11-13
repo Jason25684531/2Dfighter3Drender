@@ -1,0 +1,562 @@
+{
+  "s1aw": {
+    "folder": "S1AW",
+    "size": 256,
+    "sourceCellSize": 1024,
+    "originY": 0.73046875,
+    "fps": 16,
+    "manifestFallback": false,
+    "actions": {
+      "01": {
+        "filename": "01_Intro_Victory.png",
+        "frames": 8
+      },
+      "02": {
+        "filename": "02_Idle.png",
+        "frames": 8
+      },
+      "03": {
+        "filename": "03_Move.png",
+        "frames": 8
+      },
+      "04": {
+        "filename": "04_Jump.png",
+        "frames": 8
+      },
+      "05": {
+        "filename": "05_Crouch.png",
+        "frames": 4
+      },
+      "06": {
+        "filename": "06_Block.png",
+        "frames": 8
+      },
+      "07": {
+        "filename": "07_Prone.png",
+        "frames": 8
+      },
+      "08": {
+        "filename": "08_Punch_Light.png",
+        "frames": 8
+      },
+      "09": {
+        "filename": "09_Punch_Heavy.png",
+        "frames": 8
+      },
+      "10": {
+        "filename": "10_Punch_Jump.png",
+        "frames": 8
+      },
+      "11": {
+        "filename": "11_Punch_Crouch.png",
+        "frames": 8
+      },
+      "12": {
+        "filename": "12_Kick_Light.png",
+        "frames": 8
+      },
+      "13": {
+        "filename": "13_Kick_Heavy.png",
+        "frames": 8
+      },
+      "14": {
+        "filename": "14_Kick_Jump.png",
+        "frames": 8
+      },
+      "15": {
+        "filename": "15_Kick_Crouch.png",
+        "frames": 8
+      }
+    }
+  },
+  "s2am": {
+    "folder": "S2AM",
+    "size": 256,
+    "sourceCellSize": 1024,
+    "originY": 0.818359375,
+    "fps": 16,
+    "manifestFallback": false,
+    "actions": {
+      "01": {
+        "filename": "01_Intro_Victory.png",
+        "frames": 8
+      },
+      "02": {
+        "filename": "02_Idle.png",
+        "frames": 8
+      },
+      "03": {
+        "filename": "03_Move.png",
+        "frames": 8
+      },
+      "04": {
+        "filename": "04_Jump.png",
+        "frames": 8
+      },
+      "05": {
+        "filename": "05_Crouch.png",
+        "frames": 4
+      },
+      "06": {
+        "filename": "06_Block.png",
+        "frames": 8
+      },
+      "07": {
+        "filename": "07_Prone.png",
+        "frames": 8
+      },
+      "08": {
+        "filename": "08_Punch_Light.png",
+        "frames": 8
+      },
+      "09": {
+        "filename": "09_Punch_Heavy.png",
+        "frames": 8
+      },
+      "10": {
+        "filename": "10_Punch_Jump.png",
+        "frames": 8
+      },
+      "11": {
+        "filename": "11_Punch_Crouch.png",
+        "frames": 8
+      },
+      "12": {
+        "filename": "12_Kick_Light.png",
+        "frames": 8
+      },
+      "13": {
+        "filename": "13_Kick_Heavy.png",
+        "frames": 8
+      },
+      "14": {
+        "filename": "14_Kick_Jump.png",
+        "frames": 8
+      },
+      "15": {
+        "filename": "15_Kick_Crouch.png",
+        "frames": 8
+      }
+    }
+  },
+  "s2lw": {
+    "folder": "S2LW",
+    "size": 256,
+    "sourceCellSize": 1024,
+    "originY": 0.7783203125,
+    "fps": 16,
+    "manifestFallback": false,
+    "actions": {
+      "01": {
+        "filename": "01_Intro_Victory.png",
+        "frames": 8
+      },
+      "02": {
+        "filename": "02_Idle.png",
+        "frames": 8
+      },
+      "03": {
+        "filename": "03_Move.png",
+        "frames": 8
+      },
+      "04": {
+        "filename": "04_Jump.png",
+        "frames": 8
+      },
+      "05": {
+        "filename": "05_Crouch.png",
+        "frames": 4
+      },
+      "06": {
+        "filename": "06_Block.png",
+        "frames": 8
+      },
+      "07": {
+        "filename": "07_Prone.png",
+        "frames": 8
+      },
+      "08": {
+        "filename": "08_Punch_Light.png",
+        "frames": 8
+      },
+      "09": {
+        "filename": "09_Punch_Heavy.png",
+        "frames": 8
+      },
+      "10": {
+        "filename": "10_Punch_Jump.png",
+        "frames": 8
+      },
+      "11": {
+        "filename": "11_Punch_Crouch.png",
+        "frames": 8
+      },
+      "12": {
+        "filename": "12_Kick_Light.png",
+        "frames": 8
+      },
+      "13": {
+        "filename": "13_Kick_Heavy.png",
+        "frames": 8
+      },
+      "14": {
+        "filename": "14_Kick_Jump.png",
+        "frames": 8
+      },
+      "15": {
+        "filename": "15_Kick_Crouch.png",
+        "frames": 8
+      }
+    }
+  },
+  "s3ww": {
+    "folder": "S3WW",
+    "size": 256,
+    "sourceCellSize": 1024,
+    "originY": 0.9150390625,
+    "fps": 16,
+    "manifestFallback": false,
+    "actions": {
+      "01": {
+        "filename": "01_Intro_Victory.png",
+        "frames": 8
+      },
+      "02": {
+        "filename": "02_Idle.png",
+        "frames": 8
+      },
+      "03": {
+        "filename": "03_Move.png",
+        "frames": 8
+      },
+      "04": {
+        "filename": "04_Jump.png",
+        "frames": 8
+      },
+      "05": {
+        "filename": "05_Crouch.png",
+        "frames": 4
+      },
+      "06": {
+        "filename": "06_Block.png",
+        "frames": 8
+      },
+      "07": {
+        "filename": "07_Prone.png",
+        "frames": 8
+      },
+      "08": {
+        "filename": "08_Punch_Light.png",
+        "frames": 8
+      },
+      "09": {
+        "filename": "09_Punch_Heavy.png",
+        "frames": 8
+      },
+      "10": {
+        "filename": "10_Punch_Jump.png",
+        "frames": 8
+      },
+      "11": {
+        "filename": "11_Punch_Crouch.png",
+        "frames": 8
+      },
+      "12": {
+        "filename": "12_Kick_Light.png",
+        "frames": 8
+      },
+      "13": {
+        "filename": "13_Kick_Heavy.png",
+        "frames": 8
+      },
+      "14": {
+        "filename": "14_Kick_Jump.png",
+        "frames": 8
+      },
+      "15": {
+        "filename": "15_Kick_Crouch.png",
+        "frames": 8
+      }
+    }
+  },
+  "tony": {
+    "folder": "Tony",
+    "size": 256,
+    "sourceCellSize": 1024,
+    "originY": 0.818359375,
+    "fps": 16,
+    "manifestFallback": true,
+    "actions": {
+      "01": {
+        "filename": "01_Intro_Victory.png",
+        "frames": 8
+      },
+      "02": {
+        "filename": "02_Idle.png",
+        "frames": 8
+      },
+      "03": {
+        "filename": "03_Move.png",
+        "frames": 8
+      },
+      "04": {
+        "filename": "04_Jump.png",
+        "frames": 8
+      },
+      "05": {
+        "filename": "05_Crouch.png",
+        "frames": 4
+      },
+      "06": {
+        "filename": "06_Block.png",
+        "frames": 8
+      },
+      "07": {
+        "filename": "07_Prone.png",
+        "frames": 8
+      },
+      "08": {
+        "filename": "08_Punch_Light.png",
+        "frames": 8
+      },
+      "09": {
+        "filename": "09_Punch_Heavy.png",
+        "frames": 8
+      },
+      "10": {
+        "filename": "10_Punch_Jump.png",
+        "frames": 8
+      },
+      "11": {
+        "filename": "11_Punch_Crouch.png",
+        "frames": 8
+      },
+      "12": {
+        "filename": "12_Kick_Light.png",
+        "frames": 8
+      },
+      "13": {
+        "filename": "13_Kick_Heavy.png",
+        "frames": 8
+      },
+      "14": {
+        "filename": "14_Kick_Jump.png",
+        "frames": 8
+      },
+      "15": {
+        "filename": "15_Kick_Crouch.png",
+        "frames": 8
+      }
+    }
+  },
+  "chris": {
+    "folder": "Chris",
+    "size": 256,
+    "sourceCellSize": 1024,
+    "originY": 0.82421875,
+    "fps": 16,
+    "manifestFallback": true,
+    "actions": {
+      "01": {
+        "filename": "01_Intro_Victory.png",
+        "frames": 8
+      },
+      "02": {
+        "filename": "02_Idle.png",
+        "frames": 8
+      },
+      "03": {
+        "filename": "03_Move.png",
+        "frames": 8
+      },
+      "04": {
+        "filename": "04_Jump.png",
+        "frames": 8
+      },
+      "05": {
+        "filename": "05_Crouch.png",
+        "frames": 4
+      },
+      "06": {
+        "filename": "06_Block.png",
+        "frames": 8
+      },
+      "07": {
+        "filename": "07_Prone.png",
+        "frames": 8
+      },
+      "08": {
+        "filename": "08_Punch_Light.png",
+        "frames": 8
+      },
+      "09": {
+        "filename": "09_Punch_Heavy.png",
+        "frames": 8
+      },
+      "10": {
+        "filename": "10_Punch_Jump.png",
+        "frames": 8
+      },
+      "11": {
+        "filename": "11_Punch_Crouch.png",
+        "frames": 8
+      },
+      "12": {
+        "filename": "12_Kick_Light.png",
+        "frames": 8
+      },
+      "13": {
+        "filename": "13_Kick_Heavy.png",
+        "frames": 8
+      },
+      "14": {
+        "filename": "14_Kick_Jump.png",
+        "frames": 8
+      },
+      "15": {
+        "filename": "15_Kick_Crouch.png",
+        "frames": 8
+      }
+    }
+  },
+  "go": {
+    "folder": "GO",
+    "size": 256,
+    "sourceCellSize": 1024,
+    "originY": 0.82421875,
+    "fps": 16,
+    "manifestFallback": false,
+    "actions": {
+      "01": {
+        "filename": "01_Intro_Victory.png",
+        "frames": 8
+      },
+      "02": {
+        "filename": "02_Idle.png",
+        "frames": 8
+      },
+      "03": {
+        "filename": "03_Move.png",
+        "frames": 8
+      },
+      "04": {
+        "filename": "04_Jump.png",
+        "frames": 8
+      },
+      "05": {
+        "filename": "05_Crouch.png",
+        "frames": 4
+      },
+      "06": {
+        "filename": "06_Block.png",
+        "frames": 8
+      },
+      "07": {
+        "filename": "07_Prone.png",
+        "frames": 8
+      },
+      "08": {
+        "filename": "08_Punch_Light.png",
+        "frames": 8
+      },
+      "09": {
+        "filename": "09_Punch_Heavy.png",
+        "frames": 8
+      },
+      "10": {
+        "filename": "10_Punch_Jump.png",
+        "frames": 8
+      },
+      "11": {
+        "filename": "11_Punch_Crouch.png",
+        "frames": 8
+      },
+      "12": {
+        "filename": "12_Kick_Light.png",
+        "frames": 8
+      },
+      "13": {
+        "filename": "13_Kick_Heavy.png",
+        "frames": 8
+      },
+      "14": {
+        "filename": "14_Kick_Jump.png",
+        "frames": 8
+      },
+      "15": {
+        "filename": "15_Kick_Crouch.png",
+        "frames": 8
+      }
+    }
+  },
+  "se7en": {
+    "folder": "SE7EN",
+    "size": 256,
+    "sourceCellSize": 1024,
+    "originY": 0.8798828125,
+    "fps": 16,
+    "manifestFallback": false,
+    "actions": {
+      "01": {
+        "filename": "01_Intro_Victory.png",
+        "frames": 8
+      },
+      "02": {
+        "filename": "02_Idle.png",
+        "frames": 8
+      },
+      "03": {
+        "filename": "03_Move.png",
+        "frames": 8
+      },
+      "04": {
+        "filename": "04_Jump.png",
+        "frames": 8
+      },
+      "05": {
+        "filename": "05_Crouch.png",
+        "frames": 4
+      },
+      "06": {
+        "filename": "06_Block.png",
+        "frames": 8
+      },
+      "07": {
+        "filename": "07_Prone.png",
+        "frames": 8
+      },
+      "08": {
+        "filename": "08_Punch_Light.png",
+        "frames": 8
+      },
+      "09": {
+        "filename": "09_Punch_Heavy.png",
+        "frames": 8
+      },
+      "10": {
+        "filename": "10_Punch_Jump.png",
+        "frames": 8
+      },
+      "11": {
+        "filename": "11_Punch_Crouch.png",
+        "frames": 8
+      },
+      "12": {
+        "filename": "12_Kick_Light.png",
+        "frames": 8
+      },
+      "13": {
+        "filename": "13_Kick_Heavy.png",
+        "frames": 8
+      },
+      "14": {
+        "filename": "14_Kick_Jump.png",
+        "frames": 8
+      },
+      "15": {
+        "filename": "15_Kick_Crouch.png",
+        "frames": 8
+      }
+    }
+  }
+}

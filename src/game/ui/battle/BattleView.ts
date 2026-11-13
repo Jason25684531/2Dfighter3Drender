@@ -7,7 +7,7 @@ import type { InputManager } from '../../input/InputManager'
 import { keyLabel } from '../../input/ControlProfile'
 import { faceKey, TemporarySpriteRenderer } from '../animation/TemporarySpriteRenderer'
 import { createSpriteHitTest, stancePushWidth } from '../animation/SpriteHitTest'
-import { outcomeFor, presentationSheet, resolvePresentation, spriteActionFor, spriteTextureFrame, spriteTextureKey, type PresentationContext, type SpriteId } from '../animation/TemporarySpriteManifest'
+import { outcomeFor, presentationSheetFor, resolvePresentation, spriteActionFor, spriteTextureFrame, spriteTextureKey, type PresentationContext, type SpriteId } from '../animation/TemporarySpriteManifest'
 import { isSheetSprite, sheetAnimations, sheetUrl } from '../animation/SheetSpriteManifest'
 import { impactFlip, impactScale, playImpactFx } from '../vfx/ImpactFx'
 import { AngularPanel, Announcer, HealthBar, HexTimer, RoundDiamonds } from '../VisualComponents'
@@ -107,7 +107,7 @@ export class BattleView {
     }
     if (this.inputDebug) {
       const last = this.options.input.lastCombatInput, presentation = this.player.presentation ?? resolvePresentation(vm.player, context), sprite = this.options.playerSprite
-      const sheet = presentationSheet[presentation], file = sheetAnimations.find(animation => animation.key === sheet)?.filename ?? ''
+      const sheet = presentationSheetFor(sprite, presentation), file = sheetAnimations.find(animation => animation.key === sheet)?.filename ?? ''
       const animation = isSheetSprite(sprite) ? sheetUrl(sprite, sheet, file).split('/').at(-1)?.replace('.png', '') : `${sprite}-${spriteActionFor(vm.player)}`
       this.inputDebug.setText(['PLAYER 1', `Physical Key: ${last ? keyLabel(last.code) : '-'}`, `Semantic Action: ${last?.action ?? '-'}`, `Fighter Context: ${/AIR$|^JUMP$/.test(presentation) ? 'AIRBORNE' : presentation.includes('CROUCH') ? 'CROUCHING' : 'STANDING'}`, `Resolved Presentation: ${presentation}`, `Animation: ${animation}`].join('\n'))
     }

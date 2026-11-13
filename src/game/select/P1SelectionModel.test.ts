@@ -15,7 +15,7 @@ describe('P1 selection model', () => {
     expect(model.player('P1').generation).toBe('PROCESSING'); expect(model.owner).toBe('P2')
     model.skipCustomize(); expect(model.phase).toBe('ALL_READY'); expect(model.player('P2').photo).toBeUndefined()
   })
-  it('waits for decoded runtime assets, and supports failure/retry without readying early', () => {
+  it('waits for decoded runtime assets and blocks retries after a submitted generation fails', () => {
     const model = new P1SelectionModel(); model.focus('P1', 1); model.input('P1', 'CONFIRM'); model.setNickname('P1', 'Kevin')
     press(model, 'P1', 'CONFIRM', 'CONFIRM')
     for (const state of ['REQUESTING', 'PROCESSING', 'API_READY', 'DOWNLOADING', 'DECODED'] as const) {
@@ -23,8 +23,31 @@ describe('P1 selection model', () => {
     }
     model.setGenerationState('FAILED'); expect(model.phase).toBe('FAILED')
     model.input('P2', 'CONFIRM'); expect(model.phase).toBe('FAILED')
-    model.input('P1', 'CONFIRM'); expect(model.phase).toBe('PROCESSING')
-    model.completeProcessing(); expect(model.phase).toBe('OPPONENT'); expect(model.player('P1').generation).toBe('RUNTIME_READY')
+    expect(model.player('P1').faceGenUsed).toBe(true)
+    expect(model.input('P1', 'CONFIRM')).toBe('FACE_GENERATION_USED'); expect(model.phase).toBe('FAILED')
+  })
+  it('consumes one photo submission per participant while allowing unlimited retakes beforehand', () => {
+    const model = new P1SelectionModel(); model.input('P2', 'CONFIRM')
+    toSlot(model, 'P1', 1); toSlot(model, 'P2', 2); model.input('P1', 'CONFIRM'); model.input('P2', 'CONFIRM')
+    model.setNickname('P1', 'ONE'); model.setPhoto('P1', 'first'); model.input('P1', 'CONFIRM')
+    expect(model.player('P1').faceGenUsed).toBe(false)
+    model.input('P1', 'BACK'); model.setPhoto('P1', 'retake'); model.input('P1', 'CONFIRM')
+    expect(model.player('P1').faceGenUsed).toBe(false)
+    model.input('P1', 'CONFIRM'); expect(model.player('P1').faceGenUsed).toBe(true); model.continueProcessing()
+    expect(model.owner).toBe('P2'); expect(model.player('P2').faceGenUsed).toBe(false)
+    model.setNickname('P2', 'TWO'); model.setPhoto('P2', 'photo'); model.input('P2', 'CONFIRM'); model.input('P2', 'CONFIRM')
+    expect(model.player('P2').faceGenUsed).toBe(true)
+  })
+  it('restores selected ring characters, nicknames and per-player face usage for replay', () => {
+    const entries: CharacterEntry[] = [...bodyTemplates, ...Object.values(testCharacterManifest), { id: 'generated-job', displayName: 'ONE', type: 'CUSTOM', status: 'READY' }]
+    const model = new P1SelectionModel(entries, {
+      players: { P1: { characterId: 'generated-job', nickname: 'ONE' }, P2: { characterId: 'preset-b', nickname: 'TWO' } },
+      faceGenUsed: { P1: true },
+    })
+    expect(model.player('P1')).toMatchObject({ cursor: 11, nickname: 'ONE', faceGenUsed: true })
+    expect(model.player('P2')).toMatchObject({ joined: true, cursor: 6, nickname: 'TWO', faceGenUsed: false })
+    model.input('P1', 'CONFIRM'); model.input('P2', 'CONFIRM')
+    expect(model.result()).toEqual({ P1: { characterId: 'generated-job', nickname: 'ONE' }, P2: { characterId: 'preset-b', nickname: 'TWO' } })
   })
   it('rejects unavailable slots and invalid pointer indices', () => {
     const model = new P1SelectionModel()
@@ -33,17 +56,17 @@ describe('P1 selection model', () => {
       model.slot(5).status = status; expect(model.input('P1', 'CONFIRM')).toBe('REJECTED'); expect(model.player('P1').locked).toBeUndefined()
     }
   })
-  it('lays out 40 honest slots: 4 body templates, 5 featured, the rest empty', () => {
+  it('lays out 40 honest slots: 4 body templates, 6 featured, the rest empty', () => {
     const { slots } = new P1SelectionModel()
     expect(slots).toHaveLength(40)
     expect(slots.slice(0, 4).map((slot) => slot.entry?.displayName)).toEqual(['BODY 01', 'BODY 02', 'BODY 03', 'BODY 04'])
-    expect(slots.slice(4, 9).map((slot) => slot.entry?.displayName)).toEqual(['ARIA', 'KAEL', 'RIVEN', 'KEVIN', 'CUSTOM01'])
-    expect(slots.slice(9).every((slot) => slot.type === 'EMPTY' && !slot.entry)).toBe(true)
+    expect(slots.slice(4, 10).map((slot) => slot.entry?.displayName)).toEqual(['Tony', 'Chris', 'GO', 'SE7EN', 'KEVIN', 'CUSTOM01'])
+    expect(slots.slice(10).every((slot) => slot.type === 'EMPTY' && !slot.entry)).toBe(true)
     expect(new P1SelectionModel([]).slots.slice(0, 4).map(slot => slot.entry?.id)).toEqual(['body-01', 'body-02', 'body-03', 'body-04'])
   })
   it('splits the grid into CUSTOMIZE 01–04, OFFICERS 05–10, ROSTER 11–40 with counts', () => {
     expect([1, 4, 5, 10, 11, 40].map(sectionOf)).toEqual(['CUSTOMIZE', 'CUSTOMIZE', 'OFFICERS', 'OFFICERS', 'ROSTER', 'ROSTER'])
-    expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 5, total: 6 }, ROSTER: { used: 0, total: 30 } })
+    expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 6, total: 6 }, ROSTER: { used: 0, total: 30 } })
   })
   it('puts generated characters in ROSTER and overflows extra featured characters after OFFICERS', () => {
     const entry = (id: string, type: CharacterEntry['type']): CharacterEntry => ({ id, displayName: id, type, status: 'AVAILABLE' })
@@ -82,7 +105,7 @@ describe('P1 selection model', () => {
   it('CASE A: solo pick moves on to choosing the CPU opponent and difficulty on the same grid', () => {
     const model = new P1SelectionModel(); expect(model.input('P1', 'CONFIRM')).toBe('CONFIRMED')
     expect(model.phase).toBe('OPPONENT'); expect(model.rival).toEqual({ cursor: 6, difficulty: 'NORMAL' }); expect(model.status('P2')).toBe('OPPONENT')
-    expect(model.heroSlot('P2')?.entry?.displayName).toBe('KAEL'); expect(model.opponent()).toBeUndefined()
+    expect(model.heroSlot('P2')?.entry?.displayName).toBe('Chris'); expect(model.opponent()).toBeUndefined()
     press(model, 'P1', 'NAV_RIGHT'); expect([model.rival?.cursor, model.player('P1').cursor]).toEqual([7, 5]) // 1P 方向鍵只移動對手游標
     expect(model.input('P1', 'CONFIRM')).toBe('CONFIRMED'); expect(model.phase).toBe('DIFFICULTY')
     press(model, 'P1', 'NAV_RIGHT'); expect(model.rival?.difficulty).toBe('HARD'); press(model, 'P1', 'NAV_RIGHT'); expect(model.rival?.difficulty).toBe('EASY')

@@ -31,6 +31,7 @@ export class ExperiencePersistence {
 
   private async ensureSessionOnce(): Promise<void> {
     const known = this.context.snapshot.sessionId
+    if (!known && this.context.snapshot.faceGenUsed) { this.context.set({ faceGenUsed: undefined }); this.persist() }
     if (known) {
       try {
         const session = await this.api.getSession(known)

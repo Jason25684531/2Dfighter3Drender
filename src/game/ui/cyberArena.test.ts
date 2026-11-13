@@ -11,7 +11,8 @@ describe('Cyber Arena navigation and presentation', () => {
     const app = new AppStateMachine(), ui = new UIFramework(app)
     expect(ui.navigation.dispatch('BACK')).toBe(false)
     app.transitionTo(AppState.READY); app.transitionTo(AppState.SETUP)
-    ui.navigation.dispatch('BACK'); expect(app.getCurrentState()).toBe(AppState.READY)
+    expect(ui.navigation.dispatch('BACK')).toBe(false); expect(app.getCurrentState()).toBe(AppState.SETUP)
+    app.transitionTo(AppState.LOADING); app.transitionTo(AppState.IDLE); app.transitionTo(AppState.READY)
     ui.navigation.dispatch('BACK'); expect(app.getCurrentState()).toBe(AppState.IDLE)
     const path = [AppState.READY, AppState.SETUP, AppState.LOADING, AppState.BATTLE, AppState.PRESENTATION, AppState.RESULT, AppState.END]
     path.forEach((state) => expect(app.transitionTo(state)).toBe(true))

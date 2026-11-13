@@ -27,7 +27,7 @@ export class NavigationManager {
       if (this.overlayOpen !== open) { this.overlayOpen = open; this.overlayConfirm = undefined; this.events.emit('OVERLAY_CHANGED', { open }) }
       return true
     }
-    if (action === 'REPLAY') return this.app.transitionTo(AppState.READY)
+    if (action === 'REPLAY') return this.app.getCurrentState() === AppState.END && this.app.transitionTo(AppState.READY)
     if (action === 'FINISH') return this.app.transitionTo(AppState.IDLE)
     return action === 'CONFIRM' ? this.focus.activateFocused() : false
   }

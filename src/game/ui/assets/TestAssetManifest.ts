@@ -13,9 +13,10 @@ export type SlotStatus = 'AVAILABLE' | 'PROCESSING' | 'READY' | 'FAILED'
 export type CharacterEntry = { id: string; displayName: string; type: Exclude<SlotType, 'EMPTY'>; status: SlotStatus; spriteId?: SpriteId; heroTextureKey?: string; bodyTemplateId?: string; generationId?: string }
 
 export const testCharacterManifest = {
-  presetA: { id: 'preset-a', displayName: 'ARIA', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'aria' },
-  presetB: { id: 'preset-b', displayName: 'KAEL', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'kael' },
-  presetC: { id: 'preset-c', displayName: 'RIVEN', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'riven' },
+  presetA: { id: 'preset-a', displayName: 'Tony', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'tony' },
+  presetB: { id: 'preset-b', displayName: 'Chris', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'chris' },
+  presetC: { id: 'preset-c', displayName: 'GO', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'go' },
+  presetF: { id: 'preset-f', displayName: 'SE7EN', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'se7en' },
   presetD: { id: 'preset-d', displayName: 'KEVIN', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'kevin' },
   presetE: { id: 'preset-e', displayName: 'CUSTOM01', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'body01' },
 } as const satisfies Record<string, CharacterEntry>

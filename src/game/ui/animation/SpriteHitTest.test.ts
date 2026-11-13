@@ -54,7 +54,7 @@ describe('SpriteHitTest', () => {
     expect(spriteFrameFor({ ...fighter, attackPhase: 'RECOVERY', attackTicks: 1 }, 'attack', 0, 'body01', 2)).toBe(3)
     expect(spriteFrameFor(fighter, 'attack', 0, 'body01')).toBe(8)
     // 防禦：有量到蹲最深的影格就固定顯示，不從站姿開始播。
-    expect([0, 7, 40].map((t) => spriteFrameFor({ ...fighter, attackPhase: 'NONE', state: 'GUARD' }, 'guard', t, 's1aw', 11))).toEqual([11, 11, 11])
+    expect([0, 7, 40].map((t) => spriteFrameFor({ ...fighter, attackPhase: 'NONE', state: 'GUARD' }, 'guard', t, 'body01', 11))).toEqual([11, 11, 11])
   })
 
   it('pushes bodies apart at the widest facing rows plus the edge, not at a bounding box', () => {

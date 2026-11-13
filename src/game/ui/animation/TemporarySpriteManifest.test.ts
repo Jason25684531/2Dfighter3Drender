@@ -1,22 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { CombatWorld } from '../../combat/CombatWorld'
 import { characterEntries } from '../assets/TestAssetManifest'
-import { spriteActionFor, spriteActions, spriteFrameCount, spriteFrameFor, spriteFrameUrl, spriteIds } from './TemporarySpriteManifest'
+import { spriteActionFor, spriteFrameFor } from './TemporarySpriteManifest'
 import { outcomeFor, presentationSheet, resolvePresentation, spriteTextureFrame, spriteTextureKey } from './TemporarySpriteManifest'
 import { isSheetSprite, sheetAnimations, sheetSprites, sheetUrl, SHEET_FRAME_COUNT } from './SheetSpriteManifest'
 
 describe('temporary sprite presentation', () => {
-  it('maps featured characters and temporary body stand-ins to complete local frame sets', () => {
-    expect(characterEntries().map((entry) => entry.spriteId)).toEqual(['s1aw', 's2am', 's2lw', 's3ww', 'aria', 'kael', 'riven', 'kevin', 'body01'])
-    const urls = spriteIds.filter(id => !isSheetSprite(id)).flatMap((id) => spriteActions.flatMap((action) => Array.from({ length: spriteFrameCount(action) }, (_, frame) => spriteFrameUrl(id, action, frame))))
-    expect(urls).toHaveLength(84)
-    expect(new Set(urls).size).toBe(urls.length)
-    const files = Object.keys(import.meta.glob('../../../../public/test-assets/characters/{aria,kael,riven}/**/*.png'))
-    expect(files.map((path) => path.slice(path.indexOf('/test-assets/'))).sort()).toEqual(urls.sort())
+  it('maps the ordered roster without legacy frame preloads', () => {
+    expect(characterEntries().map(entry => entry.spriteId)).toEqual(['s1aw', 's2am', 's2lw', 's3ww', 'tony', 'chris', 'go', 'se7en', 'kevin', 'body01'])
+    expect(characterEntries().every(entry => isSheetSprite(entry.spriteId))).toBe(true)
   })
 
   it('maps every Kevin sheet in source order and selects individual frames for combat', () => {
-    const files = Object.keys(import.meta.glob('../../../../public/test-assets/characters/{Kevin,Customize_body_01,S1AW,S2AM,S2LW,S3WW}/*.png')).map(path => path.slice(path.indexOf('/test-assets/'))).filter(path => !path.endsWith('06_Block.png')) // 防禦改用 05_Crouch，06_Block 不載入
+    const files = Object.keys(import.meta.glob('../../../../public/test-assets/characters/{Kevin,Customize_body_01}/*.png')).map(path => path.slice(path.indexOf('/test-assets/'))).filter(path => !path.endsWith('06_Block.png')) // 防禦改用 05_Crouch，06_Block 不載入
     const urls = (Object.keys(sheetSprites) as (keyof typeof sheetSprites)[]).flatMap(id => sheetAnimations.map(({ key, filename }) => sheetUrl(id, key, filename)))
     expect(urls.sort()).toEqual(files.sort())
     expect(sheetAnimations).toHaveLength(14)

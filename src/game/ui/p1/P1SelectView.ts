@@ -481,10 +481,9 @@ export class P1SelectView {
       this.nameInput = this.createNameInput(owner, player.nickname)
       button('BACK', `${id.back} · 返回`, 790, colors.panelRaised, 'BACK')
       this.takePhoto = button('TAKE PHOTO', `${id.confirm} · 拍照`, 1130, id.main, 'CONFIRM').setEnabled(!player.faceGenUsed)
-      if (player.faceGenUsed) root.add(label(scene, 960, 856, 'FACE GENERATION USED · 已使用本次換臉額度', 'textSecondary').setOrigin(0.5))
       const skip = new ActionButton(scene, 'SKIP PHOTO', 300, 58, colors.panelRaised, '輕攻擊 · 跳過拍照').setPosition(960, 1020)
       skip.on('pointerup', () => this.hooks.onSkip?.()); root.add(skip)
-      this.nameHint = label(scene, 960, 856, 'ENTER A NAME FIRST · 請先輸入名稱', 'danger').setOrigin(0.5); root.add(this.nameHint)
+      this.nameHint = label(scene, 960, 856, player.faceGenUsed ? 'FACE GENERATION USED · 已使用本次換臉額度' : 'ENTER A NAME FIRST · 請先輸入名稱', player.faceGenUsed ? 'textSecondary' : 'danger').setOrigin(0.5); root.add(this.nameHint)
       this.buildNameKeyboard(owner)
       this.refreshName(owner)
     } else if (model.phase === 'REVIEW') {
@@ -581,6 +580,6 @@ export class P1SelectView {
   private refreshName(owner: PlayerSlotId): void {
     const valid = this.model.nicknameValid(owner)
     this.nameCount?.setText(`${this.model.player(owner).nickname.length}/${NICKNAME_MAX}`)
-    this.takePhoto?.setEnabled(valid); this.nameHint?.setVisible(!valid)
+    this.takePhoto?.setEnabled(valid && !this.model.player(owner).faceGenUsed); this.nameHint?.setVisible(!valid || Boolean(this.model.player(owner).faceGenUsed))
   }
 }

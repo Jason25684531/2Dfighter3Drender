@@ -17,6 +17,16 @@ describe('ExperiencePersistence', () => {
     expect(await persistence.leaderboard()).toEqual([]); expect(persistence.lastLeaderboardOk).toBe(false)
     await persistence.leaderboard(); expect(persistence.lastLeaderboardOk).toBe(true); expect(leaderboard).toHaveBeenCalledTimes(3)
   })
+  it('persists one independent face-generation use per participant in the active context', () => {
+    const values = new Map<string, string>(), storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) }
+    const context = new ExperienceContext(); context.set({ sessionId: 1 })
+    const persistence = new ExperiencePersistence({} as ApiClient, context, storage)
+    expect(persistence.markFaceGenUsed('P1')).toBe(true); expect(persistence.markFaceGenUsed('P1')).toBe(false)
+    expect(persistence.markFaceGenUsed('P2')).toBe(true)
+    persistence.resetMatch()
+    const restored = new ExperienceContext(); restored.restore(storage)
+    expect(restored.snapshot.faceGenUsed).toEqual({ P1: true, P2: true })
+  })
   it('sends one match and one request per round, then stores backend rank', async () => {
     const api = { createMatch: vi.fn().mockResolvedValue(match(9)), addRound: vi.fn().mockResolvedValue({} as Round), finishMatch: vi.fn().mockResolvedValue({ ...match(9, 7), status: 'FINISHED' } as Match), getSession: vi.fn().mockResolvedValue(fakeSession) } as unknown as ApiClient
     const context = new ExperienceContext(); context.set({ sessionId: 1, sessionStatus: 'ACTIVE' })
