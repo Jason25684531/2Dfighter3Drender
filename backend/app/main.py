@@ -10,6 +10,7 @@ from app.config import settings
 from app.db import connect, init_db
 from app.errors import ApiError, api_error_handler, unexpected_error_handler, validation_error_handler
 from app.routes.health import router as health_router
+from app.routes.generation import router as generation_router
 from app.routes.players import router as players_router
 from app.routes.sessions import router as sessions_router
 from app.routes.queue import router as queue_router
@@ -40,6 +41,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return JSONResponse(status_code=error.status_code, content={'error': {'code': 'HTTP_ERROR', 'message': str(error.detail), 'details': {}}})
 
     app.include_router(health_router, prefix='/api/v1')
+    app.include_router(generation_router, prefix='/api/v1')
     app.include_router(players_router, prefix='/api/v1')
     app.include_router(sessions_router, prefix='/api/v1')
     app.include_router(queue_router, prefix='/api/v1')

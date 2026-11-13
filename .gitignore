@@ -91,9 +91,11 @@ outputs/*
 Char_Aassest/*
 public/*
 !public/fonts/
+!public/favicon.svg
 sample_UIUX/*
 openspec/*
 prototypes/*
 assest/*
 docs/*
 Audio/*
+ComfyUI_API/*

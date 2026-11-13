@@ -15,7 +15,8 @@ export type P1ViewHooks = {
   onInput: (owner: PlayerSlotId, action: OwnedUiAction) => void
   onFocus: (owner: PlayerSlotId, index: number) => void
   onNickname: (owner: PlayerSlotId, name: string) => void
-  onProcessingDone: () => void
+  onProcessingDone?: () => void
+  onSkip?: () => void
   onAllReady: () => void
 }
 
@@ -72,7 +73,9 @@ class HeroPreview extends Phaser.GameObjects.Container {
 
   /** stamp：READY＝已就緒；LOCKED＝已鎖定 Body、尚待拍照；CPU＝單人模式的對手。 */
   show(slot: Slot | undefined, stamp: 'READY' | 'LOCKED' | 'CPU' | undefined, nickname = '', dim = false): void {
-    const key = `${slot?.index}|${stamp}|${nickname}|${dim}|${slot?.entry?.spriteId}|${slot?.entry?.type}|${slot?.entry?.heroTextureKey}`
+    const sprite = slot?.entry?.spriteId
+    const texture = slot?.entry?.heroTextureKey ?? (sprite && spriteTextureKey(sprite, 'idle'))
+    const key = `${slot?.index}|${stamp}|${nickname}|${dim}|${sprite}|${slot?.entry?.type}|${slot?.entry?.heroTextureKey}|${Boolean(texture && this.scene.textures.exists(texture))}`
     if (key === this.key) return
     const relock = Boolean(stamp) && this.key.split('|')[1] === 'undefined'
     this.key = key
@@ -80,8 +83,7 @@ class HeroPreview extends Phaser.GameObjects.Container {
     this.flash?.remove(); this.figure?.destroy(); this.stamp?.destroy(); this.stamp = undefined
     this.beam.setAlpha(slot ? (stamp ? 0.55 : 0.3) : 0.12)
     this.setAlpha(dim ? 0.4 : 1)
-    const body = slot?.type === 'BODY_TEMPLATE', sprite = slot?.entry?.spriteId
-    const texture = slot?.entry?.heroTextureKey ?? (sprite && spriteTextureKey(sprite, 'idle'))
+    const body = slot?.type === 'BODY_TEMPLATE'
     if (texture && this.scene.textures.exists(texture)) {
       const image = this.scene.add.sprite(0, 0, texture, slot?.entry?.heroTextureKey ? undefined : spriteTextureFrame(sprite)).setOrigin(0.5, slot?.entry?.heroTextureKey ? 1 : sprite ? spriteOriginY(sprite) : 1).setFlipX(this.owner === 'P2')
       if (isSheetSprite(sprite) && !body && !slot?.entry?.heroTextureKey && !reducedMotion && this.scene.anims.exists(`${sprite}-idle`)) image.play(`${sprite}-idle`)
@@ -229,8 +231,9 @@ export class P1SelectView {
   private bannerTimer?: Phaser.Time.TimerEvent
   private bannerTween?: Phaser.Tweens.Tween
   private nameInput?: Phaser.GameObjects.DOMElement
-  // media：Capture 的 webcam <video> 或 Review 的照片 <img>；DOM 會疊在 Canvas 上，離開確認框開啟時需隱藏。
+  // media：Phaser 定位的 camera wrapper 或 Review 照片；DOM 疊在 Canvas 上，離開確認框開啟時隱藏。
   private media?: Phaser.GameObjects.DOMElement
+  private cameraVideo?: HTMLVideoElement
   private stream?: MediaStream
   private takePhoto?: ActionButton
   private nameHint?: Phaser.GameObjects.Text
@@ -350,15 +353,17 @@ export class P1SelectView {
     if (feedback === 'NAME_REQUIRED') { this.nameHint?.setVisible(true); (this.nameInput?.node as HTMLInputElement | undefined)?.focus() }
   }
 
+  cameraUnavailable(): void { this.nameHint?.setText('CAMERA UNAVAILABLE · 請允許相機或跳過拍照').setVisible(true) }
+
   destroy(): void {
     stopOwnedTweens(this.tweens); this.timers.splice(0).forEach((timer) => timer.remove()); this.bannerTimer?.remove(); this.bannerTween?.stop()
     this.nameInput?.destroy(); this.nameInput = undefined
-    this.stream?.getTracks().forEach((track) => track.stop()); this.stream = undefined; this.media?.destroy(); this.media = undefined
+    this.stream?.getTracks().forEach((track) => track.stop()); this.stream = undefined; this.cameraVideo = undefined; this.media?.destroy(); this.media = undefined
   }
 
   /** Capture 按下確認時先擷取 webcam 畫面；照片只存在 model 記憶體，沒有相機時保持 Mock。 */
   captureOnConfirm(owner: PlayerSlotId, action: OwnedUiAction): void {
-    const video = this.media?.node
+    const video = this.cameraVideo
     if (this.model.phase !== 'CUSTOMIZE' || owner !== this.model.owner || action !== 'CONFIRM' || !this.model.nicknameValid(owner) || !(video instanceof HTMLVideoElement) || !video.videoWidth) return
     const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = Math.round(640 * video.videoHeight / video.videoWidth)
     const context = canvas.getContext('2d'); if (!context) return
@@ -368,16 +373,20 @@ export class P1SelectView {
   }
 
   private startCamera(note: Phaser.GameObjects.Text, band: Phaser.GameObjects.Text): void {
+    const wrapper = document.createElement('div')
+    wrapper.style.cssText = 'width:636px;height:336px;overflow:hidden;background:#000;display:none'
     const video = document.createElement('video')
     video.muted = true; video.playsInline = true; video.autoplay = true; video.setAttribute('aria-label', 'Camera preview')
-    video.style.cssText = 'width:636px;height:336px;object-fit:cover;transform:scaleX(-1);background:#000;display:none'
-    this.media = this.scene.add.dom(960, 640, video)
-    const fail = (): void => { if (note.active) note.setText('CAMERA UNAVAILABLE · 相機無法使用，將使用模擬照片').setColor(colorHex('resultGold')) }
+    video.style.cssText = 'width:636px;height:336px;object-fit:cover;transform:scaleX(-1);background:#000;display:block'
+    wrapper.append(video)
+    const media = this.scene.add.dom(960, 640, wrapper)
+    this.media = media; this.cameraVideo = video
+    const fail = (): void => { if (note.active) note.setText('CAMERA UNAVAILABLE · 相機無法使用，請允許相機或跳過').setColor(colorHex('resultGold')) }
     if (!navigator.mediaDevices?.getUserMedia) { fail(); return }
     navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: false }).then((stream) => {
-      if (this.media?.node !== video) { stream.getTracks().forEach((track) => track.stop()); return } // 授權回來前已離開 Capture
-      this.stream = stream; video.srcObject = stream; video.style.display = 'block'; note.setVisible(false)
-      band.setText('LOCAL CAMERA · 本機相機 · 不上傳、不生成')
+      if (this.media !== media || this.cameraVideo !== video) { stream.getTracks().forEach((track) => track.stop()); return } // 授權回來前已離開 Capture
+      this.stream = stream; video.srcObject = stream; wrapper.style.display = 'block'; note.setVisible(false)
+      band.setText('CAMERA · 確認照片後上傳並生成角色')
     }, fail)
   }
 
@@ -471,6 +480,8 @@ export class P1SelectView {
       this.nameInput = this.createNameInput(owner, player.nickname)
       button('BACK', `${id.back} · 返回`, 790, colors.panelRaised, 'BACK')
       this.takePhoto = button('TAKE PHOTO', `${id.confirm} · 拍照`, 1130, id.main, 'CONFIRM')
+      const skip = new ActionButton(scene, 'SKIP PHOTO', 300, 58, colors.panelRaised, '輕攻擊 · 跳過拍照').setPosition(960, 1020)
+      skip.on('pointerup', () => this.hooks.onSkip?.()); root.add(skip)
       this.nameHint = label(scene, 960, 856, 'ENTER A NAME FIRST · 請先輸入名稱', 'danger').setOrigin(0.5); root.add(this.nameHint)
       this.buildNameKeyboard(owner)
       this.refreshName(owner)
@@ -479,7 +490,7 @@ export class P1SelectView {
         const image = document.createElement('img'); image.src = player.photo; image.alt = 'Captured photo'
         image.style.cssText = 'width:636px;height:336px;object-fit:contain;background:#000'
         this.media = scene.add.dom(960, 640, image)
-        root.add(label(scene, 960, 446, 'LOCAL PHOTO · 僅存於本機記憶體，未上傳', 'statusLime').setOrigin(0.5))
+        root.add(label(scene, 960, 446, 'PHOTO · 確認後將上傳生成角色', 'statusLime').setOrigin(0.5))
       } else {
         root.add(label(scene, 960, 790, 'MOCK PHOTO · 模擬照片', 'textSecondary').setOrigin(0.5))
       }
@@ -517,7 +528,7 @@ export class P1SelectView {
     const show = (value: number): void => { bar.setScale(value, 1); percent.setText(Math.round(value * 100) + '%'); steps.forEach((step, i) => step.setColor(colorHex(value >= [0, 0.25, 1][i] ? (i === 2 ? 'statusLime' : 'systemBlue') : 'textSecondary'))) }
     show(0)
     if (!reducedMotion) this.tweens.push(scene.tweens.addCounter({ from: 0, to: 1, duration: p1.processingMs, onUpdate: (tween) => show(tween.getValue() ?? 0) }))
-    this.timers.push(scene.time.delayedCall(p1.processingMs, () => { show(1); this.hooks.onProcessingDone() }))
+    if (this.hooks.onProcessingDone) this.timers.push(scene.time.delayedCall(p1.processingMs, () => { show(1); this.hooks.onProcessingDone?.() }))
   }
 
   private createNameInput(owner: PlayerSlotId, value: string): Phaser.GameObjects.DOMElement {
@@ -528,7 +539,6 @@ export class P1SelectView {
     input.addEventListener('keydown', (event) => { event.stopPropagation(); if (!event.isComposing && (event.key === 'Enter' || event.key === 'Escape')) { event.preventDefault(); input.blur(); this.takePhoto?.setFocused(this.model.nicknameValid(owner)) } })
     input.addEventListener('input', () => { this.hooks.onNickname(owner, input.value); this.refreshName(owner) })
     const element = this.scene.add.dom(960, 392, input)
-    input.focus()
     return element
   }
 

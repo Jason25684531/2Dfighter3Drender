@@ -10,7 +10,7 @@ export const testStageManifest: Record<StageId, { id: StageId; label: string; ur
 
 export type SlotType = 'BODY_TEMPLATE' | 'FEATURED' | 'CUSTOM' | 'EMPTY'
 export type SlotStatus = 'AVAILABLE' | 'PROCESSING' | 'READY' | 'FAILED'
-export type CharacterEntry = { id: string; displayName: string; type: Exclude<SlotType, 'EMPTY'>; status: SlotStatus; spriteId?: SpriteId; heroTextureKey?: string; bodyTemplateId?: string }
+export type CharacterEntry = { id: string; displayName: string; type: Exclude<SlotType, 'EMPTY'>; status: SlotStatus; spriteId?: SpriteId; heroTextureKey?: string; bodyTemplateId?: string; generationId?: string }
 
 export const testCharacterManifest = {
   presetA: { id: 'preset-a', displayName: 'ARIA', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'aria' },

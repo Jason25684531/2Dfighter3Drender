@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildSlots, moveSlot, P1SelectionModel, sectionCounts, sectionOf } from './P1SelectionModel'
-import type { CharacterEntry } from '../ui/assets/TestAssetManifest'
+import { bodyTemplates, testCharacterManifest, type CharacterEntry } from '../ui/assets/TestAssetManifest'
 import type { OwnedUiAction, PlayerSlotId } from '../input/InputManager'
 
 const press = (model: P1SelectionModel, id: PlayerSlotId, ...actions: OwnedUiAction[]) => actions.map((action) => model.input(id, action))
@@ -8,6 +8,13 @@ const capture = (model: P1SelectionModel, id: PlayerSlotId, name: string) => { m
 const toSlot = (model: P1SelectionModel, id: PlayerSlotId, index: number) => { model.focus(id, index); expect(model.player(id).cursor).toBe(index) }
 
 describe('P1 selection model', () => {
+  it('continues to the second player while generation runs and allows them to skip', () => {
+    const model = new P1SelectionModel(); model.input('P2', 'CONFIRM')
+    model.focus('P1', 1); model.focus('P2', 2); model.input('P1', 'CONFIRM'); model.input('P2', 'CONFIRM')
+    model.setNickname('P1', 'Alice'); press(model, 'P1', 'CONFIRM', 'CONFIRM'); model.continueProcessing()
+    expect(model.player('P1').generation).toBe('PROCESSING'); expect(model.owner).toBe('P2')
+    model.skipCustomize(); expect(model.phase).toBe('ALL_READY'); expect(model.player('P2').photo).toBeUndefined()
+  })
   it('waits for decoded runtime assets, and supports failure/retry without readying early', () => {
     const model = new P1SelectionModel(); model.focus('P1', 1); model.input('P1', 'CONFIRM'); model.setNickname('P1', 'Kevin')
     press(model, 'P1', 'CONFIRM', 'CONFIRM')
@@ -45,6 +52,11 @@ describe('P1 selection model', () => {
     expect(slots.slice(4, 10).map((slot) => slot.entry?.id)).toEqual(['f0', 'f1', 'f2', 'f3', 'f4', 'f5'])
     expect(slots.slice(10, 14).map((slot) => [slot.entry?.id, slot.type])).toEqual([['f6', 'FEATURED'], ['f7', 'FEATURED'], ['c0', 'CUSTOM'], ['c1', 'CUSTOM']])
     expect(buildSlots(generated).slice(4, 10).every((slot) => slot.type === 'EMPTY')).toBe(true); expect(buildSlots(generated)[10].entry?.id).toBe('c0')
+  })
+  it('appends persisted generated assets to ROSTER in the order supplied', () => {
+    const generated: CharacterEntry[] = ['one', 'two'].map((name) => ({ id: `generated-${name}`, displayName: name, type: 'CUSTOM', status: 'READY', spriteId: `generated-${name}` as CharacterEntry['spriteId'], generationId: name }))
+    const model = new P1SelectionModel([...bodyTemplates, ...Object.values(testCharacterManifest), ...generated])
+    expect(model.slots.slice(10, 12).map(({ entry }) => entry?.id)).toEqual(['generated-one', 'generated-two'])
   })
   it('wraps row-major horizontally and column-wise vertically', () => {
     expect(moveSlot(5, 'NAV_DOWN')).toBe(15); expect(moveSlot(17, 'NAV_UP')).toBe(7); expect(moveSlot(7, 'NAV_UP')).toBe(37)

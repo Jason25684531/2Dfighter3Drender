@@ -1,5 +1,11 @@
 # ROG Future Gamer 2026 — Experience 2
 
+## ComfyUI 角色生成
+
+本機需啟動 FastAPI、Vite 和 `127.0.0.1:8188` 的 ComfyUI，並保留 `ComfyUI_API/CAMCharacter_Swa__1112(API).json` 及其自訂節點、模型與模板素材。後端可用 `COMFYUI_URL` 和 `COMFYUI_OUTPUT` 環境變數調整服務位址及 ComfyUI output 目錄。前端 API 位址使用 `VITE_API_BASE_URL`；不同來源須設置後端 `EXP2_CORS_ORIGINS`。
+
+選擇身體後，可拍照並確認生成；鍵盤輕踢或手把輕拳可跳過拍照。拍攝照片會上傳至 ComfyUI，並交由工作流使用的外部生成服務處理。載入畫面等待所有已提交的角色；失敗時可重試或返回。為避免工作流清除既有同名角色，輸出位於 `taskforce_2028_ftg/_jobs/<任務ID>/<玩家名稱>_<模板>/Sprite_Sheet_reference_aligned`。任務狀態保存在後端程序記憶體，後端重啟後需重新提交；ComfyUI 輸入照片和輸出檔不會自動刪除。
+
 瀏覽器 2D 格鬥遊戲框架，技術棧為 Vite、TypeScript、Phaser 3、FastAPI 與 SQLite。邏輯解析度是 1920×1080，目標是展場（kiosk）單機遊玩。
 
 ## 現況

@@ -125,6 +125,9 @@ export const headOf = ({ width, height, solid }: Mask): { x: number; y: number }
   return count ? { x: sx / count, y: top + HEAD_PX / 2 } : undefined
 }
 const heads = new Map<string, { x: number; y: number } | undefined>()
+export const clearGeneratedHitMasks = (sprite: string): void => {
+  for (const cache of [masks, bests, heads]) for (const key of cache.keys()) if (key.includes(`${sprite}-`)) cache.delete(key)
+}
 export const headPoint = (scene: Phaser.Scene, key: string, frameName: string | number): { x: number; y: number } | undefined => {
   const id = `${key}:${frameName}`
   if (!heads.has(id)) { const mask = readMask(scene, key, frameName); heads.set(id, mask && headOf(mask)) }

@@ -42,8 +42,8 @@ export class BattleView {
 
   constructor(private readonly scene: Phaser.Scene, root: Phaser.GameObjects.Container, private readonly world: Phaser.GameObjects.Container, private readonly options: BattleViewOptions) {
     const { playerSprite, enemySprite, floorY } = options
-    this.player = new TemporarySpriteRenderer(scene, playerSprite, floorY, faceKey('P1'))
-    this.enemy = new TemporarySpriteRenderer(scene, enemySprite, floorY, faceKey('P2'))
+    this.player = new TemporarySpriteRenderer(scene, playerSprite, floorY, playerSprite?.startsWith('generated') ? undefined : faceKey('P1'))
+    this.enemy = new TemporarySpriteRenderer(scene, enemySprite, floorY, enemySprite?.startsWith('generated') ? undefined : faceKey('P2'))
     world.add([this.enemy, this.player])
     // 命中改以畫面角色輪廓（外推 HIT_EDGE，貼身必中）判定，推擠改用站姿輪廓（間隙 PUSH_EDGE）；destroy() 解除。
     options.combat?.setHitTest(createSpriteHitTest(scene, { PLAYER: this.player, ENEMY: this.enemy }, (id) => this.contexts[id], () => options.combat?.contactWidth))

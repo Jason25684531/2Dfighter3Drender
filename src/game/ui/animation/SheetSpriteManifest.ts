@@ -30,10 +30,11 @@ export const sheetSprites = {
   s2lw: { folder: 'S2LW', size: 256, renamed: bodyRenamed },
   s3ww: { folder: 'S3WW', size: 256, renamed: bodyRenamed },
 } as const
-export type SheetSpriteId = keyof typeof sheetSprites
-const sheetSpriteIds = Object.keys(sheetSprites) as SheetSpriteId[]
-export const isSheetSprite = (id: string | undefined): id is SheetSpriteId => id !== undefined && id in sheetSprites
-export const sheetUrl = (id: SheetSpriteId, key: string, filename: string): string => `/test-assets/characters/${sheetSprites[id].folder}/${sheetSprites[id].renamed[key] ?? filename}`
+type StaticSheetSpriteId = keyof typeof sheetSprites
+export type SheetSpriteId = StaticSheetSpriteId | `generated-${string}` | 'generated1' | 'generated2'
+const sheetSpriteIds = Object.keys(sheetSprites) as StaticSheetSpriteId[]
+export const isSheetSprite = (id: string | undefined): id is SheetSpriteId => id !== undefined && (id in sheetSprites || id.startsWith('generated-') || id === 'generated1' || id === 'generated2')
+export const sheetUrl = (id: SheetSpriteId, key: string, filename: string): string => id in sheetSprites ? `/test-assets/characters/${sheetSprites[id as StaticSheetSpriteId].folder}/${sheetSprites[id as StaticSheetSpriteId].renamed[key] ?? filename}` : filename
 
 export const loadSheetSprites = (scene: Phaser.Scene): void => sheetSpriteIds.forEach((id) => sheetAnimations.forEach(({ key, filename }) => scene.load.spritesheet(`${id}-${key}`, sheetUrl(id, key, filename), { frameWidth: sheetSprites[id].size, frameHeight: sheetSprites[id].size })))
 export const registerSheetAnimations = (scene: Phaser.Scene): void => sheetSpriteIds.forEach((id) => sheetAnimations.forEach(({ key, loop }) => {

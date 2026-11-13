@@ -2,7 +2,7 @@ import type { FighterId, FighterSnapshot } from '../../combat/CombatWorld'
 import { isSheetSprite, SHEET_FRAME_COUNT } from './SheetSpriteManifest'
 import type { AttackAction } from '../../input/ControlProfile'
 
-export type SpriteId = 'aria' | 'kael' | 'riven' | 'kevin' | 'body01' | 's1aw' | 's2am' | 's2lw' | 's3ww'
+export type SpriteId = 'aria' | 'kael' | 'riven' | 'kevin' | 'body01' | 's1aw' | 's2am' | 's2lw' | 's3ww' | `generated-${string}` | 'generated1' | 'generated2'
 // victory 只有 sheet 角色有素材；舊替身角色不載入，畫面停在前一張。
 export type SpriteAction = 'idle' | 'walk' | 'jump' | 'attack' | 'hurt' | 'guard' | 'victory'
 
@@ -16,7 +16,8 @@ export const spriteFrameCount = (action: SpriteAction): number => counts[action]
 // 256px 共用畫布；Kael／Riven 角色本體約佔滿畫布，縮小至與 Aria 相近的畫面高度。
 export const spriteDisplayHeight = (id: SpriteId): number => id === 'aria' ? 700 : isSheetSprite(id) ? 650 : 520
 // character-scale-profile.json 的 ground_reference_y_px／256；body01 與 S1AW／S2AM／S2LW／S3WW 腳底同為 248/256。
-export const spriteOriginY = (id: SpriteId): number => id === 'aria' ? 240 / 256 : id === 'kevin' ? 117 / 128 : 248 / 256
+// ponytail: current generated sheets place idle baselines at 838–858/1024; use midpoint, derive it from manifest if templates expand.
+export const spriteOriginY = (id: SpriteId): number => id.startsWith('generated-') ? 848 / 1024 : id === 'aria' ? 240 / 256 : id === 'kevin' ? 117 / 128 : 248 / 256
 
 export const spriteActionFor = (fighter: FighterSnapshot, { outcome }: PresentationContext = {}): SpriteAction => {
   if (outcome === 'WIN') return 'victory'

@@ -44,4 +44,17 @@ describe('TemporarySpriteRenderer', () => {
     renderer.update(fighter, 4)
     expect(alphas).toEqual([1, 1, 0.35, 0.35, 1])
   })
+
+  it('doubles the battle display scale only for generated characters', () => {
+    const create = (id: 's1aw' | 'generated-check') => {
+      const image = { height: 1024, texture: { key: `${id}-idle` }, frame: { name: 0 }, setOrigin() { return this }, setScale: vi.fn(), setTexture() { return this } }
+      const scene = { add: { ellipse: () => ({ setY: vi.fn() }), image: () => image }, textures: { exists: () => true } }
+      return { image, renderer: new TemporarySpriteRenderer(scene as never, id, 820) }
+    }
+    const regular = create('s1aw'), generated = create('generated-check')
+    expect(regular.image.setScale).toHaveBeenCalledWith(650 / 1024)
+    expect(generated.image.setScale).toHaveBeenCalledWith(1300 / 1024)
+    expect(generated.renderer.pose(new CombatWorld().getFighter('PLAYER'))?.scale).toBe(1300 / 1024)
+    expect(generated.renderer.pose(new CombatWorld().getFighter('PLAYER'))?.originY).toBe(848 / 1024)
+  })
 })

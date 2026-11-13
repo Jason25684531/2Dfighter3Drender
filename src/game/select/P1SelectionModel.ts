@@ -124,6 +124,17 @@ export class P1SelectionModel {
     this.setGenerationState('RUNTIME_READY')
   }
 
+  continueProcessing(): void {
+    if (this.phase !== 'PROCESSING' || !this.owner) return
+    this.state[this.owner].customized = true; this.state[this.owner].generation = 'PROCESSING'
+    this.owner = undefined; this.phase = 'GRID'; this.advance()
+  }
+
+  skipCustomize(): void {
+    if (this.phase !== 'CUSTOMIZE' || !this.owner) return
+    this.state[this.owner].customized = true; this.owner = undefined; this.phase = 'GRID'; this.advance()
+  }
+
   setGenerationState(state: GenerationState): void {
     if (this.phase !== 'PROCESSING' || !this.owner) return
     this.state[this.owner].generation = state

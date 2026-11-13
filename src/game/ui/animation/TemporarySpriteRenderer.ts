@@ -8,6 +8,7 @@ import type { PlayerSlotId } from '../../input/InputManager'
 
 /** 拍照頭像（圓形）的 texture key；只在該玩家拍了照時存在。 */
 export const faceKey = (id: PlayerSlotId): string => `face-${id}`
+const displayHeight = (id: SpriteId): number => spriteDisplayHeight(id) * (id.startsWith('generated-') ? 2 : 1)
 
 export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private readonly shadow: Phaser.GameObjects.Ellipse
@@ -31,7 +32,7 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     if (spriteId && scene.textures.exists(spriteTextureKey(spriteId, 'idle'))) {
       const key = spriteTextureKey(spriteId, 'idle')
       this.image = scene.add.image(0, 0, key, spriteTextureFrame(spriteId)).setOrigin(0.5, spriteOriginY(spriteId))
-      this.image.setScale(spriteDisplayHeight(spriteId) / this.image.height)
+      this.image.setScale(displayHeight(spriteId) / this.image.height)
       this.add(this.image)
       if (face && scene.textures.exists(face)) { this.face = scene.add.image(0, 0, face); this.add(this.face); this.placeFace() }
     }
@@ -53,8 +54,11 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     }
     const sheet = presentation && presentationSheet[presentation]
     const frame = spriteFrameFor(fighter, action, tick - this.actionStartTick, this.spriteId, this.peak(action, sheet))
-    const key = sheet ? `${this.spriteId}-${sheet}` : spriteTextureKey(this.spriteId, action, frame), textureFrame = spriteTextureFrame(this.spriteId, frame)
-    if (this.scene.textures.exists(key) && (this.image.texture.key !== key || (textureFrame !== undefined && String(this.image.frame.name) !== String(textureFrame)))) this.image.setTexture(key, textureFrame).setScale(spriteDisplayHeight(this.spriteId) / this.image.height)
+    const key = sheet ? `${this.spriteId}-${sheet}` : spriteTextureKey(this.spriteId, action, frame)
+    const available = this.spriteId.startsWith('generated') && this.scene.textures.exists(key) ? this.scene.textures.get(key).frameTotal - 1 : 0
+    const actualFrame = this.spriteId.startsWith('generated') && available > 0 ? (action === 'idle' || action === 'walk' ? frame % available : Math.min(frame, available - 1)) : frame
+    const textureFrame = spriteTextureFrame(this.spriteId, actualFrame)
+    if (this.scene.textures.exists(key) && (this.image.texture.key !== key || (textureFrame !== undefined && String(this.image.frame.name) !== String(textureFrame)))) this.image.setTexture(key, textureFrame).setScale(displayHeight(this.spriteId) / this.image.height)
     this.placeFace()
   }
 
@@ -77,7 +81,7 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   pose(fighter: FighterSnapshot, context?: PresentationContext): { key: string; frame: string | number; scale: number; originY: number } | undefined {
     const { image, spriteId: id } = this
     if (!image || !id) return undefined
-    const scale = spriteDisplayHeight(id) / image.height, originY = spriteOriginY(id)
+    const scale = displayHeight(id) / image.height, originY = spriteOriginY(id)
     if (spriteActionFor(fighter, context) !== 'attack') return { key: image.texture.key, frame: image.frame.name, scale, originY }
     const presentation = !isSheetSprite(id) ? undefined : fighter.attackId === this.attackId && this.action === 'attack' ? this.presentation : resolvePresentation(fighter, context)
     const sheet = presentation && presentationSheet[presentation], frame = spriteFrameFor(fighter, 'attack', 0, id, this.peak('attack', sheet))
