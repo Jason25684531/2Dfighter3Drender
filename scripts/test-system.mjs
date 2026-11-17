@@ -22,9 +22,9 @@ const stopServer = async (processHandle) => {
 let server = startServer()
 try {
   await waitForHealth()
-  const vitest = process.platform === 'win32' ? 'node_modules\\.bin\\vitest.cmd' : 'node_modules/.bin/vitest'
+  const vitest = 'node_modules/vitest/vitest.mjs'
   const result = await new Promise((resolve) => {
-    const child = spawn(vitest, ['run', 'src/game/system'], { env: { ...process.env, VITE_SYSTEM_API_BASE_URL: baseUrl }, stdio: 'inherit', shell: process.platform === 'win32' })
+    const child = spawn(process.execPath, [vitest, 'run', 'src/game/system'], { env: { ...process.env, VITE_SYSTEM_API_BASE_URL: baseUrl }, stdio: 'inherit' })
     child.on('exit', (code) => resolve(code ?? 1))
   })
   process.exitCode = result

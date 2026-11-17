@@ -5,7 +5,7 @@ import type { GameAudio } from '../../audio/GameAudio'
 import { announceCue, combatCues } from '../../audio/AudioCues'
 import type { InputManager } from '../../input/InputManager'
 import { keyLabel } from '../../input/ControlProfile'
-import { faceKey, TemporarySpriteRenderer } from '../animation/TemporarySpriteRenderer'
+import { TemporarySpriteRenderer } from '../animation/TemporarySpriteRenderer'
 import { createSpriteHitTest, stancePushWidth } from '../animation/SpriteHitTest'
 import { outcomeFor, presentationSheetFor, resolvePresentation, spriteActionFor, spriteTextureFrame, spriteTextureKey, type PresentationContext, type SpriteId } from '../animation/TemporarySpriteManifest'
 import { isSheetSprite, sheetAnimations, sheetUrl } from '../animation/SheetSpriteManifest'
@@ -39,11 +39,13 @@ export class BattleView {
   private firstHit?: { round: number; tick: number; byPlayer: boolean }
   private previousAnnounce?: Announce
   private contexts: Partial<Record<FighterId, PresentationContext>> = {}
+  /** 動畫時鐘：每次 update 加一。回合結束與開場停留時 combat tick 不前進，勝利／倒地動作仍要播。 */
+  private animationTick = 0
 
   constructor(private readonly scene: Phaser.Scene, root: Phaser.GameObjects.Container, private readonly world: Phaser.GameObjects.Container, private readonly options: BattleViewOptions) {
     const { playerSprite, enemySprite, floorY } = options
-    this.player = new TemporarySpriteRenderer(scene, playerSprite, floorY, playerSprite?.startsWith('generated') ? undefined : faceKey('P1'))
-    this.enemy = new TemporarySpriteRenderer(scene, enemySprite, floorY, enemySprite?.startsWith('generated') ? undefined : faceKey('P2'))
+    this.player = new TemporarySpriteRenderer(scene, playerSprite, floorY)
+    this.enemy = new TemporarySpriteRenderer(scene, enemySprite, floorY)
     world.add([this.enemy, this.player])
     // 命中改以畫面角色輪廓（外推 HIT_EDGE，貼身必中）判定，推擠改用站姿輪廓（間隙 PUSH_EDGE）；destroy() 解除。
     options.combat?.setHitTest(createSpriteHitTest(scene, { PLAYER: this.player, ENEMY: this.enemy }, (id) => this.contexts[id], () => options.combat?.contactWidth))
@@ -97,7 +99,8 @@ export class BattleView {
       playImpactFx(this.scene, this.world, kind, event.at.x, event.at.y, impactFlip(facing), impactScale(kind, event.attack))
     })
     const outcome = (id: FighterId) => outcomeFor(id, snapshot.matchState, round?.winner)
-    this.player.update(vm.player, tick, { ...context, outcome: outcome('PLAYER') }); this.enemy.update(vm.enemy, tick, { ...enemyContext, outcome: outcome('ENEMY') })
+    const animationTick = this.animationTick++
+    this.player.update(vm.player, animationTick, { ...context, outcome: outcome('PLAYER') }); this.enemy.update(vm.enemy, animationTick, { ...enemyContext, outcome: outcome('ENEMY') })
     const combat = this.options.combat
     if (this.boxes && combat) {
       this.boxes.clear().lineStyle(3, uiTokens.colors.systemBlue)

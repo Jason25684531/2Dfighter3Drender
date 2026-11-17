@@ -27,6 +27,26 @@ describe('ExperiencePersistence', () => {
     const restored = new ExperienceContext(); restored.restore(storage)
     expect(restored.snapshot.faceGenUsed).toEqual({ P1: true, P2: true })
   })
+  it('ends a session left open by the last visit so the next player can take a photo', async () => {
+    for (const finish of [vi.fn().mockResolvedValue(fakeSession), vi.fn().mockRejectedValue(new Error('409 already finished'))]) {
+      const values = new Map<string, string>(), storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) }
+      const previous = new ExperienceContext(); previous.set({ playerId: 1, sessionId: 7, sessionStatus: 'ACTIVE', faceGenUsed: { P1: true } }); previous.serialize(storage)
+      const context = new ExperienceContext(), persistence = new ExperiencePersistence({ finishSession: finish } as unknown as ApiClient, context, storage)
+      await persistence.closeStaleSession()
+      expect(finish).toHaveBeenCalledWith(7, expect.anything())
+      expect([context.snapshot.sessionId, context.snapshot.faceGenUsed]).toEqual([undefined, undefined])
+      const reloaded = new ExperienceContext(); reloaded.restore(storage); expect(reloaded.snapshot.faceGenUsed).toBeUndefined()
+    }
+  })
+  it('stores each character change, including the swap to a generated character', async () => {
+    const updateSession = vi.fn().mockResolvedValue(fakeSession), api = { updateSession } as unknown as ApiClient
+    const context = new ExperienceContext(); context.set({ sessionId: 1, sessionStatus: 'ACTIVE' })
+    const persistence = new ExperiencePersistence(api, context)
+    await persistence.updateSession('body-02'); await persistence.updateSession('generated-DEMO_S2AM')
+    const [first, second] = updateSession.mock.calls.map(([, payload]) => payload)
+    expect([first.selected_character, second.selected_character]).toEqual(['body-02', 'generated-DEMO_S2AM'])
+    expect(first.client_request_id).not.toBe(second.client_request_id)
+  })
   it('sends one match and one request per round, then stores backend rank', async () => {
     const api = { createMatch: vi.fn().mockResolvedValue(match(9)), addRound: vi.fn().mockResolvedValue({} as Round), finishMatch: vi.fn().mockResolvedValue({ ...match(9, 7), status: 'FINISHED' } as Match), getSession: vi.fn().mockResolvedValue(fakeSession) } as unknown as ApiClient
     const context = new ExperienceContext(); context.set({ sessionId: 1, sessionStatus: 'ACTIVE' })

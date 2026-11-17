@@ -17,7 +17,8 @@ router = APIRouter()
 WORKFLOW = Path(__file__).resolve().parents[3] / 'ComfyUI_API' / 'CAMCharacter_Swa__1112(API).json'
 OUTPUT = Path(os.getenv('COMFYUI_OUTPUT', r'C:\ComfyUI_windows_portable_260701\ComfyUI\output'))
 COMFY = os.getenv('COMFYUI_URL', 'http://127.0.0.1:8188').rstrip('/')
-jobs: dict[str, tuple[str, Path]] = {}
+ASSET_ID = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?')
+jobs: dict[str, tuple[str, str]] = {}
 
 
 class GenerationRequest(BaseModel):
@@ -27,10 +28,19 @@ class GenerationRequest(BaseModel):
 
 
 def safe_name(name: str) -> str:
+    """Mirrors TaskforceCharacterSlotSelector._safe_filename so the folder name can be predicted."""
     return re.sub(r'_+', '_', re.sub(r'[^A-Za-z0-9._-]+', '_', name.strip())).strip('._-') or 'action'
 
 
-def read_asset(job: str, folder: Path) -> dict:
+def asset_folder(asset_id: str) -> Path:
+    """The workflow writes <output>/taskforce_2028_ftg/<name>_<template>/; that folder name is the asset id."""
+    if not ASSET_ID.fullmatch(asset_id):
+        raise ApiError('NOT_FOUND', 404, 'Character asset not found')
+    return OUTPUT / 'taskforce_2028_ftg' / asset_id
+
+
+def read_asset(asset_id: str) -> dict:
+    folder = asset_folder(asset_id)
     manifest = json.loads((folder / 'reference_aligned_manifest.json').read_text(encoding='utf-8'))
     actions = {}
     for action, entry in manifest['actions'].items():
@@ -40,17 +50,7 @@ def read_asset(job: str, folder: Path) -> dict:
         actions[action] = {'filename': filename, 'frames': entry['frame_count'], 'cellSize': manifest['cell_size']}
     if not actions:
         raise ValueError('Empty manifest')
-    name = folder.name.rsplit('_', 1)[0]
-    return {'id': job, 'displayName': name, 'actions': actions}
-
-
-def asset_folder(job: str) -> Path:
-    if not re.fullmatch(r'[0-9a-f]{32}', job):
-        raise ApiError('NOT_FOUND', 404, 'Character asset not found')
-    matches = list((OUTPUT / 'taskforce_2028_ftg' / '_jobs' / job).glob('*/reference_aligned_manifest.json'))
-    if len(matches) != 1:
-        raise ApiError('NOT_FOUND', 404, 'Character asset not found')
-    return matches[0].parent
+    return {'id': asset_id, 'displayName': asset_id.rsplit('_', 1)[0], 'fps': manifest.get('gif_fps', 16), 'actions': actions}
 
 
 @router.post('/generation')
@@ -72,8 +72,6 @@ async def submit_generation(request: GenerationRequest):
         job = uuid4().hex
         workflow['2']['inputs']['value'] = request.template
         workflow['13']['inputs']['value'] = request.name.strip()
-        # The workflow clears its output directory; isolate every run from existing characters.
-        workflow['4']['inputs']['output_root'] = f'taskforce_2028_ftg/_jobs/{job}'
         async with httpx.AsyncClient(base_url=COMFY, timeout=30) as client:
             upload = await client.post('/upload/image', files={'image': (f'{job}.jpg', photo, 'image/jpeg')}, data={'type': 'input', 'overwrite': 'false'})
             upload.raise_for_status()
@@ -81,9 +79,8 @@ async def submit_generation(request: GenerationRequest):
             submitted = await client.post('/prompt', json={'prompt': workflow, 'client_id': job})
             submitted.raise_for_status()
             prompt_id = submitted.json()['prompt_id']
-        character = safe_name(request.name) + '_' + safe_name(workflow['4']['inputs'][f'slot_{request.template}_name'])
-        folder = OUTPUT / 'taskforce_2028_ftg' / '_jobs' / job / character
-        jobs[job] = (prompt_id, folder)
+        # ponytail: same name + template reuses (and the workflow clears) one folder; per-run folders if two players may share both at once.
+        jobs[job] = (prompt_id, safe_name(request.name) + '_' + safe_name(workflow['4']['inputs'][f'slot_{request.template}_name']))
         return {'job': job}
     except (OSError, KeyError, ValueError, httpx.HTTPError) as error:
         raise ApiError('GENERATION_UNAVAILABLE', 502, 'ComfyUI submission failed') from error
@@ -91,19 +88,13 @@ async def submit_generation(request: GenerationRequest):
 
 @router.get('/generation/assets')
 def generation_assets():
-    root = OUTPUT / 'taskforce_2028_ftg' / '_jobs'
-    if not root.is_dir():
-        return []
     assets = []
-    for manifest in root.glob('*/*/reference_aligned_manifest.json'):
-        job, folder = manifest.parent.parent.name, manifest.parent
+    for manifest in (OUTPUT / 'taskforce_2028_ftg').glob('*/reference_aligned_manifest.json'):
         try:
-            if not re.fullmatch(r'[0-9a-f]{32}', job):
-                continue
-            asset = read_asset(job, folder)
+            asset = read_asset(manifest.parent.name)
             asset['updated'] = manifest.stat().st_mtime
             assets.append(asset)
-        except (OSError, ValueError, KeyError, TypeError):
+        except (ApiError, OSError, ValueError, KeyError, TypeError):
             continue
     return sorted(assets, key=lambda asset: (asset['updated'], asset['id']))
 
@@ -111,16 +102,24 @@ def generation_assets():
 @router.get('/generation/assets/{asset_id}')
 def generation_asset(asset_id: str):
     try:
-        return read_asset(asset_id, asset_folder(asset_id))
+        return read_asset(asset_id)
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise ApiError('NOT_FOUND', 404, 'Character asset not found') from error
+
+
+@router.get('/generation/assets/{asset_id}/sheets/{filename}')
+def generation_sheet(asset_id: str, filename: str):
+    path = asset_folder(asset_id) / 'Sprite_Sheet_reference_aligned' / filename
+    if not re.fullmatch(r'[A-Za-z0-9_]+\.png', filename) or not path.is_file():
+        raise ApiError('NOT_FOUND', 404, 'Sheet not found')
+    return FileResponse(path, media_type='image/png')
 
 
 @router.get('/generation/{job}')
 async def generation_status(job: str):
     if job not in jobs:
         raise ApiError('NOT_FOUND', 404, 'Generation job not found')
-    prompt_id, folder = jobs[job]
+    prompt_id, asset_id = jobs[job]
     try:
         async with httpx.AsyncClient(base_url=COMFY, timeout=10) as client:
             response = await client.get(f'/history/{prompt_id}')
@@ -133,20 +132,6 @@ async def generation_status(job: str):
             return {'status': 'failed'}
         if not status.get('completed'):
             return {'status': 'processing'}
-        return {'status': 'ready', **read_asset(job, folder)}
+        return {'status': 'ready', **read_asset(asset_id)}
     except (OSError, KeyError, ValueError, httpx.HTTPError) as error:
         raise ApiError('GENERATION_UNAVAILABLE', 502, 'ComfyUI result unavailable') from error
-
-
-@router.get('/generation/{job}/sheets/{filename}')
-def generation_sheet(job: str, filename: str):
-    if not re.fullmatch(r'[0-9a-f]{32}', job) or Path(filename).name != filename or not re.fullmatch(r'[A-Za-z0-9_]+\.png', filename):
-        raise ApiError('NOT_FOUND', 404, 'Sheet not found')
-    if job in jobs:
-        folder = jobs[job][1]
-    else:
-        folder = asset_folder(job)
-    path = folder / 'Sprite_Sheet_reference_aligned' / filename
-    if not path.is_file():
-        raise ApiError('NOT_FOUND', 404, 'Sheet not found')
-    return FileResponse(path, media_type='image/png')

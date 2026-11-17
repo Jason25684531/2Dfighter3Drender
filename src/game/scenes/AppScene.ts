@@ -18,10 +18,9 @@ import { LeaderboardPanel } from '../ui/board/LeaderboardPanel'
 import { P1SelectView } from '../ui/p1/P1SelectView'
 import { endViewModel, leaderboardPanelModel, loadingViewModel, finishAnnouncements, resultViewModel, stageSelectViewModel, type ResultViewModel } from '../ui/ViewModels'
 import { characterEntries, characterEntry, resolveStageAsset, stageTextureKey, testCharacterManifest, type CharacterEntry, type StageId } from '../ui/assets/TestAssetManifest'
-import { faceKey, TemporarySpriteRenderer } from '../ui/animation/TemporarySpriteRenderer'
-import { spriteTextureFrame, spriteTextureKey, type PresentationContext, type SpriteId } from '../ui/animation/TemporarySpriteManifest'
+import { TemporarySpriteRenderer } from '../ui/animation/TemporarySpriteRenderer'
+import { outcomeFor, spriteTextureFrame, spriteTextureKey, type PresentationContext, type SpriteId } from '../ui/animation/TemporarySpriteManifest'
 import { isSheetSprite } from '../ui/animation/SheetSpriteManifest'
-import { clearGeneratedHitMasks } from '../ui/animation/SpriteHitTest'
 import { keyLabel, loadProfiles, saveProfiles, type CombatAction } from '../input/ControlProfile'
 import { ControlsPanel } from '../ui/controls/ControlsPanel'
 import { loadPadProfiles, PAD_SYSTEM, padLabel, savePadProfiles, type PadProfiles } from '../input/GamepadProfile'
@@ -29,8 +28,12 @@ import { BattleStage } from '../ui/stage/BattleStage'
 import { BattleView } from '../ui/battle/BattleView'
 import { GameAudio } from '../audio/GameAudio'
 import { combatCues, finishCues } from '../audio/AudioCues'
-import { generateCharacter, listGeneratedCharacters, loadGeneratedCharacter } from '../api/CharacterGeneration'
+import { dropGeneratedTextures, generateCharacter, listGeneratedCharacters, loadGeneratedCharacter } from '../api/CharacterGeneration'
 
+/** P3 載入畫面在生成期間顯示的拍照頭像。 */
+const faceKey = (id: PlayerSlotId): string => `face-${id}`
+
+type GenerationJob = { name: string; template: number; photo: string; state: 'processing' | 'ready' | 'failed'; controller: AbortController; assetId?: string }
 type Focusable = Phaser.GameObjects.Container & { setFocused: (focused: boolean) => unknown }
 
 export class AppScene extends Phaser.Scene {
@@ -48,6 +51,7 @@ export class AppScene extends Phaser.Scene {
   private tickEvents: CombatEvent[] = []
   private battlePlayer?: TemporarySpriteRenderer
   private battleEnemy?: TemporarySpriteRenderer
+  private presentationTick = 0
   private keyCaps: KeyCap[] = []
   private promptDevice?: string
   private loadingButton?: ActionButton
@@ -60,7 +64,7 @@ export class AppScene extends Phaser.Scene {
   private selectedStageId: StageId = 'laboratory'
   private overlay?: Phaser.GameObjects.Container
   private p1Model?: P1SelectionModel
-  private generation: Partial<Record<PlayerSlotId, { name: string; template: number; photo: string; state: 'processing' | 'ready' | 'failed'; controller: AbortController; assetId?: string }>> = {}
+  private generation: Partial<Record<PlayerSlotId, GenerationJob>> = {}
   private generatedEntries: CharacterEntry[] = []
   private generatedEntriesReady = false
   private selectedAssetsState: 'idle' | 'loading' | 'ready' | 'failed' = 'idle'
@@ -123,6 +127,7 @@ export class AppScene extends Phaser.Scene {
       this.render(nextState)
     })
     this.clockUnsubscribe = this.clock.subscribe(() => {
+      if (this.appStateMachine.getCurrentState() === AppState.PRESENTATION) { this.updateP5Fighters(); return }
       if (this.appStateMachine.getCurrentState() !== AppState.BATTLE) return
       const input = this.inputManager.consumeGameplaySnapshot(), p2 = this.inputManager.consumeGameplaySnapshot('P2')
       // 蹲是純呈現：只在可操作時顯示（起手序列與回合結束停留不蹲）；ENEMY 只有 2P 真人時才看 2P 的蹲鍵。
@@ -275,12 +280,6 @@ export class AppScene extends Phaser.Scene {
     if (refocus && this.appStateMachine.getCurrentState() === AppState.IDLE) this.ui.focus.activate('p0', 'p0-board')
   }
 
-  private addBackButton(group: string): void {
-    const back = new ActionButton(this, 'BACK', 270, 88, uiTokens.colors.panelRaised, '返回').setPosition(245, 952)
-    back.on('pointerup', () => this.ui.navigation.dispatch('BACK'))
-    this.screen?.add(back); this.register(group, group + '-back', back, () => this.ui.navigation.dispatch('BACK'))
-  }
-
   private renderP1(): void {
     if (!this.generatedEntriesReady) {
       this.screen?.add(this.label('載入已生成角色…', 960, 540))
@@ -342,19 +341,23 @@ export class AppScene extends Phaser.Scene {
   private clearGeneration(): void {
     Object.values(this.generation).forEach((job) => job.controller.abort())
     this.generation = {}
-    this.textures.getTextureKeys().filter((key) => key.startsWith('generated-')).forEach((key) => { clearGeneratedHitMasks(key.slice(0, key.lastIndexOf('-'))); this.textures.remove(key) })
+    dropGeneratedTextures(this)
     this.generatedLoads.clear(); this.selectedAssetsState = 'idle'
     ;(['P1', 'P2'] as const).forEach((id) => { const key = faceKey(id); if (this.textures.exists(key)) this.textures.remove(key) })
   }
   private startGeneration(owner: PlayerSlotId, name: string, template: number, photo: string): void {
     this.generation[owner]?.controller.abort()
-    const job: { name: string; template: number; photo: string; state: 'processing' | 'ready' | 'failed'; controller: AbortController; assetId?: string } = { name, template, photo, state: 'processing', controller: new AbortController() }
+    const job: GenerationJob = { name, template, photo, state: 'processing', controller: new AbortController() }
     this.generation[owner] = job
     void generateCharacter(this, name, template, photo, job.controller.signal).then((assetId) => {
       if (this.generation[owner] !== job) return
       job.assetId = assetId; job.state = 'ready'
+      const id = `generated-${assetId}` as const
+      if (!this.generatedEntries.some((entry) => entry.id === id)) this.generatedEntries.push({ id, generationId: assetId, displayName: name, type: 'CUSTOM', status: 'READY', spriteId: id })
       const selected = this.flow.players[owner]
-      if (selected?.characterId === `body-0${template}`) this.flow.setPlayers({ ...this.flow.players, [owner]: { ...selected, characterId: `generated-${assetId}` } })
+      if (selected?.characterId === `body-0${template}`) this.flow.setPlayers({ ...this.flow.players, [owner]: { ...selected, characterId: id } })
+      // 等待畫面上的模板預覽換成剛生成的角色。
+      if (this.appStateMachine.getCurrentState() === AppState.LOADING) this.render(AppState.LOADING)
     }, () => { if (!job.controller.signal.aborted) job.state = 'failed' })
   }
   /** Customize 各步驟是 P1 substate：切換時整頁重建，其餘只同步常駐物件。 */
@@ -378,7 +381,6 @@ export class AppScene extends Phaser.Scene {
     this.selectedAssetsState = 'loading'
     void Promise.all(ids.map((id) => this.loadAsset(id))).then(() => { this.selectedAssetsState = 'ready' }, () => { this.selectedAssetsState = 'failed' })
   }
-  // ponytail: 拍照頭像暫以圓形貼在 Body 頭部，示意 ComfyUI 算圖結果；接上生成服務後改用回傳的角色 sheet、移除這段。
   private applyFaces(): void {
     (['P1', 'P2'] as const).forEach((id) => {
       const key = faceKey(id), photo = this.p1Model?.player(id).photo
@@ -478,8 +480,10 @@ export class AppScene extends Phaser.Scene {
     this.loadingPercent = this.add.text(260, -82, '', typography.note).setOrigin(1, 0.5)
     this.loadingButton = new ActionButton(this, 'FIGHT!', 440, 92, uiTokens.colors.playerPrimary, `ENTER / ${this.padConfirm()} ・ 開始`).setPosition(0, 55).setEnabled(false)
     const fight = (): void => {
-      if (this.selectedAssetsState === 'failed') { this.loadSelectedAssets(); return }
-      if (this.loadingReady) this.appStateMachine.transitionTo(AppState.BATTLE)
+      const failed = (['P1', 'P2'] as const).filter((id) => this.generation[id]?.state === 'failed')
+      failed.forEach((id) => { const { name, template, photo } = this.generation[id] as GenerationJob; this.startGeneration(id, name, template, photo) })
+      if (this.selectedAssetsState === 'failed') this.loadSelectedAssets()
+      else if (!failed.length && this.loadingReady) this.appStateMachine.transitionTo(AppState.BATTLE)
     }
     this.loadingButton.on('pointerup', fight); loading.add([this.loadingBar, this.loadingPercent, this.loadingButton]); root.add(loading)
     this.register('loading', 'loading-fight', this.loadingButton, fight, false); this.updateLoading()
@@ -488,17 +492,18 @@ export class AppScene extends Phaser.Scene {
     if (!this.loadingButton) return
     ;(['P1', 'P2'] as const).forEach((id, i) => {
       if (!this.generation[id] || this.loadingPortraits.has(id) || !this.textures.exists(faceKey(id))) return
-      this.screen?.add(this.add.image(1240 + i * 120, 700, faceKey(id)).setDisplaySize(100, 100))
+      this.screen?.add(this.add.image(1215 + i * 92, 670, faceKey(id)).setDisplaySize(80, 80))
       this.loadingPortraits.add(id)
     })
     const boot = this.scene.get('BootScene').load
-    const jobs = Object.values(this.generation), generationFailed = jobs.some((job) => job.state === 'failed'), assetFailed = this.selectedAssetsState === 'failed'
-    const busy = boot.isLoading() || this.load.isLoading() || jobs.some((job) => job.state === 'processing') || this.selectedAssetsState === 'loading'
+    const jobs = Object.values(this.generation), generationFailed = jobs.some((job) => job.state === 'failed'), assetFailed = this.selectedAssetsState === 'failed', generating = jobs.some((job) => job.state === 'processing')
+    const busy = boot.isLoading() || this.load.isLoading() || generating || this.selectedAssetsState === 'loading'
     const progress = busy ? (this.load.isLoading() ? this.load.progress : boot.progress) : 1
-    this.loadingBar?.setScale(busy && jobs.some((job) => job.state === 'processing') ? 0.5 : progress, 1); this.loadingPercent?.setText(assetFailed ? '素材載入失敗 · 可重試' : generationFailed ? '生成失敗 · 使用原始角色' : busy && jobs.some((job) => job.state === 'processing') ? '角色生成中' : busy ? Math.round(progress * 100) + '%' : 'READY')
-    this.loadingButton.label.setText(assetFailed ? 'RETRY · 重試' : 'FIGHT!')
-    if (this.loadingReady !== (!busy && !assetFailed) || this.loadingButton.input?.enabled !== (!busy && !assetFailed)) {
-      this.loadingReady = !busy && !assetFailed; this.loadingButton.setEnabled(!busy && !assetFailed); this.ui.focus.setEnabled('loading', 'loading-fight', !busy && !assetFailed)
+    this.loadingBar?.setScale(generating ? 0.5 : progress, 1); this.loadingPercent?.setText(generationFailed ? '角色生成失敗 · 可重試或返回' : assetFailed ? '素材載入失敗 · 可重試' : generating ? '角色生成中' : busy ? Math.round(progress * 100) + '%' : 'READY')
+    this.loadingButton.label.setText(generationFailed || assetFailed ? 'RETRY · 重試' : 'FIGHT!')
+    // 失敗時按鈕仍可按（＝重試），只有忙碌中停用。
+    if (this.loadingReady !== (!busy && !generationFailed && !assetFailed) || this.loadingButton.input?.enabled !== !busy) {
+      this.loadingReady = !busy && !generationFailed && !assetFailed; this.loadingButton.setEnabled(!busy); this.ui.focus.setEnabled('loading', 'loading-fight', !busy)
       this.loadingPulse?.stop(); this.loadingButton.label.setAlpha(1)
       if (!busy) { this.ui.focus.activate('loading', 'loading-fight'); this.loadingPulse = this.addScreenTween({ targets: this.loadingButton.label, alpha: 0.7, duration: 700, yoyo: true, repeat: -1 }) }
     }
@@ -511,6 +516,13 @@ export class AppScene extends Phaser.Scene {
     const world = this.addBattleStage(root, uiTokens.backdrop.battle)
     this.battleView = new BattleView(this, root, world, { stage: this.selectedStageId, playerSprite: this.playerSpriteId(), enemySprite: this.enemySpriteId(), playerName: this.playerName(), enemyName: this.enemyName(), twoPlayer: Boolean(this.flow.players.P2), floorY: this.flow.match.world.getConfig().floorY, maxHp: this.flow.match.world.getConfig().maxHp, input: this.inputManager, audio: this.audio, combat: this.flow.match.world })
   }
+  /** P5 停在最後的戰鬥畫面：贏家播勝利動作（播完停最後一格），KO 的輸家倒地；由遊戲時鐘每 tick 推進。 */
+  private updateP5Fighters(): void {
+    // 淡入期間停在第一格，畫面完全顯示後才開始播，勝利動作才看得完整。
+    const { fighters } = this.flow.match.getSnapshot().world, winner = this.flow.result?.winner, tick = (this.screen?.alpha ?? 1) < 1 ? this.presentationTick : this.presentationTick++
+    this.battlePlayer?.update(fighters.PLAYER, tick, { outcome: outcomeFor('PLAYER', 'MATCH_END', winner) })
+    this.battleEnemy?.update(fighters.ENEMY, tick, { outcome: outcomeFor('ENEMY', 'MATCH_END', winner) })
+  }
   private addBattleStage(root: Phaser.GameObjects.Container, darkness: number): Phaser.GameObjects.Container {
     this.stage = new BattleStage(this, root, this.selectedStageId, reducedMotion, () => this.addAtmosphere(root, darkness))
     return this.stage.world
@@ -520,11 +532,9 @@ export class AppScene extends Phaser.Scene {
   }
   private renderP5(): void {
     this.battleRoot = this.add.container(0, 0); this.screen?.add(this.battleRoot); const world = this.addBattleStage(this.battleRoot, uiTokens.backdrop.presentation)
-    const snapshot = this.flow.match.getSnapshot()
-    this.battlePlayer = new TemporarySpriteRenderer(this, this.playerSpriteId(), this.flow.match.world.getConfig().floorY, this.playerSpriteId()?.startsWith('generated') ? undefined : faceKey('P1'))
-    this.battlePlayer.update(snapshot.world.fighters.PLAYER, snapshot.world.tick)
-    this.battleEnemy = new TemporarySpriteRenderer(this, this.enemySpriteId(), this.flow.match.world.getConfig().floorY, this.enemySpriteId().startsWith('generated') ? undefined : faceKey('P2'))
-    this.battleEnemy.update(snapshot.world.fighters.ENEMY, snapshot.world.tick)
+    this.battlePlayer = new TemporarySpriteRenderer(this, this.playerSpriteId(), this.flow.match.world.getConfig().floorY)
+    this.battleEnemy = new TemporarySpriteRenderer(this, this.enemySpriteId(), this.flow.match.world.getConfig().floorY)
+    this.presentationTick = 0; this.updateP5Fighters()
     world.add([this.battlePlayer, this.battleEnemy])
     this.battleRoot.add(this.add.rectangle(960, 540, 1920, 1080, uiTokens.colors.background0, uiTokens.backdrop.impact))
     const rays = this.add.graphics().setPosition(960, 450)
@@ -609,7 +619,7 @@ export class AppScene extends Phaser.Scene {
     const vm = endViewModel(this.flow.nextPlayerName)
     const panel = new AngularPanel(this, 900, 500, uiTokens.colors.panelRaised).setPosition(960, 500)
     panel.add(this.add.text(0, -170, 'PLAY AGAIN?', typography.title).setOrigin(0.5))
-    panel.add(this.add.text(0, -112, '再戰一場（重新選擇場景）', typography.instruction).setOrigin(0.5))
+    panel.add(this.add.text(0, -112, '再戰一場（重新選擇角色與場景）', typography.instruction).setOrigin(0.5))
     const replay = new ActionButton(this, 'PLAY AGAIN', 470, 96).setPosition(0, -6)
     const finish = new ActionButton(this, 'FINISH', 470, 86, uiTokens.colors.background1).setPosition(0, 132)
     replay.setInteractive({ useHandCursor: true }).on('pointerup', () => this.ui.navigation.dispatch('REPLAY'))

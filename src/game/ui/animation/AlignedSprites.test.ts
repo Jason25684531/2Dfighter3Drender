@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { CombatWorld } from '../../combat/CombatWorld'
-import { alignedAction, alignedSprites, sheetAnimations, sheetUrl } from './SheetSpriteManifest'
+import { alignedAction, alignedSprites, registerGeneratedSprite, sheetAnimations, sheetUrl, type AlignedSprite } from './SheetSpriteManifest'
 import { presentationSheetFor, spriteFrameFor, type Presentation } from './TemporarySpriteManifest'
 
 describe('aligned character sheets', () => {
@@ -26,6 +26,15 @@ describe('aligned character sheets', () => {
     }
   })
 
+  it('plays a generated character at its manifest fps and frame counts', () => {
+    const actions = { ...alignedSprites.s2am.actions, '05': { filename: '05_Crouch.png', frames: 4 } }
+    registerGeneratedSprite('generated-probe', { ...alignedSprites.s2am, size: 1024, fps: 16, actions } as AlignedSprite)
+    const idle = new CombatWorld().getFighter('PLAYER')
+    expect([3, 12, 24].map((ticks) => spriteFrameFor(idle, 'idle', ticks, 'generated-probe'))).toEqual([2, 0, 0])
+    expect(spriteFrameFor(idle, 'idle', 3, 'generated-probe', undefined, 'intro-victory')).toBe(2)
+    expect(spriteFrameFor(idle, 'idle', 100, 'generated-probe', undefined, 'intro-victory')).toBe(7)
+    expect(presentationSheetFor('generated-probe', 'BLOCK')).toBe('block')
+  })
   it('resolves every semantic action and bounds every combat phase to available frames', () => {
     const fighter = new CombatWorld().getFighter('PLAYER')
     const presentations: Presentation[] = ['IDLE', 'MOVE', 'JUMP', 'CROUCH', 'BLOCK', 'PUNCH_LIGHT', 'PUNCH_HEAVY', 'KICK_LIGHT', 'KICK_HEAVY', 'PUNCH_AIR', 'PUNCH_CROUCH', 'KICK_AIR', 'KICK_CROUCH', 'PRONE', 'VICTORY']

@@ -179,7 +179,13 @@ export class P1SelectionModel {
     if (this.phase !== 'GRID' || players.some((id) => this.state[id].joined && this.state[id].locked === undefined)) return
     const next = this.queue()[0]
     if (next) { this.owner = next; this.phase = 'CUSTOMIZE' } else if (this.state.P2.joined) this.phase = 'ALL_READY'
-    else { this.rival ??= { cursor: moveSlot(this.state.P1.locked as number, 'NAV_RIGHT'), difficulty: DEFAULT_AI_PROFILE.id }; this.phase = 'OPPONENT' }
+    else { this.rival ??= { cursor: this.defaultRival(this.state.P1.locked as number), difficulty: DEFAULT_AI_PROFILE.id }; this.phase = 'OPPONENT' }
+  }
+
+  /** CPU 預設對手：1P 之後的下一位 Officer（循環），不預選 Body 模板或空格。 */
+  private defaultRival(locked: number): number {
+    const { from, to } = SECTIONS[1], officers = Array.from({ length: to - from + 1 }, (_, i) => from + i).filter((index) => index !== locked && confirmable(this.slot(index)))
+    return officers.find((index) => index > locked) ?? officers[0] ?? moveSlot(locked, 'NAV_RIGHT')
   }
 
   /** 單人：OPPONENT（選格）→ DIFFICULTY（←→ 切換）→ ALL_READY；BACK 逐層退回，OPPONENT 再退即解除 1P 鎖定。 */

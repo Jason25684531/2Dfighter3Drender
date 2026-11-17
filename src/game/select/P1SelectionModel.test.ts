@@ -102,6 +102,12 @@ describe('P1 selection model', () => {
     model.input('P1', 'BACK'); press(model, 'P1', 'NAV_RIGHT'); expect(model.heroSlot('P1')?.index).toBe(6)
     expect(model.heroSlot('P2')?.index).toBe(6)
   })
+  it('defaults the CPU opponent to the next officer, never a body template', () => {
+    const body = new P1SelectionModel(); body.focus('P1', 2); body.input('P1', 'CONFIRM'); body.setNickname('P1', 'DEMO'); body.skipCustomize()
+    expect([body.phase, body.rival?.cursor, body.heroSlot('P2')?.entry?.displayName]).toEqual(['OPPONENT', 5, 'Tony'])
+    const last = new P1SelectionModel(); last.focus('P1', 10); last.input('P1', 'CONFIRM')
+    expect(last.rival?.cursor).toBe(5)
+  })
   it('CASE A: solo pick moves on to choosing the CPU opponent and difficulty on the same grid', () => {
     const model = new P1SelectionModel(); expect(model.input('P1', 'CONFIRM')).toBe('CONFIRMED')
     expect(model.phase).toBe('OPPONENT'); expect(model.rival).toEqual({ cursor: 6, difficulty: 'NORMAL' }); expect(model.status('P2')).toBe('OPPONENT')

@@ -114,23 +114,8 @@ export const stancePushWidth = (scene: Phaser.Scene, renderers: Record<FighterId
   return a && b ? contactWidth(a, b) : undefined
 }
 
-/** 頭像直徑（影格像素）；256 格 Body 的頭寬約 32。 */
-export const HEAD_PX = 32
-// ponytail: 頭＝輪廓最上緣往下 HEAD_PX 的中心；舉手過頭、倒地的影格會偏。接上 ComfyUI 正式算圖後連同頭像整段移除。
-export const headOf = ({ width, height, solid }: Mask): { x: number; y: number } | undefined => {
-  const top = Math.floor(solid.indexOf(1) / width)
-  let sx = 0, count = 0
-  if (top >= 0) for (let v = top; v < Math.min(height, top + HEAD_PX); v += 1) for (let u = 0; u < width; u += 1) if (solid[v * width + u]) { sx += u; count += 1 }
-  return count ? { x: sx / count, y: top + HEAD_PX / 2 } : undefined
-}
-const heads = new Map<string, { x: number; y: number } | undefined>()
 export const clearGeneratedHitMasks = (sprite: string): void => {
-  for (const cache of [masks, bests, heads]) for (const key of cache.keys()) if (key.includes(`${sprite}-`)) cache.delete(key)
-}
-export const headPoint = (scene: Phaser.Scene, key: string, frameName: string | number): { x: number; y: number } | undefined => {
-  const id = `${key}:${frameName}`
-  if (!heads.has(id)) { const mask = readMask(scene, key, frameName); heads.set(id, mask && headOf(mask)) }
-  return heads.get(id)
+  for (const cache of [masks, bests]) for (const key of cache.keys()) if (key.includes(`${sprite}-`)) cache.delete(key)
 }
 
 /** 以畫面上的角色輪廓判定命中；任一方沒有貼圖時回 undefined，Combat 退回 AABB。 */

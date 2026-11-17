@@ -13,6 +13,7 @@ OUT = Path('outputs/aligned-character-verification')
 OUT.mkdir(parents=True, exist_ok=True)
 API = 'http://127.0.0.1:19881/api/v1'
 COMFY = 'http://127.0.0.1:8188'
+COMFY_OUTPUT = Path(r'C:\ComfyUI_windows_portable_260701\ComfyUI\output	askforce_2028_ftg')
 
 
 def request(url, body=None):
@@ -42,10 +43,12 @@ try:
         report['status'] = status['status']
         if status['status'] != 'processing':
             if status['status'] == 'ready':
-                report['actions'] = status['actions']
-                report['downloadedSheets'] = 0
+                report.update(assetId=status['id'], actions=status['actions'], downloadedSheets=0)
+                folder = COMFY_OUTPUT / status['id'] / 'Sprite_Sheet_reference_aligned'
+                report['nativeFolder'] = str(folder)
+                assert all((folder / sheet['filename']).is_file() for sheet in status['actions'].values()), 'sheets missing from native output folder'
                 for sheet in status['actions'].values():
-                    with urllib.request.urlopen(API + f'/generation/{job}/sheets/' + sheet['filename'], timeout=30) as response:
+                    with urllib.request.urlopen(API + f"/generation/assets/{status['id']}/sheets/" + sheet['filename'], timeout=30) as response:
                         assert response.read(8) == b'\x89PNG\r\n\x1a\n'
                         report['downloadedSheets'] += 1
             break

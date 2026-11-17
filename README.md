@@ -103,7 +103,7 @@
 | P6_RESULT | 結算與排行 | RANK_1_TO_6 等 | 繼續 | 無 |
 | P7_END | 再玩一次？ | DEFAULT | Replay、Finish | 無 |
 
-正常流程：P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7。Replay 回到 P2（沿用角色、對手與難度，只重選場景），Finish 回到 P0。
+正常流程：P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7。Replay 回到 P1（重新確認角色、對手與難度，再選場景），Finish 回到 P0。
 
 ### 返回與離開
 
@@ -111,7 +111,7 @@
 |---|---|
 | P0 | 無作用 |
 | P1 | 自訂中先確認放棄，否則回 P0。1P 的 K：難度 → 對手 → 解除自己的鎖定 |
-| P2 | 回 P1 |
+| P2 | 無作用；重新選角由 Replay 回 P1 |
 | P3、P5、P6 | 回 P0 並結束 session |
 | P4 | 開啟暫停選單；選 EXIT 並確認後回 P0 |
 | P7 | 無作用，用 Replay 或 Finish |
@@ -198,6 +198,8 @@ python -m pytest backend/tests -q
 本機後端虛擬環境位於 `venv/Scripts/python.exe`。
 
 ### 本機啟動與實機驗證
+
+一鍵啟動：雙擊 `start-dev.bat`。會檢查 venv／node_modules、提示 ComfyUI（8188）是否在跑，分別開視窗啟動後端（8000）與前端（5173），就緒後開啟 `http://localhost:5173/`。關閉那兩個視窗即停止服務。
 
 ```bash
 # 後端（可省略；離線時流程照常、只是不記成績）

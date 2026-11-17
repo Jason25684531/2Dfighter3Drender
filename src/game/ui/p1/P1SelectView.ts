@@ -27,6 +27,8 @@ const withKeys = (owner: PlayerSlotId, base: Identity): Identity & { keys: strin
   get keys() { const k = menuKeys(loadProfiles()[owner], owner); return [k.NAV_UP, k.NAV_LEFT, k.NAV_DOWN, k.NAV_RIGHT].map((codes) => keyLabel(codes[0] ?? '')).join(' ') },
   get confirm() { return keyLabel(menuKeys(loadProfiles()[owner], owner).CONFIRM[0] ?? '') },
   get back() { return keyLabel(menuKeys(loadProfiles()[owner], owner).BACK[0] ?? '') } })
+/** 每次遊玩限生成一次；PLAY AGAIN 仍是同一次遊玩，游標已預設在剛生成的角色。 */
+const FACE_USED_HINT = '本次已生成角色 · 請改選名冊中的角色，或結算後選 FINISH 重新拍照'
 const identity = {
   P1: withKeys('P1', { main: colors.playerPrimary, glow: colors.playerGlow, text: 'playerGlow', tag: '1P', label: 'PLAYER 1' }),
   P2: withKeys('P2', { main: colors.enemyPrimary, glow: colors.enemyGlow, text: 'enemyGlow', tag: '2P', label: 'PLAYER 2' }),
@@ -342,7 +344,7 @@ export class P1SelectView {
   }
 
   feedback(owner: PlayerSlotId, feedback: SelectFeedback): void {
-    if (feedback === 'FACE_GENERATION_USED') { this.nameHint?.setText('FACE GENERATION USED · 已使用本次換臉額度').setVisible(true) }
+    if (feedback === 'FACE_GENERATION_USED') { this.nameHint?.setText(FACE_USED_HINT).setVisible(true) }
     if (feedback === 'REJECTED') {
       const rival = owner === 'P1' ? this.model.rival : undefined // 單人選對手時被拒絕的是對手游標
       this.cursors[rival ? 'P2' : owner]?.shake()
@@ -481,9 +483,9 @@ export class P1SelectView {
       this.nameInput = this.createNameInput(owner, player.nickname)
       button('BACK', `${id.back} · 返回`, 790, colors.panelRaised, 'BACK')
       this.takePhoto = button('TAKE PHOTO', `${id.confirm} · 拍照`, 1130, id.main, 'CONFIRM').setEnabled(!player.faceGenUsed)
-      const skip = new ActionButton(scene, 'SKIP PHOTO', 300, 58, colors.panelRaised, '輕攻擊 · 跳過拍照').setPosition(960, 1020)
+      const skip = new ActionButton(scene, 'SKIP PHOTO', 300, 72, colors.panelRaised, `${keyLabel(loadProfiles()[owner].LIGHT_KICK)} · 跳過拍照`).setPosition(960, 1024)
       skip.on('pointerup', () => this.hooks.onSkip?.()); root.add(skip)
-      this.nameHint = label(scene, 960, 856, player.faceGenUsed ? 'FACE GENERATION USED · 已使用本次換臉額度' : 'ENTER A NAME FIRST · 請先輸入名稱', player.faceGenUsed ? 'textSecondary' : 'danger').setOrigin(0.5); root.add(this.nameHint)
+      this.nameHint = label(scene, 960, 856, player.faceGenUsed ? FACE_USED_HINT : 'ENTER A NAME FIRST · 請先輸入名稱', player.faceGenUsed ? 'textSecondary' : 'danger').setOrigin(0.5); root.add(this.nameHint)
       this.buildNameKeyboard(owner)
       this.refreshName(owner)
     } else if (model.phase === 'REVIEW') {
@@ -507,7 +509,7 @@ export class P1SelectView {
     } else {
       this.buildProcessing(slot, player.nickname.trim())
     }
-    root.add(label(scene, 960, 1048, model.phase === 'PROCESSING' ? 'MOCK PROCESSING · 請稍候' : `${id.tag}  ${id.confirm} 確認 · ${id.back} 返回`, id.text).setOrigin(0.5))
+    if (model.phase !== 'CUSTOMIZE') root.add(label(scene, 960, 1048, model.phase === 'PROCESSING' ? 'MOCK PROCESSING · 請稍候' : `${id.tag}  ${id.confirm} 確認 · ${id.back} 返回`, id.text).setOrigin(0.5))
   }
 
   private buildProcessing(slot: Slot, nickname: string): void {

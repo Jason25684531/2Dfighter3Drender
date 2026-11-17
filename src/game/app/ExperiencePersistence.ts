@@ -50,11 +50,12 @@ export class ExperiencePersistence {
     this.context.set({ playerId: player.id, sessionId: active.id, sessionStatus: active.status, persistence: 'SAVED' }); this.persist()
   }
 
-  async restoreSession(): Promise<void> {
+  /** 開機一律停在 P0，而回到 P0 就代表本次遊玩結束：上次沒按 FINISH 就關掉的 session 在這裡收尾，換臉額度不會帶給下一位。 */
+  async closeStaleSession(): Promise<void> {
     if (!this.storage) return
     this.context.restore(this.storage)
-    if (!this.context.snapshot.sessionId) return
-    try { await this.ensureSession() } catch { this.clear() }
+    if (this.context.snapshot.sessionId) await this.finishSession().catch(() => undefined)
+    this.clear()
   }
 
   beginMatch(): Promise<void> {
@@ -79,7 +80,8 @@ export class ExperiencePersistence {
   updateSession(selectedCharacter: string | null): Promise<void> {
     const sessionId = this.context.snapshot.sessionId
     if (!sessionId) return Promise.resolve()
-    const requestId = `${this.sessionRequestId ?? String(sessionId)}:update`
+    // 每次換角都是新的請求；同一鍵配不同角色會被後端判為冪等衝突（409）。
+    const requestId = id('session:update')
     return this.enqueue({ key: `session-update:${sessionId}`, run: async () => { await this.api.updateSession(sessionId, { selected_character: selectedCharacter, client_request_id: requestId }); this.persist() } })
   }
 

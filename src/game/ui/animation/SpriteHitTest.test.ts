@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CombatWorld, DEFAULT_COMBAT_CONFIG } from '../../combat/CombatWorld'
 import { spriteFrameFor } from './TemporarySpriteManifest'
-import { contactWidth, HIT_EDGE, dilate, touchContact, headOf, HEAD_PX, silhouetteContact, type Mask, type Placement } from './SpriteHitTest'
+import { contactWidth, HIT_EDGE, dilate, touchContact, silhouetteContact, type Mask, type Placement } from './SpriteHitTest'
 import { HIT_TUNING, reachFor } from '../../config/hitTuning'
 
 // 10×10 實心方塊，錨點在底部中央：world 佔 [x-5, x+5]。
@@ -73,13 +73,5 @@ describe('SpriteHitTest', () => {
     expect(touchContact(punch, body, 15)).toEqual({ x: 7.5, y: -9.5 })
     expect(touchContact(punch, at(26, -1), 15)).toBeNull()
     expect(touchContact({ ...punch, y: -50 }, body, 15)).toBeNull()
-  })
-
-  it('places the photo head at the centre of the top HEAD_PX rows of the outline', () => {
-    // 100×100 空白，頭在 x 40–49、y 20 起；身體從 y 20+HEAD_PX 起整列實心，不影響頭中心。
-    const solid = new Uint8Array(100 * 100)
-    for (let y = 20; y < 100; y += 1) for (let x = 0; x < 100; x += 1) solid[y * 100 + x] = y < 20 + HEAD_PX ? Number(x >= 40 && x < 50) : 1
-    expect(headOf({ width: 100, height: 100, solid })).toEqual({ x: 44.5, y: 20 + HEAD_PX / 2 })
-    expect(headOf({ width: 4, height: 4, solid: new Uint8Array(16) })).toBeUndefined()
   })
 })

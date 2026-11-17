@@ -3,17 +3,12 @@ import type { FighterSnapshot } from '../../combat/CombatWorld'
 import { uiTokens } from '../tokens/uiTokens'
 import { presentationSheetFor, resolvePresentation, spriteActionFor, spriteDisplayHeight, spriteFrameFor, spriteOriginY, spriteTextureFrame, spriteTextureKey, type Presentation, type PresentationContext, type SpriteAction, type SpriteId } from './TemporarySpriteManifest'
 import { isSheetSprite } from './SheetSpriteManifest'
-import { crouchFrame, HEAD_PX, headPoint, peakFrame } from './SpriteHitTest'
-import type { PlayerSlotId } from '../../input/InputManager'
+import { crouchFrame, peakFrame } from './SpriteHitTest'
 
-/** 拍照頭像（圓形）的 texture key；只在該玩家拍了照時存在。 */
-export const faceKey = (id: PlayerSlotId): string => `face-${id}`
-const displayHeight = (id: SpriteId): number => spriteDisplayHeight(id) * (id.startsWith('generated-') ? 2 : 1)
 
 export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private readonly shadow: Phaser.GameObjects.Ellipse
   private readonly image?: Phaser.GameObjects.Image
-  private readonly face?: Phaser.GameObjects.Image
   private action?: SpriteAction
   private fighterState?: FighterSnapshot['state']
   /** 目前播放的呈現語意（sheet 角色）；攻擊期間鎖定。 */
@@ -25,16 +20,15 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private currentPosition = { x: 0, y: 0 }
   private direction = 1
 
-  constructor(scene: Phaser.Scene, readonly spriteId: SpriteId | undefined, private readonly floorY: number, face?: string) {
+  constructor(scene: Phaser.Scene, readonly spriteId: SpriteId | undefined, private readonly floorY: number) {
     super(scene, 0, 0)
     this.shadow = scene.add.ellipse(0, 5, 280, 42, uiTokens.colors.shadow, 0.48)
     this.add(this.shadow)
     if (spriteId && scene.textures.exists(spriteTextureKey(spriteId, 'idle'))) {
       const key = spriteTextureKey(spriteId, 'idle')
       this.image = scene.add.image(0, 0, key, spriteTextureFrame(spriteId)).setOrigin(0.5, spriteOriginY(spriteId))
-      this.image.setScale(displayHeight(spriteId) / this.image.height)
+      this.image.setScale(spriteDisplayHeight(spriteId) / this.image.height)
       this.add(this.image)
-      if (face && scene.textures.exists(face)) { this.face = scene.add.image(0, 0, face); this.add(this.face); this.placeFace() }
     }
   }
 
@@ -55,20 +49,8 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     const sheet = presentation && presentationSheetFor(this.spriteId, presentation)
     const frame = spriteFrameFor(fighter, action, tick - this.actionStartTick, this.spriteId, this.peak(action, sheet), sheet)
     const key = sheet ? `${this.spriteId}-${sheet}` : spriteTextureKey(this.spriteId, action, frame)
-    const available = this.spriteId.startsWith('generated') && this.scene.textures.exists(key) ? this.scene.textures.get(key).frameTotal - 1 : 0
-    const actualFrame = this.spriteId.startsWith('generated') && available > 0 ? (action === 'idle' || action === 'walk' ? frame % available : Math.min(frame, available - 1)) : frame
-    const textureFrame = spriteTextureFrame(this.spriteId, actualFrame)
-    if (this.scene.textures.exists(key) && (this.image.texture.key !== key || (textureFrame !== undefined && String(this.image.frame.name) !== String(textureFrame)))) this.image.setTexture(key, textureFrame).setScale(displayHeight(this.spriteId) / this.image.height)
-    this.placeFace()
-  }
-
-  /** 頭像跟著目前影格的頭部（影格像素 → container 座標）。 */
-  private placeFace(): void {
-    const { face, image } = this
-    if (!face || !image) return
-    const head = headPoint(this.scene, image.texture.key, image.frame.name), scale = image.scaleY
-    face.setVisible(Boolean(head)).setAlpha(image.alpha)
-    if (head) face.setPosition((head.x - image.frame.width / 2) * scale, (head.y - image.originY * image.frame.height) * scale).setDisplaySize(HEAD_PX * scale, HEAD_PX * scale)
+    const textureFrame = spriteTextureFrame(this.spriteId, frame)
+    if (this.scene.textures.exists(key) && (this.image.texture.key !== key || (textureFrame !== undefined && String(this.image.frame.name) !== String(textureFrame)))) this.image.setTexture(key, textureFrame).setScale(spriteDisplayHeight(this.spriteId) / this.image.height)
   }
 
   private peak(action: SpriteAction, sheet?: string): number | undefined {
@@ -81,7 +63,7 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   pose(fighter: FighterSnapshot, context?: PresentationContext): { key: string; frame: string | number; scale: number; originY: number } | undefined {
     const { image, spriteId: id } = this
     if (!image || !id) return undefined
-    const scale = displayHeight(id) / image.height, originY = spriteOriginY(id)
+    const scale = spriteDisplayHeight(id) / image.height, originY = spriteOriginY(id)
     if (spriteActionFor(fighter, context) !== 'attack') return { key: image.texture.key, frame: image.frame.name, scale, originY }
     const presentation = !isSheetSprite(id) ? undefined : fighter.attackId === this.attackId && this.action === 'attack' ? this.presentation : resolvePresentation(fighter, context)
     const sheet = presentation && presentationSheetFor(this.spriteId, presentation), frame = spriteFrameFor(fighter, 'attack', 0, id, this.peak('attack', sheet), sheet)
@@ -95,8 +77,8 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   }
   /** 受擊閃白：整隻染白 ms 毫秒。 */
   flash(ms = 60): void {
-    const parts = [this.image, this.face].filter((part): part is Phaser.GameObjects.Image => Boolean(part))
-    parts.forEach((part) => part.setTintFill(0xffffff))
-    this.scene.time.delayedCall(ms, () => parts.forEach((part) => part.active && part.clearTint()))
+    const image = this.image
+    image?.setTintFill(0xffffff)
+    this.scene.time.delayedCall(ms, () => { if (image?.active) image.clearTint() })
   }
 }

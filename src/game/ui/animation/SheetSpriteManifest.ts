@@ -29,7 +29,11 @@ type StaticSheetSpriteId = keyof typeof sheetSprites
 export type SheetSpriteId = StaticSheetSpriteId | AlignedSpriteId | `generated-${string}` | 'generated1' | 'generated2'
 export type AlignedSpriteId = keyof typeof alignedMetadata
 export const alignedSprites = alignedMetadata
-export const alignedSprite = (id: string | undefined) => id && id in alignedSprites ? alignedSprites[id as AlignedSpriteId] : undefined
+export type AlignedSprite = (typeof alignedSprites)[AlignedSpriteId]
+/** 生成角色載入後登記自己的 manifest（影格數、fps），與名冊對齊角色走同一套播放規則。 */
+const generatedSprites = new Map<string, AlignedSprite>()
+export const registerGeneratedSprite = (id: string, sprite: AlignedSprite): void => { generatedSprites.set(id, sprite) }
+export const alignedSprite = (id: string | undefined): AlignedSprite | undefined => id === undefined ? undefined : id in alignedSprites ? alignedSprites[id as AlignedSpriteId] : generatedSprites.get(id)
 const sheetSpriteIds: SheetSpriteId[] = [...Object.keys(sheetSprites) as StaticSheetSpriteId[], ...Object.keys(alignedSprites) as AlignedSpriteId[]]
 export const isSheetSprite = (id: string | undefined): id is SheetSpriteId => id !== undefined && (id in sheetSprites || id in alignedSprites || id.startsWith('generated-') || id === 'generated1' || id === 'generated2')
 export const alignedAction = (id: string | undefined, key: string) => {
@@ -42,7 +46,8 @@ export const sheetUrl = (id: SheetSpriteId, key: string, filename: string): stri
   if (aligned && action) return `/test-assets/1113_characters/runtime/${aligned.folder}/${action.filename}`
   return id in sheetSprites ? `/test-assets/characters/${sheetSprites[id as StaticSheetSpriteId].folder}/${sheetSprites[id as StaticSheetSpriteId].renamed[key] ?? filename}` : filename
 }
-const animationsFor = (id: SheetSpriteId) => alignedSprite(id) ? [...sheetAnimations, { key: 'block', filename: '06_Block.png', loop: false }] : sheetAnimations
+export const alignedAnimations = [...sheetAnimations, { key: 'block', filename: '06_Block.png', loop: false }]
+const animationsFor = (id: SheetSpriteId) => alignedSprite(id) ? alignedAnimations : sheetAnimations
 export const loadSheetSprites = (scene: Phaser.Scene): void => sheetSpriteIds.forEach((id) => animationsFor(id).forEach(({ key, filename }) => {
   const size = alignedSprite(id)?.size ?? sheetSprites[id as StaticSheetSpriteId].size
   scene.load.spritesheet(`${id}-${key}`, sheetUrl(id, key, filename), { frameWidth: size, frameHeight: size, endFrame: (alignedAction(id, key)?.frames ?? SHEET_FRAME_COUNT) - 1 })

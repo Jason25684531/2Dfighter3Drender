@@ -32,8 +32,9 @@ describe('D8 backend system flow', () => {
     const values = new Map<string, string>()
     const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) }
     const saved = new ExperienceContext(); saved.set({ playerId: nextPlayer.id, sessionId: nextSession.id, sessionStatus: 'ACTIVE' }); saved.serialize(storage)
-    const restored = new ExperienceContext(); const persistence = new ExperiencePersistence(api, restored, storage); await persistence.restoreSession()
-    expect(restored.snapshot).toMatchObject({ playerId: nextPlayer.id, sessionId: nextSession.id, sessionStatus: 'ACTIVE' })
+    const restored = new ExperienceContext(); const persistence = new ExperiencePersistence(api, restored, storage); await persistence.closeStaleSession()
+    expect(restored.snapshot.sessionId).toBeUndefined()
+    expect((await api.getSession(nextSession.id)).status).toBe('FINISHED')
     expect((await api.getMatch(replay.id)).status).toBe('FINISHED')
   })
 })

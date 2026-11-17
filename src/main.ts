@@ -15,7 +15,7 @@ function startGame(): void {
   const ui = new UIFramework(appStateMachine)
   const context = new ExperienceContext()
   const persistence = new ExperiencePersistence(new ApiClient(), context, typeof window === 'undefined' ? undefined : window.localStorage)
-  void persistence.restoreSession()
+  void persistence.closeStaleSession()
   // 訂閱順序：UIFramework → ExperienceFlow → AppScene（Phaser create 時才訂閱）。
   const flow = new ExperienceFlow(appStateMachine, ui, new MatchController(DEFAULT_COMBAT_CONFIG, { intro: true }), persistence)
 

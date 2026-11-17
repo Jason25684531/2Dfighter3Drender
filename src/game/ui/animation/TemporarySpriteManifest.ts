@@ -7,15 +7,14 @@ export type SpriteId = 'tony' | 'chris' | 'go' | 'se7en' | 'kevin' | 'body01' | 
 export type SpriteAction = 'idle' | 'walk' | 'jump' | 'attack' | 'hurt' | 'guard' | 'victory'
 
 const counts: Record<SpriteAction, number> = { idle: 4, walk: 6, jump: 4, attack: 6, hurt: 4, guard: 4, victory: 1 }
-export const spriteIds: readonly SpriteId[] = ['tony', 'chris', 'go', 'se7en', 'kevin', 'body01', 's1aw', 's2am', 's2lw', 's3ww']
-export const spriteActions: readonly SpriteAction[] = ['idle', 'walk', 'jump', 'attack', 'hurt', 'guard']
 export const spriteTextureKey = (id: SpriteId, action: SpriteAction, frame = 0): string => isSheetSprite(id) ? `${id}-${action}` : `${id}-${action}-${frame + 1}`
 export const spriteTextureFrame = (id: SpriteId | undefined, frame = 0): number | undefined => isSheetSprite(id) ? frame : undefined
 // 256px 共用畫布；Kael／Riven 角色本體約佔滿畫布，縮小至與 Aria 相近的畫面高度。
-export const spriteDisplayHeight = (id: SpriteId): number => isSheetSprite(id) ? 650 : 520
+export const spriteDisplayHeight = (id: SpriteId): number => isSheetSprite(id) ? 975 : 520
 // character-scale-profile.json 的 ground_reference_y_px／256；body01 與 S1AW／S2AM／S2LW／S3WW 腳底同為 248/256。
 // ponytail: current generated sheets place idle baselines at 838–858/1024; use midpoint, derive it from manifest if templates expand.
-export const spriteOriginY = (id: SpriteId): number => alignedSprite(id)?.originY ?? (id.startsWith('generated-') ? 848 / 1024 : id === 'kevin' ? 117 / 128 : 248 / 256)
+export const GENERATED_ORIGIN_Y = 848 / 1024
+export const spriteOriginY = (id: SpriteId): number => alignedSprite(id)?.originY ?? (id.startsWith('generated-') ? GENERATED_ORIGIN_Y : id === 'kevin' ? 117 / 128 : 248 / 256)
 
 export const spriteActionFor = (fighter: FighterSnapshot, { outcome }: PresentationContext = {}): SpriteAction => {
   if (outcome === 'WIN') return 'victory'

@@ -8,7 +8,9 @@ import type { Announcement, AnnouncerTone } from './ViewModels'
 export class AngularPanel extends Phaser.GameObjects.Container {
   readonly shape: Phaser.GameObjects.Polygon
   private readonly focusGlow: Phaser.GameObjects.Polygon
-  private focusTween?: Phaser.Tweens.Tween
+  protected focusTween?: Phaser.Tweens.Tween
+  /** 停用的按鈕維持半透明；聚焦動畫不得把它調回全亮。 */
+  protected alphaCap = 1
   constructor(scene: Phaser.Scene, width: number, height: number, color: number = uiTokens.colors.panel, alpha: number = uiTokens.opacity.panel, options: { shape?: 'slant' | 'chamfer'; slant?: number } = {}) {
     super(scene, 0, 0)
     const points = panelPoints(width, height, options.slant ?? uiTokens.slant, options.shape)
@@ -20,7 +22,7 @@ export class AngularPanel extends Phaser.GameObjects.Container {
     if (this.focusTween) stopOwnedTweens([this.focusTween])
     this.shape.setStrokeStyle(focused ? 3 : 2, focused ? uiTokens.colors.focus : uiTokens.colors.lineBright, focused ? 1 : 0.7)
     this.focusGlow.setStrokeStyle(12, uiTokens.colors.playerPrimary, focused ? 0.25 : 0)
-    const values = { scaleX: focused ? scale : 1, scaleY: focused ? scale : 1, alpha: focused ? 1 : inactiveAlpha }
+    const values = { scaleX: focused ? scale : 1, scaleY: focused ? scale : 1, alpha: Math.min(this.alphaCap, focused ? 1 : inactiveAlpha) }
     if (reducedMotion) Object.assign(this, values)
     else this.focusTween = this.scene.tweens.add({ targets: this, ...values, duration: uiTokens.motion.fast, ease: 'Cubic.Out' })
     return this
@@ -46,7 +48,7 @@ export class ActionButton extends AngularPanel {
     this.setInteractive({ useHandCursor: true })
   }
   setFocused(focused: boolean): this { super.setFocused(focused); if (this.glow) this.glow.outerStrength = focused ? 2 : 0; return this }
-  setEnabled(enabled: boolean): this { this.setAlpha(enabled ? 1 : 0.4); if (this.input) this.input.enabled = enabled; return this }
+  setEnabled(enabled: boolean): this { this.alphaCap = enabled ? 1 : 0.4; if (!enabled && this.focusTween) stopOwnedTweens([this.focusTween]); this.setAlpha(this.alphaCap); if (this.input) this.input.enabled = enabled; return this }
 }
 
 export class StageCard extends AngularPanel {
