@@ -46,10 +46,10 @@ try {
   await page.screenshot({ path: `${out}/loading.png` })
   check('P3 shows both KEVIN selections with a mirrored 2P preview')
   await key('Enter'); await waitState('P4')
-  assert.deepEqual(await scene(s => [s.battleView.player.spriteId, s.battleView.enemy.spriteId]), ['kevin', 'kevin'])
+  assert.deepEqual(await scene(s => [s.current.view.player.spriteId, s.current.view.enemy.spriteId]), ['kevin', 'kevin'])
   await key('Escape')
   const projections = await scene(s => {
-    const renderer = s.battleView.player, fighter = s.flow.match.world.getFighter('PLAYER'), before = JSON.stringify(s.flow.match.getSnapshot()), results = []
+    const renderer = s.current.view.player, fighter = s.flow.match.world.getFighter('PLAYER'), before = JSON.stringify(s.flow.match.getSnapshot()), results = []
     let tick = 1000
     for (const [state, patch] of [['IDLE', {}], ['WALK', {}], ['JUMP', { grounded: false }], ['GUARD', {}], ['HIT_STUN', {}], ['KNOCKDOWN', {}], ['ATTACK', { attackPhase: 'ACTIVE', attackTicks: 1, attackId: 101 }]]) {
       renderer.update({ ...fighter, state, attackPhase: 'NONE', ...patch }, tick++)
@@ -62,11 +62,11 @@ try {
   assert.deepEqual(projections.results.map(item => item.key), ['kevin-idle', 'kevin-walk', 'kevin-jump', 'kevin-crouch', 'kevin-prone', 'kevin-prone', 'kevin-attack'])
   assert(projections.results.every(item => item.size === 128)); assert.equal(projections.nextFrame, 1); assert.equal(projections.facing, -1); assert(projections.unchanged) // 無縱深縮放，只鏡像
   await key('Escape'); await page.keyboard.down('s') // S＝蹲（防禦同用 05_Crouch；後退防禦需對手出招，由投影檢查涵蓋）
-  await page.waitForFunction(() => window.__game.scene.getScene("AppScene").battleView.player.image.texture.key === 'kevin-crouch')
+  await page.waitForFunction(() => window.__game.scene.getScene("AppScene").current.view.player.image.texture.key === 'kevin-crouch')
   await page.screenshot({ path: `${out}/battle.png` })
   await page.keyboard.up('s')
   check('P4 maps all seven combat states and advances sheet frames; actual crouch input works')
-  const old = await scene(s => { s.__oldHero = s.battleView.player; return s.battleView.player.active })
+  const old = await scene(s => { s.__oldHero = s.current.view.player; return s.current.view.player.active })
   assert(old)
   await scene(s => { s.appStateMachine.transitionTo('P0_IDLE') })
   assert(await scene(s => !s.__oldHero.scene))

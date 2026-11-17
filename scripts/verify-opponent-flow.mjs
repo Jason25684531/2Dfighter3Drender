@@ -23,7 +23,7 @@ try {
   // P0 → P1 → 1P 鎖定 05（ARIA）→ 對手階段
   const toOpponent = async () => { await key('Enter'); await waitState('P1'); await page.waitForTimeout(600); await page.screenshot({ path: `${out}/00-p1-grid.png` }); await key('f'); assert.equal((await model()).phase, 'OPPONENT') }
   const texts = () => s((s) => { const out = []; const walk = (o) => { if (o.type === 'Text' && o.visible) out.push(o.text); (o.list ?? []).forEach(walk) }; s.children.list.forEach(walk); return out })
-  const waitAnnounce = (text, timeout = 10000) => page.waitForFunction((t) => { const a = window.__game.scene.getScene('AppScene').battleView.announcer; return a?.visible && a.label.text === t }, text, { timeout })
+  const waitAnnounce = (text, timeout = 10000) => page.waitForFunction((t) => { const a = window.__game.scene.getScene('AppScene').current.view.announcer; return a?.visible && a.label.text === t }, text, { timeout })
   const world = (fn) => s((s, code) => new Function('w', `return (${code})(w)`)(s.flow.match.world), fn.toString())
 
   // 1 首頁排行榜
@@ -59,7 +59,7 @@ try {
   await key('f'); await key('d'); await key('f'); await key('d'); await key('f'); await waitState('P2')
   assert.equal(await s((s) => s.enemyName()), 'RIVEN')
   await s((s) => s.confirmStage()); await waitState('P3')
-  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').loadingReady === true, null, { timeout: 15000 })
+  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').current?.ready === true, null, { timeout: 15000 })
   assert.ok((await texts()).includes('RIVEN'))
   await key('Enter'); await waitState('P4')
   assert.equal(await s((s) => s.flow.match.ai.profile.id), 'HARD')
@@ -102,7 +102,7 @@ try {
   await waitAnnounce('K.O.'); const held = await s((s) => s.flow.match.getSnapshot())
   await page.waitForTimeout(700); const later = await s((s) => s.flow.match.getSnapshot()); await page.screenshot({ path: `${out}/09-ko.png` })
   assert.equal(later.matchState, 'ROUND_END'); assert.equal(later.remainingTicks, held.remainingTicks)
-  await waitAnnounce('YOU WIN'); assert.equal(await s((s) => s.battleView.announcer.sub.text), 'ROUND 1'); await page.screenshot({ path: `${out}/10-round-win.png` })
+  await waitAnnounce('YOU WIN'); assert.equal(await s((s) => s.current.view.announcer.sub.text), 'ROUND 1'); await page.screenshot({ path: `${out}/10-round-win.png` })
   await waitAnnounce('ROUND 2'); await waitAnnounce('FIGHT!')
   check('回合 K.O.：停留約 1.5 秒（時間不減）→ YOU WIN · ROUND 1 → ROUND 2 → FIGHT!')
 

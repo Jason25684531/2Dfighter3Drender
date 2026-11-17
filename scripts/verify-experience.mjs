@@ -89,17 +89,17 @@ try {
   check('P2 方向鍵／A D 切換場景，J 確認進 P3')
   assert.equal(await s(s => s.playerSpriteId()), 'body01')
   await key('Enter'); await waitState('P4')
-  assert.match(await s(s => s.battleView.player.image.texture.key), /^body01-/)
+  assert.match(await s(s => s.current.view.player.image.texture.key), /^body01-/)
   check('客製角色未串 ComfyUI，直接以 body01 進入戰鬥')
 
   // 實驗室影片＋視差＋鏡頭。
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').stage?.parallax.video?.isPlaying(), null, { timeout: 8000 })
-  const before = await s(s => ({ bg: s.stage.parallax.background.x, fg: s.stage.parallax.foreground.x, timer: [s.battleView.timer.x, s.battleView.timer.y] }))
+  const before = await s(s => ({ bg: s.stage.parallax.background.x, fg: s.stage.parallax.foreground.x, timer: [s.current.view.timer.x, s.current.view.timer.y] }))
   await page.screenshot({ path: `${out}/06-battle-lab.png` })
   await s(s => { s.flow.match.world.fighters.PLAYER.x = s.flow.match.world.getConfig().wallMargin }); await wait(3500) // 後退現在是防禦，直接把玩家放到左邊界
   const after = await s(s => {
     const edges = o => [o.x - o.displayWidth / 2, o.x + o.displayWidth / 2], screen = a => s.stage.world.x + a.x * s.stage.world.scaleX
-    return { scroll: s.stage.scroll, bg: s.stage.parallax.background.x, fg: s.stage.parallax.foreground.x, bgEdges: edges(s.stage.parallax.background), fgEdges: edges(s.stage.parallax.foreground), actors: [screen(s.battleView.player), screen(s.battleView.enemy)], timer: [s.battleView.timer.x, s.battleView.timer.y] }
+    return { scroll: s.stage.scroll, bg: s.stage.parallax.background.x, fg: s.stage.parallax.foreground.x, bgEdges: edges(s.stage.parallax.background), fgEdges: edges(s.stage.parallax.foreground), actors: [screen(s.current.view.player), screen(s.current.view.enemy)], timer: [s.current.view.timer.x, s.current.view.timer.y] }
   })
   assert.ok(after.scroll < -300 && after.scroll >= -534, `scroll ${after.scroll}`)
   const fgShift = after.fg - before.fg, bgShift = after.bg - before.bg

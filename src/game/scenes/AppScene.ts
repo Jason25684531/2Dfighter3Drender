@@ -2,85 +2,63 @@ import Phaser from 'phaser'
 import { AppState, type AppState as AppStateValue } from '../state/AppState'
 import type { AppStateMachine } from '../state/AppStateMachine'
 import type { UIFramework } from '../ui/UIFramework'
-import { ActionButton, AngularPanel, StageCard, KeyCap, Announcer } from '../ui/VisualComponents'
-import { stopOwnedTweens } from '../ui/tweens'
 import { uiTokens, colorHex, reducedMotion } from '../ui/tokens/uiTokens'
 import { aspectCover } from '../ui/tokens/layout'
 import { typography } from '../ui/tokens/typography'
 import { InputManager, type OwnedUiAction, type PlayerSlotId } from '../input/InputManager'
-import { FIXED_STEP_MS, GameClock } from '../time/GameClock'
+import { GameClock } from '../time/GameClock'
 import { intentFromInput, type CombatEvent } from '../combat/CombatWorld'
-import type { MatchSnapshot } from '../match/MatchController'
 import { p6SubStateForRank } from '../match/ResultResolver'
 import type { ExperienceFlow } from '../app/ExperienceFlow'
+import { faceKey, GenerationJobs } from '../app/GenerationJobs'
 import { P1SelectionModel, type P1Phase } from '../select/P1SelectionModel'
 import { LeaderboardPanel } from '../ui/board/LeaderboardPanel'
 import { P1SelectView } from '../ui/p1/P1SelectView'
-import { endViewModel, leaderboardPanelModel, loadingViewModel, finishAnnouncements, resultViewModel, stageSelectViewModel, type ResultViewModel } from '../ui/ViewModels'
+import { endViewModel, leaderboardPanelModel, resultViewModel } from '../ui/ViewModels'
 import { characterEntries, characterEntry, resolveStageAsset, stageTextureKey, testCharacterManifest, type CharacterEntry, type StageId } from '../ui/assets/TestAssetManifest'
-import { TemporarySpriteRenderer } from '../ui/animation/TemporarySpriteRenderer'
-import { outcomeFor, spriteTextureFrame, spriteTextureKey, type PresentationContext, type SpriteId } from '../ui/animation/TemporarySpriteManifest'
-import { isSheetSprite } from '../ui/animation/SheetSpriteManifest'
-import { keyLabel, loadProfiles, saveProfiles, type CombatAction } from '../input/ControlProfile'
+import type { PresentationContext, SpriteId } from '../ui/animation/TemporarySpriteManifest'
+import { keyLabel, loadProfiles, saveProfiles } from '../input/ControlProfile'
 import { ControlsPanel } from '../ui/controls/ControlsPanel'
 import { loadPadProfiles, PAD_SYSTEM, padLabel, savePadProfiles, type PadProfiles } from '../input/GamepadProfile'
-import { BattleStage } from '../ui/stage/BattleStage'
-import { BattleView } from '../ui/battle/BattleView'
 import { GameAudio } from '../audio/GameAudio'
 import { combatCues, finishCues } from '../audio/AudioCues'
-import { dropGeneratedTextures, generateCharacter, listGeneratedCharacters, loadGeneratedCharacter } from '../api/CharacterGeneration'
+import { addAtmosphere, ArenaScreen, type Focusable, type Matchup, type ScreenContext, type ScreenView } from '../ui/screens/ScreenView'
+import { HomeScreen } from '../ui/screens/HomeScreen'
+import { SelectScreen } from '../ui/screens/SelectScreen'
+import { StageSelectScreen } from '../ui/screens/StageSelectScreen'
+import { LoadingScreen } from '../ui/screens/LoadingScreen'
+import { BattleScreen } from '../ui/screens/BattleScreen'
+import { PresentationScreen } from '../ui/screens/PresentationScreen'
+import { ResultScreen } from '../ui/screens/ResultScreen'
+import { EndScreen } from '../ui/screens/EndScreen'
+import { PauseOverlay } from '../ui/screens/PauseOverlay'
 
-/** P3 載入畫面在生成期間顯示的拍照頭像。 */
-const faceKey = (id: PlayerSlotId): string => `face-${id}`
-
-type GenerationJob = { name: string; template: number; photo: string; state: 'processing' | 'ready' | 'failed'; controller: AbortController; assetId?: string }
-type Focusable = Phaser.GameObjects.Container & { setFocused: (focused: boolean) => unknown }
-
+/** 唯一的遊戲場景：持有跨畫面的輸入、時鐘、音效、閒置與開頭動畫；每個 AppState 的畫面由 ScreenView 子類別負責。 */
 export class AppScene extends Phaser.Scene {
   private readonly appStateMachine: AppStateMachine
-  private screen?: Phaser.GameObjects.Container
-  private unsubscribe?: () => void
   private readonly ui: UIFramework
+  private current?: ScreenView
+  private overlay?: PauseOverlay
+  private screenContext!: ScreenContext
+  private unsubscribe?: () => void
   private readonly uiUnsubscribers: Array<() => void> = []
   private readonly buttons = new Map<string, Focusable>()
-  private readonly screenTweens: Phaser.Tweens.Tween[] = []
   private readonly inputManager = new InputManager()
   private readonly clock = new GameClock()
   private clockUnsubscribe?: () => void
   private combatUnsubscribe?: () => void
   private tickEvents: CombatEvent[] = []
-  private battlePlayer?: TemporarySpriteRenderer
-  private battleEnemy?: TemporarySpriteRenderer
-  private presentationTick = 0
-  private keyCaps: KeyCap[] = []
-  private promptDevice?: string
-  private loadingButton?: ActionButton
-  private loadingBar?: Phaser.GameObjects.Rectangle
-  private loadingPercent?: Phaser.GameObjects.Text
-  private loadingReady?: boolean
-  private loadingPulse?: Phaser.Tweens.Tween
-  private loadingPortraits = new Set<PlayerSlotId>()
-  private battleRoot?: Phaser.GameObjects.Container
   private selectedStageId: StageId = 'laboratory'
-  private overlay?: Phaser.GameObjects.Container
   private p1Model?: P1SelectionModel
-  private generation: Partial<Record<PlayerSlotId, GenerationJob>> = {}
-  private generatedEntries: CharacterEntry[] = []
-  private generatedEntriesReady = false
-  private selectedAssetsState: 'idle' | 'loading' | 'ready' | 'failed' = 'idle'
-  private readonly generatedLoads = new Map<string, Promise<void>>()
-  private p1View?: P1SelectView
+  private jobs!: GenerationJobs
   private p1Offline = false
   private lastActivity = 0
   private idleLabel?: Phaser.GameObjects.Text
   private stageBackdrop?: Phaser.GameObjects.Image
-  private stage?: BattleStage
   private attract?: Phaser.GameObjects.DOMElement
   private attractInputConsumed = false
   private attractPadButtons = new Set<string>()
-  private exitLockedUntil = 0
   private audio?: GameAudio
-  private battleView?: BattleView
   private readonly controls = loadProfiles()
   private readonly padProfiles = loadPadProfiles()
   private controlsPanel?: ControlsPanel
@@ -94,9 +72,19 @@ export class AppScene extends Phaser.Scene {
     super('AppScene'); this.appStateMachine = appStateMachine; this.ui = ui
   }
   private get persistence() { return this.flow.persistence }
+  private get screen(): Phaser.GameObjects.Container | undefined { return this.current?.root }
+  private get p1View(): P1SelectView | undefined { return this.current instanceof SelectScreen ? this.current.view : undefined }
+  private get stage() { return this.current instanceof ArenaScreen ? this.current.stage : undefined }
 
   create(): void {
     this.audio = new GameAudio(this, this.ui.events)
+    this.screenContext = { scene: this, ui: this.ui, audio: this.audio, go: (state) => this.appStateMachine.transitionTo(state), register: (group, id, object, activate, enabled) => this.register(group, id, object, activate, enabled) }
+    this.jobs = new GenerationJobs(this, (owner, generatedId, template) => {
+      const selected = this.flow.players[owner]
+      if (selected?.characterId === `body-0${template}`) this.flow.setPlayers({ ...this.flow.players, [owner]: { ...selected, characterId: generatedId } })
+      // 等待畫面上的模板預覽換成剛生成的角色。
+      if (this.appStateMachine.getCurrentState() === AppState.LOADING) this.render(AppState.LOADING)
+    })
     this.selectedStageId = resolveStageAsset(this.persistence?.context.snapshot.selectedStageId).id
     this.input.on('pointermove', this.noteActivity); this.input.on('pointerdown', this.noteActivity)
     if (typeof window !== 'undefined') this.inputManager.attachKeyboard(window)
@@ -118,7 +106,7 @@ export class AppScene extends Phaser.Scene {
       }
       if (previousState === AppState.BATTLE && nextState !== AppState.PRESENTATION) this.audio?.stopLoop()
       if (previousState === AppState.PRESENTATION) this.audio?.stopLoop()
-      if (nextState === AppState.READY) { this.p1Offline = false; this.p1Model = undefined; this.clearGeneration(); this.generatedEntriesReady = false; void this.refreshGeneratedEntries() }
+      if (nextState === AppState.READY) { this.p1Offline = false; this.p1Model = undefined; this.clearGeneration(); void this.refreshGeneratedEntries() }
       if (nextState === AppState.IDLE) this.clearGeneration()
       if (previousState === AppState.READY) this.p1Model = undefined
       this.lastActivity = this.time.now
@@ -127,7 +115,7 @@ export class AppScene extends Phaser.Scene {
       this.render(nextState)
     })
     this.clockUnsubscribe = this.clock.subscribe(() => {
-      if (this.appStateMachine.getCurrentState() === AppState.PRESENTATION) { this.updateP5Fighters(); return }
+      if (this.appStateMachine.getCurrentState() === AppState.PRESENTATION) { this.current?.tick(); return }
       if (this.appStateMachine.getCurrentState() !== AppState.BATTLE) return
       const input = this.inputManager.consumeGameplaySnapshot(), p2 = this.inputManager.consumeGameplaySnapshot('P2')
       // 蹲是純呈現：只在可操作時顯示（起手序列與回合結束停留不蹲）；ENEMY 只有 2P 真人時才看 2P 的蹲鍵。
@@ -135,39 +123,37 @@ export class AppScene extends Phaser.Scene {
       this.playerContext.crouch = fighting && input.crouchHeld
       this.enemyContext.crouch = fighting && Boolean(this.flow.players.P2) && p2.crouchHeld
       this.flow.tick(intentFromInput(input), intentFromInput(p2))
-      if (this.appStateMachine.getCurrentState() === AppState.BATTLE) this.updateBattle(this.flow.match.getSnapshot())
+      if (this.appStateMachine.getCurrentState() === AppState.BATTLE) this.updateBattle()
     })
-    this.uiUnsubscribers.push(this.ui.events.on('SUBSTATE_CHANGED', ({ screen }) => { if (screen === AppState.BATTLE && this.battleRoot) return; this.render(this.appStateMachine.getCurrentState()) }))
+    this.uiUnsubscribers.push(this.ui.events.on('SUBSTATE_CHANGED', ({ screen }) => { if (screen === AppState.BATTLE && this.current instanceof BattleScreen) return; this.render(this.appStateMachine.getCurrentState()) }))
     this.uiUnsubscribers.push(this.ui.events.on('OVERLAY_CHANGED', ({ open }) => {
       if (this.appStateMachine.getCurrentState() !== AppState.BATTLE) { this.render(this.appStateMachine.getCurrentState()); return }
       if (open) { this.clock.pause(); this.anims.pauseAll() } else { this.clock.resume(); this.anims.resumeAll() }
       if (open) this.audio?.pauseLoop(); else this.audio?.resumeLoop()
       this.stage?.pause(open)
       // Keep fighter interpolation history intact while opening or closing the menu.
-      this.ui.focus.clearGroup('overlay'); this.ui.focus.clearGroup('overlay-confirm')
-      this.overlay?.destroy(true); this.overlay = undefined
-      if (open) this.renderOverlay()
+      this.overlay?.destroy(); this.overlay = undefined
+      if (open) this.openOverlay()
     }))
     this.uiUnsubscribers.push(this.ui.events.on('FOCUS_CHANGED', ({ previous, next }) => { this.buttons.get(previous ?? '')?.setFocused(false); this.buttons.get(next ?? '')?.setFocused(true) }))
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroyScene())
     this.render(this.appStateMachine.getCurrentState())
   }
 
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     // 保留 null：陣列位置就是 Gamepad.index，玩家依所有權對應手把。
     const gamepads = typeof navigator !== 'undefined' && navigator.getGamepads ? Array.from(navigator.getGamepads()) : [], lostPad = this.inputManager.update(gamepads).some((id) => id === 'P1' || Boolean(this.flow.players.P2))
     const padButtons = new Set(gamepads.flatMap((pad, p) => pad ? pad.buttons.flatMap((button, b) => button.pressed || button.value >= 0.5 ? [`${p}:${b}`] : []) : []))
     if ([...padButtons].some(button => !this.attractPadButtons.has(button))) {
-      this.lastActivity = _time
+      this.lastActivity = time
       if (this.attract) { this.stopAttract(); this.attractInputConsumed = true }
     }
     this.attractPadButtons = padButtons
-    const battling = this.appStateMachine.getCurrentState() === AppState.BATTLE, pausedBefore = this.clock.isPaused()
-    const visualState = this.appStateMachine.getCurrentState()
+    const visualState = this.appStateMachine.getCurrentState(), battling = visualState === AppState.BATTLE, pausedBefore = this.clock.isPaused()
     // P1／P2 逐層返回；P3／P5／P6 返回主畫面（backRoutes）。
     const backScreen = ([AppState.READY, AppState.SETUP, AppState.LOADING, AppState.PRESENTATION, AppState.RESULT] as AppStateValue[]).includes(visualState)
     const allOwned = this.inputManager.consumeOwnedUiActions(), allActions = this.inputManager.consumeUiActions()
-    if (allOwned.length || allActions.length) this.lastActivity = _time
+    if (allOwned.length || allActions.length) this.lastActivity = time
     // 打字時只擋鍵盤（字母鍵也是選單鍵）；手把不會打字，暱稱框 focus 時仍要能確認／取消。
     const typing = document.activeElement instanceof HTMLInputElement, pause = this.inputManager.consumePause()
     const owned = typing ? allOwned.filter(({ device }) => device) : allOwned, actions = typing ? [] : allActions, p1Owned = owned.filter(({ owner }) => owner === 'P1').map(({ action }) => action)
@@ -206,64 +192,57 @@ export class AppScene extends Phaser.Scene {
       // 暫停選單只屬於 P4；其他畫面的 Escape／M 不開啟選單。
       // 1P 選單鍵（鍵盤跟自訂鍵位，或 1P 的手把）在後續選單同樣有效；2P 的鍵盤與手把都不併入（2P 鍵與未標記鍵重複，會重複觸發）。
       actions.push(...p1Owned)
-      actions.filter((action) => !(visualState === AppState.SETUP && this.stageNav(action))).filter((action) => this.ui.navigation.isOverlayOpen() || battling || (action === 'BACK' && backScreen) || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => { if (!this.ui.navigation.isExitConfirmationOpen() || performance.now() >= this.exitLockedUntil) this.ui.navigation.dispatch(action) })
+      actions.filter((action) => !this.current?.handleAction(action)).filter((action) => this.ui.navigation.isOverlayOpen() || battling || (action === 'BACK' && backScreen) || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => { if (!this.overlay?.inputLocked) this.ui.navigation.dispatch(action) })
     }
     this.attractInputConsumed = false
-    this.checkIdle(_time)
+    this.checkIdle(time)
     // 選單或暫停中的跳躍／攻擊按下不留到戰鬥（手把 A／B 同時是確認／返回與輕踢／重踢）；關閉暫停的那一下也算選單輸入。
     if (!battling || pausedBefore || this.clock.isPaused()) { this.inputManager.consumeGameplaySnapshot(); this.inputManager.consumeGameplaySnapshot('P2') }
     this.clock.advance(delta)
-    if (this.appStateMachine.getCurrentState() === AppState.BATTLE) {
-      const alpha = Phaser.Math.Clamp(this.clock.getRemainderMs() / FIXED_STEP_MS, 0, 1)
-      this.battlePlayer?.renderAt(alpha); this.battleEnemy?.renderAt(alpha)
-      // 鏡頭只改呈現：在插值後依兩名角色位置更新，不回寫 Combat。
-      this.battleView?.renderAt(alpha)
-      const player = this.battleView?.player ?? this.battlePlayer, enemy = this.battleView?.enemy ?? this.battleEnemy
-      if (player && enemy) this.stage?.follow(player.x, enemy.x, reducedMotion ? Infinity : delta / 1000)
-    }
-    if (visualState === AppState.LOADING) this.updateLoading() }
+    this.current?.update(delta)
+  }
 
-  private render(visualState: AppStateValue): void {
-    this.destroyScreen(); document.body.style.setProperty('--backdrop', `url("${resolveStageAsset(this.selectedStageId).url}")`); this.screen = this.add.container(0, 0).setAlpha(reducedMotion ? 1 : 0); this.addBackground(this.screen, visualState)
-    if (visualState === AppState.IDLE) this.renderP0(); if (visualState === AppState.READY) this.renderP1(); if (visualState === AppState.SETUP) this.renderP2(); if (visualState === AppState.LOADING) this.renderP3(); if (visualState === AppState.BATTLE) { this.renderP4(); this.updateBattle(this.flow.match.getSnapshot()) }; if (visualState === AppState.PRESENTATION) this.renderP5(); if (visualState === AppState.RESULT) this.renderP6(); if (visualState === AppState.END) this.renderP7()
-    if (this.ui.navigation.isOverlayOpen()) this.renderOverlay()
-    this.addScreenTween({ targets: this.screen, alpha: 1, duration: uiTokens.motionMs.enter, ease: 'Cubic.Out' })
+  /** 換畫面：銷毀前一個畫面（連同它的物件、動畫與焦點），依狀態對照表建立新畫面。 */
+  private render(state: AppStateValue): void {
+    this.overlay?.destroy(); this.overlay = undefined
+    this.current?.destroy(); this.current = undefined
+    this.buttons.clear(); this.idleLabel = undefined; this.stageBackdrop = undefined
+    document.body.style.setProperty('--backdrop', `url("${resolveStageAsset(this.selectedStageId).url}")`)
+    const root = this.add.container(0, 0).setAlpha(reducedMotion ? 1 : 0)
+    this.addBackground(root, state)
+    const ctx = this.screenContext
+    const screens: Record<AppStateValue, () => ScreenView> = {
+      [AppState.IDLE]: () => new HomeScreen(ctx, root, `${keyLabel(this.controls.P1.LIGHT_PUNCH)} / ENTER / ${this.padConfirm()} 確認 · ← → 切換 · P 播放開頭動畫 · C / ${padLabel(PAD_SYSTEM.CONTROLS)} 操作設定`, () => this.openBoard()),
+      [AppState.READY]: () => new SelectScreen(ctx, root, this.jobs.entriesReady ? (parent) => this.createP1View(parent) : undefined),
+      [AppState.SETUP]: () => new StageSelectScreen(ctx, root, this.selectedStageId, this.stepTotal(), (id) => this.selectStage(id), () => this.confirmStage()),
+      [AppState.LOADING]: () => new LoadingScreen(ctx, root, { matchup: this.matchup(), controls: this.controls, pads: this.padProfiles, input: this.inputManager, jobs: this.jobs, retry: () => this.jobs.retry(this.selectedCharacterIds()) }),
+      [AppState.BATTLE]: () => new BattleScreen(ctx, root, this.matchup(), this.flow, { input: this.inputManager, clock: this.clock, takeEvents: () => this.tickEvents.splice(0), playerContext: this.playerContext, enemyContext: this.enemyContext }),
+      [AppState.PRESENTATION]: () => new PresentationScreen(ctx, root, this.matchup(), this.flow),
+      [AppState.RESULT]: () => new ResultScreen(ctx, root, this.flow.result && resultViewModel(this.flow.result, this.persistence?.context.snapshot.backendRank ?? null, p6SubStateForRank(this.persistence?.context.snapshot.backendRank), this.flow.leaderboard, this.persistence?.context.snapshot.sessionId)),
+      [AppState.END]: () => new EndScreen(ctx, root, endViewModel(this.flow.nextPlayerName)),
+    }
+    this.current = screens[state]()
+    if (this.ui.navigation.isOverlayOpen()) this.openOverlay()
   }
 
   private addBackground(container: Phaser.GameObjects.Container, state: AppStateValue): void {
     if (state === AppState.BATTLE || state === AppState.PRESENTATION) return
     const darkness = state === AppState.IDLE ? uiTokens.backdrop.empty : state === AppState.END ? uiTokens.backdrop.end : state === AppState.RESULT ? uiTokens.backdrop.result : uiTokens.backdrop.content
     const cover = aspectCover(2752, 1536, uiTokens.logicalWidth, uiTokens.logicalHeight)
-    const backdrop = this.add.image(cover.x + cover.width / 2, cover.y + cover.height / 2, stageTextureKey(this.selectedStageId)).setDisplaySize(cover.width, cover.height)
-    container.add(backdrop)
-    if (container === this.screen) this.stageBackdrop = backdrop
-    this.addAtmosphere(container, darkness)
+    this.stageBackdrop = this.add.image(cover.x + cover.width / 2, cover.y + cover.height / 2, stageTextureKey(this.selectedStageId)).setDisplaySize(cover.width, cover.height)
+    container.add(this.stageBackdrop)
+    addAtmosphere(this, container, darkness)
   }
-  private addAtmosphere(container: Phaser.GameObjects.Container, darkness: number): void {
-    container.add(this.add.rectangle(960, 540, 1920, 1080, uiTokens.colors.background0, darkness))
-    const atmosphere = this.add.graphics()
-    atmosphere.fillGradientStyle(uiTokens.colors.playerPrimary, uiTokens.colors.background0, uiTokens.colors.enemyPrimary, uiTokens.colors.background0, 0.1, 0, 0.08, 0).fillRect(0, 0, 1920, 1080)
-    atmosphere.fillGradientStyle(uiTokens.colors.background0, uiTokens.colors.background0, uiTokens.colors.background0, uiTokens.colors.background1, uiTokens.opacity.vignette, uiTokens.opacity.vignette, 0, 0).fillRect(0, 0, 1920, 170)
-    atmosphere.fillGradientStyle(uiTokens.colors.background1, uiTokens.colors.background0, uiTokens.colors.background0, uiTokens.colors.background0, 0, 0, uiTokens.opacity.vignette, uiTokens.opacity.vignette).fillRect(0, 900, 1920, 180)
-    container.add(atmosphere)
-  }
-  private heading(text: string, x = 110, y = 112): Phaser.GameObjects.Text { return this.add.text(x, y, text, typography.heading).setOrigin(0, 0.5) }
-  private label(text: string, x: number, y: number, size: number = uiTokens.type.body, color = colorHex('textSecondary')): Phaser.GameObjects.Text { return this.add.text(x, y, text, { ...typography.note, fontSize: size, color }).setOrigin(0.5) }
   private register(group: string, id: string, object: Focusable, activate: () => void, enabled = true): void {
     this.buttons.set(id, object); this.ui.focus.register(group, id, enabled, activate)
-    object.on('pointerover', () => { if (this.ui.navigation.isExitConfirmationOpen() && performance.now() < this.exitLockedUntil) return; if (object.input?.enabled && this.ui.focus.current() !== id) this.ui.focus.activate(group, id) })
+    object.on('pointerover', () => { if (this.overlay?.inputLocked) return; if (object.input?.enabled && this.ui.focus.current() !== id) this.ui.focus.activate(group, id) })
   }
-  private addScreenTween(config: Phaser.Types.Tweens.TweenBuilderConfig): Phaser.Tweens.Tween | undefined { if (reducedMotion && config.repeat === -1) return; const tween = this.tweens.add(reducedMotion ? { ...config, duration: 0, delay: 0 } : config); this.screenTweens.push(tween); tween.once('complete', () => { const index = this.screenTweens.indexOf(tween); if (index >= 0) this.screenTweens.splice(index, 1) }); return tween }
+  private openOverlay(): void {
+    if (!this.screen) return
+    this.overlay = new PauseOverlay(this.screenContext, this.screen, `ENTER / ${this.padConfirm()} 確認 ・ ESC / ${padLabel(PAD_SYSTEM.BACK)} 返回`, () => { this.flow.restartMatch(); this.updateBattle() })
+  }
+  private updateBattle(): void { if (this.current instanceof BattleScreen) this.current.tick() }
 
-  /** P0 只有場景背景、START 與提示；排行在遊玩後的 P6／P7 呈現。 */
-  private renderP0(): void {
-    const start = new ActionButton(this, 'START', 420, 100, uiTokens.colors.playerPrimary, '開始遊戲').setPosition(740, 860)
-    const board = new ActionButton(this, 'BOARD', 420, 100, uiTokens.colors.panelRaised, '排行榜').setPosition(1180, 860)
-    const begin = (): void => { this.appStateMachine.transitionTo(AppState.READY) }
-    start.on('pointerup', () => { this.audio?.ui('CONFIRM'); begin() }); board.on('pointerup', () => { this.audio?.ui('CONFIRM'); this.openBoard() })
-    this.screen?.add([start, board]); this.register('p0', 'p0-start', start, begin); this.register('p0', 'p0-board', board, () => this.openBoard()); this.ui.focus.activate('p0', 'p0-start')
-    this.screen?.add(this.label(`${keyLabel(this.controls.P1.LIGHT_PUNCH)} / ENTER / ${this.padConfirm()} 確認 · ← → 切換 · P 播放開頭動畫 · C / ${padLabel(PAD_SYSTEM.CONTROLS)} 操作設定`, 960, 960, uiTokens.type.label))
-  }
   /** 選單只認 1P：手把確認鍵＝1P 的輕踢鍵（預設 ✕）。 */
   private padConfirm(): string { return padLabel(this.padProfiles.P1.LIGHT_KICK) }
   /** 首頁排行榜：開啟時才查詢；回應晚於關閉（序號不符）即丟棄。 */
@@ -280,13 +259,9 @@ export class AppScene extends Phaser.Scene {
     if (refocus && this.appStateMachine.getCurrentState() === AppState.IDLE) this.ui.focus.activate('p0', 'p0-board')
   }
 
-  private renderP1(): void {
-    if (!this.generatedEntriesReady) {
-      this.screen?.add(this.label('載入已生成角色…', 960, 540))
-      return
-    }
-    this.p1Model ??= new P1SelectionModel([...characterEntries(), ...this.generatedEntries], { players: this.flow.players, faceGenUsed: this.persistence?.context.snapshot.faceGenUsed })
-    this.p1View = new P1SelectView(this, this.screen as Phaser.GameObjects.Container, this.p1Model, {
+  private createP1View(root: Phaser.GameObjects.Container): P1SelectView {
+    this.p1Model ??= new P1SelectionModel([...characterEntries(), ...this.jobs.entries], { players: this.flow.players, faceGenUsed: this.persistence?.context.snapshot.faceGenUsed })
+    return new P1SelectView(this, root, this.p1Model, {
       offline: this.p1Offline || this.persistence?.lastLeaderboardOk === false,
       onInput: (owner, action) => this.p1Input(owner, action),
       onFocus: (owner, index) => { if (this.p1Model?.focus(owner, index)) { this.p1View?.sync(); void this.loadRosterPreview(index) } },
@@ -304,13 +279,11 @@ export class AppScene extends Phaser.Scene {
     if (phase === 'CUSTOMIZE' && model?.owner === owner && action === 'CONFIRM' && model.nicknameValid(owner) && !model.player(owner).photo) { this.p1View?.cameraUnavailable(); return }
     const result = this.p1Model?.input(owner, action)
     if (phase === 'REVIEW' && result === 'CONFIRMED') this.persistence?.markFaceGenUsed(owner)
-    if (this.generation[owner] && this.p1Model?.player(owner).locked === undefined) {
-      this.generation[owner]?.controller.abort(); delete this.generation[owner]
-    }
+    if (this.jobs.has(owner) && this.p1Model?.player(owner).locked === undefined) this.jobs.cancel(owner)
     if (this.p1Model?.phase === 'PROCESSING' && this.p1Model.owner === owner && result === 'CONFIRMED') {
       const player = this.p1Model.player(owner), template = player.locked
       if (player.photo && template) {
-        this.startGeneration(owner, player.nickname.trim(), template, player.photo)
+        this.jobs.start(owner, player.nickname.trim(), template, player.photo)
         this.p1Model.continueProcessing()
       }
     }
@@ -321,44 +294,17 @@ export class AppScene extends Phaser.Scene {
     if (index) void this.loadRosterPreview(index)
   }
   private async refreshGeneratedEntries(): Promise<void> {
-    this.generatedEntries = await listGeneratedCharacters()
-    this.generatedEntriesReady = true
+    await this.jobs.refreshEntries()
     if (this.appStateMachine.getCurrentState() === AppState.READY && !this.p1Model) this.render(AppState.READY)
-  }
-  private loadAsset(assetId: string, idleOnly = false): Promise<void> {
-    const key = `${assetId}:${idleOnly}`, current = this.generatedLoads.get(key)
-    if (current) return current
-    const loading = loadGeneratedCharacter(this, assetId, new AbortController().signal, idleOnly)
-    this.generatedLoads.set(key, loading)
-    void loading.finally(() => this.generatedLoads.delete(key)).catch(() => undefined)
-    return loading
   }
   private async loadRosterPreview(index: number): Promise<void> {
     const entry = this.p1Model?.slot(index).entry
     if (!entry?.generationId || !entry.spriteId || this.textures.exists(`${entry.spriteId}-idle`)) return
-    try { await this.loadAsset(entry.generationId, true); this.p1View?.sync() } catch { /* The battle loading screen reports missing assets. */ }
+    try { await this.jobs.load(entry.generationId, true); this.p1View?.sync() } catch { /* The battle loading screen reports missing assets. */ }
   }
   private clearGeneration(): void {
-    Object.values(this.generation).forEach((job) => job.controller.abort())
-    this.generation = {}
-    dropGeneratedTextures(this)
-    this.generatedLoads.clear(); this.selectedAssetsState = 'idle'
+    this.jobs.clear()
     ;(['P1', 'P2'] as const).forEach((id) => { const key = faceKey(id); if (this.textures.exists(key)) this.textures.remove(key) })
-  }
-  private startGeneration(owner: PlayerSlotId, name: string, template: number, photo: string): void {
-    this.generation[owner]?.controller.abort()
-    const job: GenerationJob = { name, template, photo, state: 'processing', controller: new AbortController() }
-    this.generation[owner] = job
-    void generateCharacter(this, name, template, photo, job.controller.signal).then((assetId) => {
-      if (this.generation[owner] !== job) return
-      job.assetId = assetId; job.state = 'ready'
-      const id = `generated-${assetId}` as const
-      if (!this.generatedEntries.some((entry) => entry.id === id)) this.generatedEntries.push({ id, generationId: assetId, displayName: name, type: 'CUSTOM', status: 'READY', spriteId: id })
-      const selected = this.flow.players[owner]
-      if (selected?.characterId === `body-0${template}`) this.flow.setPlayers({ ...this.flow.players, [owner]: { ...selected, characterId: id } })
-      // 等待畫面上的模板預覽換成剛生成的角色。
-      if (this.appStateMachine.getCurrentState() === AppState.LOADING) this.render(AppState.LOADING)
-    }, () => { if (!job.controller.signal.aborted) job.state = 'failed' })
   }
   /** Customize 各步驟是 P1 substate：切換時整頁重建，其餘只同步常駐物件。 */
   private syncP1(): void {
@@ -369,18 +315,13 @@ export class AppScene extends Phaser.Scene {
   private confirmPlayers(): void {
     const players = this.p1Model?.result() ?? {}
     if (!players.P1 || this.p1Model?.phase !== 'ALL_READY') return
-    ;(['P1', 'P2'] as const).forEach((id) => { const assetId = this.generation[id]?.assetId; if (assetId && players[id]) players[id] = { ...players[id], characterId: `generated-${assetId}` } })
+    ;(['P1', 'P2'] as const).forEach((id) => { const assetId = this.jobs.assetId(id); if (assetId && players[id]) players[id] = { ...players[id], characterId: `generated-${assetId}` } })
     this.flow.setPlayers(players); this.flow.opponent = this.p1Model.opponent()
     this.applyFaces()
-    this.loadSelectedAssets()
+    this.jobs.loadSelected(this.selectedCharacterIds())
     this.appStateMachine.transitionTo(AppState.SETUP)
   }
-  private loadSelectedAssets(): void {
-    const ids = Object.values(this.flow.players).map((player) => player?.characterId).filter((id): id is string => Boolean(id?.startsWith('generated-'))).map((id) => id.slice('generated-'.length))
-    if (!ids.length) { this.selectedAssetsState = 'ready'; return }
-    this.selectedAssetsState = 'loading'
-    void Promise.all(ids.map((id) => this.loadAsset(id))).then(() => { this.selectedAssetsState = 'ready' }, () => { this.selectedAssetsState = 'failed' })
-  }
+  private selectedCharacterIds(): Array<string | undefined> { return Object.values(this.flow.players).map((player) => player?.characterId) }
   private applyFaces(): void {
     (['P1', 'P2'] as const).forEach((id) => {
       const key = faceKey(id), photo = this.p1Model?.player(id).photo
@@ -405,7 +346,7 @@ export class AppScene extends Phaser.Scene {
     const phase = this.p1Model?.phase
     const limit = state === AppState.READY ? phase === 'GRID' || phase === 'OPPONENT' || phase === 'DIFFICULTY' ? idleMs.select : phase === 'CUSTOMIZE' || phase === 'REVIEW' || phase === 'FAILED' ? idleMs.customize : 0 : 0
     if (!limit) { this.idleLabel?.setText(''); return }
-    if (!this.idleLabel) { this.idleLabel = this.label('', 960, 42, uiTokens.type.label, colorHex('resultGold')); this.screen?.add(this.idleLabel) }
+    if (!this.idleLabel) { this.idleLabel = this.add.text(960, 42, '', { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('resultGold') }).setOrigin(0.5); this.screen?.add(this.idleLabel) }
     this.idleLabel.setText(idle >= limit - 10000 ? `閒置倒數 ${Math.max(0, Math.ceil((limit - idle) / 1000))}s · 操作以繼續` : '')
     if (idle < limit) return
     this.noteActivity()
@@ -413,301 +354,26 @@ export class AppScene extends Phaser.Scene {
     else this.ui.navigation.dispatch('FINISH')
   }
 
-  private renderP2(): void {
-    const vm = stageSelectViewModel(this.selectedStageId)
-    this.screen?.add(this.heading(vm.heading)); this.screen?.add(this.add.text(110, 174, `${this.stepTotal()} / ${this.stepTotal()}` + ' ・ 選擇對戰場景', typography.instruction))
-    vm.stages.forEach((stage, index) => {
-      const card = new StageCard(this, stage.label, stageTextureKey(stage.id), 780, 500, stage.id === 'laboratory' ? '實驗室' : '企業總部').setPosition(530 + index * 860, 550).setSelected(stage.id === vm.selectedStageId)
-      const pick = (): void => { this.selectStage(stage.id, true); this.ui.focus.activate('stage', 'stage-confirm') }
-      // 滑鼠點卡＝選取並移到確認；鍵盤焦點即選取，確認鍵直接進 P3。
-      card.setInteractive({ useHandCursor: true }).on('pointerup', pick); this.screen?.add(card); this.register('stage', `stage-${stage.id}`, card, () => this.confirmStage())
-    })
-    const confirm = new ActionButton(this, 'CONFIRM', 350, 88, uiTokens.colors.playerPrimary, '確認').setPosition(1610, 952)
-    confirm.on('pointerup', () => this.confirmStage()); this.screen?.add(confirm); this.register('stage', 'stage-confirm', confirm, () => this.confirmStage()); this.ui.focus.activate('stage', `stage-${vm.selectedStageId}`)
-  }
-  /** P2 場景卡：←→ 切卡即選取，↓ 到確認，↑ 回選取的卡。回傳 true 表示已處理。 */
-  private stageNav(action: string): boolean {
-    const ids = stageSelectViewModel().stages.map((stage) => stage.id), onCard = ids.some((id) => this.ui.focus.current() === `stage-${id}`)
-    if (onCard && (action === 'NAV_LEFT' || action === 'NAV_RIGHT')) {
-      const next = ids[(ids.indexOf(this.selectedStageId) + (action === 'NAV_RIGHT' ? 1 : ids.length - 1)) % ids.length]
-      this.selectStage(next, true); this.ui.focus.activate('stage', `stage-${next}`); return true
-    }
-    if (onCard && action === 'NAV_DOWN') { this.ui.focus.activate('stage', 'stage-confirm'); return true }
-    if (onCard && action === 'NAV_UP') return true
-    if (!onCard && action === 'NAV_UP') { this.ui.focus.activate('stage', `stage-${this.selectedStageId}`); return true }
-    return false
-  }
-  private selectStage(id: StageId, update = false): void {
+  private selectStage(id: StageId): void {
     this.selectedStageId = id; this.persistence?.context.set({ selectedStageId: id })
-    if (!update) return
     this.stageBackdrop?.setTexture(stageTextureKey(id))
     document.body.style.setProperty('--backdrop', `url("${resolveStageAsset(id).url}")`)
-    this.buttons.forEach((card, key) => { if (card instanceof StageCard) card.setSelected(key === `stage-${id}`) })
   }
-  private confirmStage(): void { this.selectStage(this.selectedStageId); this.appStateMachine.transitionTo(AppState.LOADING) }
+  private confirmStage(): void { this.persistence?.context.set({ selectedStageId: this.selectedStageId }); this.appStateMachine.transitionTo(AppState.LOADING) }
 
-  private renderP3(): void {
-    const vm = loadingViewModel(this.playerEntry(), this.enemyName(), resolveStageAsset(this.selectedStageId).label, 1, this.playerName())
-    const root = this.screen as Phaser.GameObjects.Container
-    root.add(this.add.graphics().lineStyle(8, uiTokens.colors.systemBlue, 0.4).lineBetween(1100, 0, 820, 710))
-    this.addCharacterPreview(root, vm.character.spriteId, 430, 360, 560, 700)
-    this.addCharacterPreview(root, this.enemySpriteId(), 1480, 360, 560, 700)?.setFlipX(true)
-    root.add(this.add.text(130, 565, 'PLAYER', { ...typography.note, color: colorHex('playerGlow') }))
-    root.add(this.add.text(130, 600, vm.playerName, typography.title))
-    if (vm.character.type === 'BODY_TEMPLATE') root.add(this.add.text(130, 680, vm.character.displayName + ' · TEMP BODY', { ...typography.note, color: colorHex('resultGold') }))
-    root.add(this.add.text(1780, 565, this.flow.players.P2 ? 'ENEMY · 2P' : 'ENEMY · CPU', { ...typography.note, color: colorHex('enemyGlow') }).setOrigin(1, 0))
-    root.add(this.add.text(1780, 600, vm.enemyName, typography.title).setOrigin(1, 0))
-    root.add(this.add.text(960, 330, 'VS', { ...typography.title, fontSize: uiTokens.type.hero, stroke: colorHex('systemBlue'), strokeThickness: 8 }).setOrigin(0.5).setRotation(-0.08))
-    root.add(this.label(vm.stage, 960, 670, uiTokens.type.body))
-    const controls = new AngularPanel(this, 1030, 294, uiTokens.colors.panelRaised).setPosition(620, 865)
-    controls.add(this.add.text(-465, -120, 'CONTROLS ・ 操作說明', typography.secondaryAction))
-    const key = (...actions: CombatAction[]): string => actions.map((action) => keyLabel(this.controls.P1[action])).join(' ')
-    controls.add(this.add.text(475, -112, `${key('CROUCH')} 蹲 · 按住 ${key('CROUCH')}／← 後退＝防禦 · ${key('PAUSE')} 暫停`, typography.note).setOrigin(1, 0))
-    const padKey = (...actions: CombatAction[]): string => actions.map((action) => padLabel(this.padProfiles.P1[action])).join(' ')
-    const bindings = [['MOVE', key('MOVE_LEFT', 'MOVE_RIGHT'), padKey('MOVE_LEFT', 'MOVE_RIGHT')], ['JUMP', key('JUMP'), padKey('JUMP')], ['PUNCH', key('LIGHT_PUNCH', 'HEAVY_PUNCH'), padKey('LIGHT_PUNCH', 'HEAVY_PUNCH')], ['KICK', key('LIGHT_KICK', 'HEAVY_KICK'), padKey('LIGHT_KICK', 'HEAVY_KICK')]]
-    bindings.forEach(([action, keyboard, pad], i) => {
-      const x = -455 + (i % 2) * 500, y = -25 + Math.floor(i / 2) * 104
-      controls.add(this.add.text(x, y - 35, action, typography.note))
-      const keyboardCap = new KeyCap(this, keyboard, 'keyboard').setPosition(x + 90, y + 15)
-      const padCap = new KeyCap(this, pad, 'gamepad').setPosition(x + 320, y + 15)
-      controls.add([keyboardCap, padCap]); this.keyCaps.push(keyboardCap, padCap)
-    })
-    root.add(controls)
-    const loading = new AngularPanel(this, 640, 294, uiTokens.colors.panelRaised).setPosition(1495, 865)
-    loading.add(this.add.text(-260, -120, 'LOADING ・ 載入中', typography.secondaryAction))
-    loading.add(this.add.rectangle(0, -40, 520, 14, uiTokens.colors.background0))
-    this.loadingBar = this.add.rectangle(-260, -40, 520, 14, uiTokens.colors.systemBlue).setOrigin(0, 0.5)
-    this.loadingPercent = this.add.text(260, -82, '', typography.note).setOrigin(1, 0.5)
-    this.loadingButton = new ActionButton(this, 'FIGHT!', 440, 92, uiTokens.colors.playerPrimary, `ENTER / ${this.padConfirm()} ・ 開始`).setPosition(0, 55).setEnabled(false)
-    const fight = (): void => {
-      const failed = (['P1', 'P2'] as const).filter((id) => this.generation[id]?.state === 'failed')
-      failed.forEach((id) => { const { name, template, photo } = this.generation[id] as GenerationJob; this.startGeneration(id, name, template, photo) })
-      if (this.selectedAssetsState === 'failed') this.loadSelectedAssets()
-      else if (!failed.length && this.loadingReady) this.appStateMachine.transitionTo(AppState.BATTLE)
-    }
-    this.loadingButton.on('pointerup', fight); loading.add([this.loadingBar, this.loadingPercent, this.loadingButton]); root.add(loading)
-    this.register('loading', 'loading-fight', this.loadingButton, fight, false); this.updateLoading()
-  }
-  private updateLoading(): void {
-    if (!this.loadingButton) return
-    ;(['P1', 'P2'] as const).forEach((id, i) => {
-      if (!this.generation[id] || this.loadingPortraits.has(id) || !this.textures.exists(faceKey(id))) return
-      this.screen?.add(this.add.image(1215 + i * 92, 670, faceKey(id)).setDisplaySize(80, 80))
-      this.loadingPortraits.add(id)
-    })
-    const boot = this.scene.get('BootScene').load
-    const jobs = Object.values(this.generation), generationFailed = jobs.some((job) => job.state === 'failed'), assetFailed = this.selectedAssetsState === 'failed', generating = jobs.some((job) => job.state === 'processing')
-    const busy = boot.isLoading() || this.load.isLoading() || generating || this.selectedAssetsState === 'loading'
-    const progress = busy ? (this.load.isLoading() ? this.load.progress : boot.progress) : 1
-    this.loadingBar?.setScale(generating ? 0.5 : progress, 1); this.loadingPercent?.setText(generationFailed ? '角色生成失敗 · 可重試或返回' : assetFailed ? '素材載入失敗 · 可重試' : generating ? '角色生成中' : busy ? Math.round(progress * 100) + '%' : 'READY')
-    this.loadingButton.label.setText(generationFailed || assetFailed ? 'RETRY · 重試' : 'FIGHT!')
-    // 失敗時按鈕仍可按（＝重試），只有忙碌中停用。
-    if (this.loadingReady !== (!busy && !generationFailed && !assetFailed) || this.loadingButton.input?.enabled !== !busy) {
-      this.loadingReady = !busy && !generationFailed && !assetFailed; this.loadingButton.setEnabled(!busy); this.ui.focus.setEnabled('loading', 'loading-fight', !busy)
-      this.loadingPulse?.stop(); this.loadingButton.label.setAlpha(1)
-      if (!busy) { this.ui.focus.activate('loading', 'loading-fight'); this.loadingPulse = this.addScreenTween({ targets: this.loadingButton.label, alpha: 0.7, duration: 700, yoyo: true, repeat: -1 }) }
-    }
-    const device = this.inputManager.lastDevice()
-    if (device !== this.promptDevice) { this.promptDevice = device; this.keyCaps.forEach(cap => cap.setEmphasis(cap.device === device)) }
-  }
-
-  private renderP4(): void {
-    const root = this.battleRoot = this.add.container(0, 0); this.screen?.add(root)
-    const world = this.addBattleStage(root, uiTokens.backdrop.battle)
-    this.battleView = new BattleView(this, root, world, { stage: this.selectedStageId, playerSprite: this.playerSpriteId(), enemySprite: this.enemySpriteId(), playerName: this.playerName(), enemyName: this.enemyName(), twoPlayer: Boolean(this.flow.players.P2), floorY: this.flow.match.world.getConfig().floorY, maxHp: this.flow.match.world.getConfig().maxHp, input: this.inputManager, audio: this.audio, combat: this.flow.match.world })
-  }
-  /** P5 停在最後的戰鬥畫面：贏家播勝利動作（播完停最後一格），KO 的輸家倒地；由遊戲時鐘每 tick 推進。 */
-  private updateP5Fighters(): void {
-    // 淡入期間停在第一格，畫面完全顯示後才開始播，勝利動作才看得完整。
-    const { fighters } = this.flow.match.getSnapshot().world, winner = this.flow.result?.winner, tick = (this.screen?.alpha ?? 1) < 1 ? this.presentationTick : this.presentationTick++
-    this.battlePlayer?.update(fighters.PLAYER, tick, { outcome: outcomeFor('PLAYER', 'MATCH_END', winner) })
-    this.battleEnemy?.update(fighters.ENEMY, tick, { outcome: outcomeFor('ENEMY', 'MATCH_END', winner) })
-  }
-  private addBattleStage(root: Phaser.GameObjects.Container, darkness: number): Phaser.GameObjects.Container {
-    this.stage = new BattleStage(this, root, this.selectedStageId, reducedMotion, () => this.addAtmosphere(root, darkness))
-    return this.stage.world
-  }
-  private updateBattle(snapshot: MatchSnapshot): void {
-    this.battleView?.update(snapshot, this.tickEvents.splice(0), this.playerContext, this.flow.match.getRoundSummaries().at(-1), this.enemyContext)
-  }
-  private renderP5(): void {
-    this.battleRoot = this.add.container(0, 0); this.screen?.add(this.battleRoot); const world = this.addBattleStage(this.battleRoot, uiTokens.backdrop.presentation)
-    this.battlePlayer = new TemporarySpriteRenderer(this, this.playerSpriteId(), this.flow.match.world.getConfig().floorY)
-    this.battleEnemy = new TemporarySpriteRenderer(this, this.enemySpriteId(), this.flow.match.world.getConfig().floorY)
-    this.presentationTick = 0; this.updateP5Fighters()
-    world.add([this.battlePlayer, this.battleEnemy])
-    this.battleRoot.add(this.add.rectangle(960, 540, 1920, 1080, uiTokens.colors.background0, uiTokens.backdrop.impact))
-    const rays = this.add.graphics().setPosition(960, 450)
-    for (let i = 0; i < 26; i += 1) { const angle = i * Math.PI * 2 / 26; rays.fillStyle(uiTokens.colors.playerPrimary, 0.1).fillTriangle(0, 0, Math.cos(angle) * 1500, Math.sin(angle) * 1500, Math.cos(angle + 0.04) * 1500, Math.sin(angle + 0.04) * 1500) }
-    this.battleRoot.add(rays); this.addScreenTween({ targets: rays, angle: 360, duration: 12000, repeat: -1 })
-    const impact = this.add.graphics()
-    impact.lineStyle(20, uiTokens.colors.danger, 0.46).lineBetween(465, 610, 1455, 315)
-    impact.lineStyle(6, uiTokens.colors.resultGold, 0.62).lineBetween(520, 635, 1405, 370)
-    impact.lineStyle(3, uiTokens.colors.playerGlow, 0.38).lineBetween(580, 660, 1320, 410)
-    this.battleRoot.add(impact)
-    // 與 P4 同一個 Announcer：結束方式（大字）＋勝負。
-    if (this.flow.result) { const [call, outcome] = finishAnnouncements(this.flow.result); this.screen?.add([new Announcer(this, 330).show(call), new Announcer(this, 600).show(outcome)]) }
-    this.flow.match.getRoundSummaries().forEach((round, index, rounds) => {
-      const panel = new AngularPanel(this, 210, 100, round.winner === 'PLAYER' ? uiTokens.colors.playerPrimary : round.winner === 'ENEMY' ? uiTokens.colors.enemyPrimary : uiTokens.colors.panelRaised).setPosition(960 + (index - (rounds.length - 1) / 2) * 230, 700)
-      panel.add(this.label('ROUND ' + round.roundNumber, 0, -22, uiTokens.type.label))
-      panel.add(this.add.text(0, 18, round.winner === 'PLAYER' ? 'WIN' : round.winner === 'ENEMY' ? 'LOSE' : 'DRAW', typography.action).setOrigin(0.5)); this.screen?.add(panel)
-    })
-    if (this.flow.result) {
-      const next = new ActionButton(this, 'VIEW RESULTS', 420, 96, uiTokens.colors.playerPrimary, '查看結算').setPosition(960, 952)
-      next.setInteractive({ useHandCursor: true }).on('pointerup', () => this.appStateMachine.transitionTo(AppState.RESULT))
-      this.screen?.add(next); this.register('presentation', 'presentation-next', next, () => this.appStateMachine.transitionTo(AppState.RESULT)); this.ui.focus.activate('presentation')
-    }
-  }
-
-  private renderP6(): void {
-    if (this.flow.result) this.renderResultColumns(resultViewModel(this.flow.result, this.persistence?.context.snapshot.backendRank ?? null, p6SubStateForRank(this.persistence?.context.snapshot.backendRank), this.flow.leaderboard, this.persistence?.context.snapshot.sessionId))
-  }
-
-  private renderResultColumns(vm: ResultViewModel): void {
-    this.screen?.add(this.heading('MATCH RESULT'))
-    const columns = [{ x: 353, w: 514, title: 'STATISTICS' }, { x: 960, w: 644, title: 'RESULT' }, { x: 1567, w: 514, title: 'RANKING' }]
-    const panels = columns.map(({ x, w, title }) => {
-      const height = title === 'STATISTICS' ? Math.min(640, 150 + vm.statistics.length * 88) : 640
-      const panel = new AngularPanel(this, w, height, uiTokens.colors.panelRaised).setPosition(x, 230 + height / 2)
-      panel.add(this.add.text(-w / 2 + 32, -height / 2 + 45, title, typography.secondaryAction).setOrigin(0, 0.5))
-      panel.add(this.add.rectangle(0, -height / 2 + 100, w - 52, 1, uiTokens.colors.lineDim, 0.9))
-      this.screen?.add(panel)
-      return panel
-    })
-    const [statistics, result, ranking] = panels
-    const statStep = Math.min(88, 480 / Math.max(1, vm.statistics.length))
-    vm.statistics.forEach((stat, index) => {
-      const y = -statistics.height / 2 + 145 + index * statStep
-      statistics.add(this.add.text(-215, y, stat.label, { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('textSecondary') }).setOrigin(0, 0.5))
-      statistics.add(this.add.text(215, y, String(stat.value), { ...typography.number, fontSize: uiTokens.type.body }).setOrigin(1, 0.5))
-      statistics.add(this.add.rectangle(0, y + statStep / 2, 450, 1, uiTokens.colors.lineDim, 0.65))
-    })
-    const win = vm.outcome === 'WIN'
-    const headlineColor = win ? colorHex('playerGlow') : vm.outcome === 'DRAW' ? colorHex('systemBlue') : colorHex('textSecondary')
-    const headline = this.add.text(0, -170, vm.headline, { ...typography.announcer, fontSize: uiTokens.type.h1, color: headlineColor, stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.result, shadow: win ? { color: colorHex('playerPrimary'), blur: uiTokens.shadowBlur.focal, fill: true } : undefined }).setOrigin(0.5).setScale(0.88).setAlpha(0)
-    result.add(headline)
-    this.addScreenTween({ targets: headline, scale: 1, alpha: 1, duration: uiTokens.motionMs.focalReveal, ease: 'Cubic.Out' })
-    if (vm.title) result.add(new AngularPanel(this, 530, 62, uiTokens.colors.resultGold, 1).setPosition(0, -38))
-    const title = this.add.text(0, -38, vm.title, { ...typography.secondaryAction, fontSize: uiTokens.type.title, color: colorHex('background0') }).setOrigin(0.5).setAlpha(0)
-    const scoreLabel = this.add.text(0, 40, 'SCORE', { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('textSecondary') }).setOrigin(0.5).setAlpha(0)
-    const score = this.add.text(0, 120, String(vm.score), { ...typography.number, fontSize: uiTokens.type.display }).setOrigin(0.5).setAlpha(0)
-    const rank = this.add.text(0, 207, 'RANK  ' + (vm.rank ?? 'NOT RANKED'), { ...typography.note, fontSize: uiTokens.type.body, color: colorHex('textSecondary') }).setOrigin(0.5).setAlpha(0)
-    result.add([title, scoreLabel, score, rank])
-    this.addScreenTween({ targets: [title, scoreLabel, score, rank], alpha: 1, duration: 160, delay: 100, ease: 'Cubic.Out' })
-    if (vm.newRecord) {
-      const badge = this.add.text(0, 278, 'NEW RECORD', { ...typography.secondaryAction, fontSize: uiTokens.type.title, color: colorHex('resultGold'), stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.badge, shadow: { color: colorHex('playerPrimary'), blur: uiTokens.shadowBlur.subtle, fill: true } }).setOrigin(0.5).setAlpha(0)
-      result.add(badge)
-      this.addScreenTween({ targets: badge, alpha: 1, duration: 160, delay: 240, ease: 'Cubic.Out' })
-    }
-    const rowSpacing = Math.min(46, 460 / Math.max(1, Math.min(20, vm.ranking.length)))
-    vm.ranking.slice(0, 20).forEach((row, index) => {
-      const y = -180 + index * rowSpacing
-      if (row.highlighted) ranking.add(this.add.rectangle(0, y, 460, rowSpacing - 4, uiTokens.colors.playerPrimary, 0.24))
-      ranking.add(this.add.rectangle(0, y + rowSpacing / 2, 462, 1, uiTokens.colors.lineDim, 0.66))
-      if (row.highlighted) ranking.add(this.add.rectangle(-227, y, 4, rowSpacing - 4, uiTokens.colors.playerGlow, 0.95))
-      ranking.add(this.add.text(-210, y, String(row.rank).padStart(2, '0') + '  ' + row.name, { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('textPrimary') }).setOrigin(0, 0.5))
-      ranking.add(this.add.text(210, y, String(row.score), { ...typography.number, fontSize: uiTokens.type.label, color: row.highlighted ? colorHex('textPrimary') : colorHex('textSecondary') }).setOrigin(1, 0.5))
-    })
-    if (this.flow.result) {
-      const next = new ActionButton(this, 'CONTINUE', 380, 88, uiTokens.colors.playerPrimary, '繼續').setPosition(960, 952)
-      next.setInteractive({ useHandCursor: true }).on('pointerup', () => this.appStateMachine.transitionTo(AppState.END))
-      this.screen?.add(next); this.register('result', 'result-next', next, () => this.appStateMachine.transitionTo(AppState.END)); this.ui.focus.activate('result')
-    }
-  }
-
-  private renderP7(): void {
-    const vm = endViewModel(this.flow.nextPlayerName)
-    const panel = new AngularPanel(this, 900, 500, uiTokens.colors.panelRaised).setPosition(960, 500)
-    panel.add(this.add.text(0, -170, 'PLAY AGAIN?', typography.title).setOrigin(0.5))
-    panel.add(this.add.text(0, -112, '再戰一場（重新選擇角色與場景）', typography.instruction).setOrigin(0.5))
-    const replay = new ActionButton(this, 'PLAY AGAIN', 470, 96).setPosition(0, -6)
-    const finish = new ActionButton(this, 'FINISH', 470, 86, uiTokens.colors.background1).setPosition(0, 132)
-    replay.setInteractive({ useHandCursor: true }).on('pointerup', () => this.ui.navigation.dispatch('REPLAY'))
-    finish.setInteractive({ useHandCursor: true }).on('pointerup', () => this.ui.navigation.dispatch('FINISH'))
-    panel.add([replay, finish]); this.screen?.add(panel)
-    this.register('end', 'play-again', replay, () => this.ui.navigation.dispatch('REPLAY'))
-    this.register('end', 'finish', finish, () => this.ui.navigation.dispatch('FINISH'))
-    this.ui.focus.activate('end', 'play-again')
-    if (vm.nextPlayerName) {
-      const next = new AngularPanel(this, 430, 190, uiTokens.colors.panelRaised).setPosition(960, 885)
-      next.add(this.add.text(-180, -63, 'NEXT', { ...typography.secondaryAction, fontSize: uiTokens.type.body, color: colorHex('systemBlue') }).setOrigin(0, 0.5))
-      next.add(this.add.text(-60, 34, vm.nextPlayerName, { ...typography.secondaryAction, fontSize: uiTokens.type.body }).setOrigin(0, 0.5))
-      this.screen?.add(next)
-    }
-  }
-  private renderOverlay(): void {
-    const overlay = this.overlay = this.add.container(0, 0)
-    overlay.add(this.add.rectangle(960, 540, 1920, 1080, uiTokens.colors.background0, uiTokens.opacity.overlay))
-    const confirmAction = this.ui.navigation.getConfirmationAction(), confirmMode = Boolean(confirmAction)
-    if (confirmMode) this.exitLockedUntil = performance.now() + 400
-    const panel = new AngularPanel(this, 650, 400, uiTokens.colors.panelRaised).setPosition(960, 540)
-    panel.add(this.add.text(0, -140, confirmAction === 'RESTART' ? 'RESTART MATCH?' : confirmMode ? 'EXIT GAME?' : 'PAUSED', typography.title).setOrigin(0.5))
-    if (confirmAction === 'RESTART') panel.add(this.add.text(0, -74, '本局將從 Round 1 重開，保留角色素材與舞台；本局成績不列入排行榜', typography.note).setOrigin(0.5))
-    else if (confirmAction === 'EXIT') panel.add(this.add.text(0, -74, '將結束這場遊戲並回到首頁，本局成績不列入排行榜', typography.note).setOrigin(0.5))
-    panel.add(this.add.rectangle(0, -92, 560, 1, uiTokens.colors.lineDim, 0.9))
-    panel.add(this.add.text(0, 160, `ENTER / ${this.padConfirm()} 確認 ・ ESC / ${padLabel(PAD_SYSTEM.BACK)} 返回`, typography.note).setOrigin(0.5))
-    const actions = confirmMode ? ['CONFIRM', 'CANCEL'] : ['CONTINUE', 'RESTART', 'EXIT']
-    actions.forEach((action, index) => {
-      const buttonColor = action === 'CONTINUE' || action === 'CONFIRM' ? uiTokens.colors.playerPrimary : uiTokens.colors.panel
-      const button = new ActionButton(this, action, 380, 66, buttonColor).setPosition(0, -20 + index * 88)
-      button.setInteractive({ useHandCursor: true }).on('pointerup', () => this.overlayAction(action))
-      panel.add(button)
-      this.register(confirmMode ? 'overlay-confirm' : 'overlay', 'overlay-' + action, button, () => this.overlayAction(action))
-    })
-    overlay.add(panel); this.screen?.add(overlay)
-    this.ui.focus.activate(confirmMode ? 'overlay-confirm' : 'overlay', confirmMode ? 'overlay-CANCEL' : 'overlay-CONTINUE')
-  }
-
-  private overlayAction(action: string): void {
-    if (this.ui.navigation.isExitConfirmationOpen() && performance.now() < this.exitLockedUntil) return
-    if (action === 'CONTINUE') this.ui.navigation.dispatch('CLOSE_MENU')
-    else if (action === 'CANCEL') this.ui.navigation.dispatch('BACK')
-    else if (action === 'RESTART') this.ui.navigation.openExitConfirmation('RESTART')
-    else if (action === 'EXIT') this.ui.navigation.openExitConfirmation('EXIT')
-    // 先關選單讓時鐘恢復，再離開戰鬥；反過來時鐘會停在暫停狀態到下一場。
-    else if (action === 'CONFIRM') {
-      const confirmation = this.ui.navigation.getConfirmationAction()
-      this.ui.navigation.dispatch('CLOSE_MENU')
-      if (confirmation === 'RESTART') { this.flow.restartMatch(); this.updateBattle(this.flow.match.getSnapshot()) }
-      else this.ui.navigation.dispatch('FINISH')
-    }
-  }
-
-  private playerEntry(): CharacterEntry { return this.rosterEntry(this.flow.players.P1?.characterId) ?? testCharacterManifest.presetA }
-  private playerName(): string { return this.flow.players.P1?.nickname || this.playerEntry().displayName }
-  // 單人：ENEMY 為選定的 CPU 對手；雙人：ENEMY 為 2P 的選擇，由 2P 操作。
-  private rosterEntry(id: string | undefined): CharacterEntry | undefined { return characterEntry(id) ?? this.generatedEntries.find((entry) => entry.id === id) }
-  private opponentEntry(): CharacterEntry | undefined { return this.flow.players.P2 ? undefined : this.rosterEntry(this.flow.opponent?.characterId) }
-  private enemyName(): string { const p2 = this.flow.players.P2; if (!p2 && this.opponentEntry()) return this.opponentEntry()?.displayName ?? 'ROG_SAGA'; return p2 ? p2.nickname || this.rosterEntry(p2.characterId)?.displayName || 'ROG_SAGA' : 'ROG_SAGA' }
   /** 流程總步數：選角（含拍照、1P 選對手）＋選場景。 */
   private stepTotal(): number { return this.hasCustom() ? 4 : 3 }
   private hasCustom(): boolean { return Object.values(this.flow.players).some((player) => characterEntry(player?.characterId)?.type === 'BODY_TEMPLATE') }
-  private playerSpriteId(): SpriteId | undefined { return this.generation.P1?.assetId ? `generated-${this.generation.P1.assetId}` : this.playerEntry().spriteId }
-  private enemySpriteId(): SpriteId { return this.generation.P2?.assetId ? `generated-${this.generation.P2.assetId}` : this.opponentEntry()?.spriteId ?? characterEntry(this.flow.players.P2?.characterId)?.spriteId ?? (this.playerSpriteId() === 'go' ? 'chris' : 'go') }
+  private matchup(): Matchup { return { player: this.playerEntry(), playerName: this.playerName(), enemyName: this.enemyName(), playerSprite: this.playerSpriteId(), enemySprite: this.enemySpriteId(), twoPlayer: Boolean(this.flow.players.P2), stageId: this.selectedStageId } }
+  private playerEntry(): CharacterEntry { return this.rosterEntry(this.flow.players.P1?.characterId) ?? testCharacterManifest.presetA }
+  private playerName(): string { return this.flow.players.P1?.nickname || this.playerEntry().displayName }
+  // 單人：ENEMY 為選定的 CPU 對手；雙人：ENEMY 為 2P 的選擇，由 2P 操作。
+  private rosterEntry(id: string | undefined): CharacterEntry | undefined { return characterEntry(id) ?? this.jobs.entries.find((entry) => entry.id === id) }
+  private opponentEntry(): CharacterEntry | undefined { return this.flow.players.P2 ? undefined : this.rosterEntry(this.flow.opponent?.characterId) }
+  private enemyName(): string { const p2 = this.flow.players.P2; if (!p2 && this.opponentEntry()) return this.opponentEntry()?.displayName ?? 'ROG_SAGA'; return p2 ? p2.nickname || this.rosterEntry(p2.characterId)?.displayName || 'ROG_SAGA' : 'ROG_SAGA' }
+  private playerSpriteId(): SpriteId | undefined { const assetId = this.jobs.assetId('P1'); return assetId ? `generated-${assetId}` : this.playerEntry().spriteId }
+  private enemySpriteId(): SpriteId { const assetId = this.jobs.assetId('P2'); return assetId ? `generated-${assetId}` : this.opponentEntry()?.spriteId ?? characterEntry(this.flow.players.P2?.characterId)?.spriteId ?? (this.playerSpriteId() === 'go' ? 'chris' : 'go') }
 
-  private addCharacterPreview(parent: Phaser.GameObjects.Container, spriteId: SpriteId | undefined, x: number, y: number, width: number, height: number): Phaser.GameObjects.Sprite | undefined {
-    const key = spriteId && spriteTextureKey(spriteId, 'idle')
-    if (key && this.textures.exists(key)) {
-      const size = Math.min(height, width * 1.3)
-      const image = this.add.sprite(x, y, key, spriteTextureFrame(spriteId)).setDisplaySize(size, size)
-      if (isSheetSprite(spriteId) && !reducedMotion && this.anims.exists(`${spriteId}-idle`)) image.play(`${spriteId}-idle`)
-      parent.add(image)
-      return image
-    }
-    return undefined // 無貼圖：不畫替代形狀
-  }
-
-  private destroyScreen(): void {
-    this.loadingPortraits.clear()
-    this.idleLabel = undefined; this.stageBackdrop = undefined
-    this.battleView?.destroy(); this.battleView = undefined; this.stage?.destroy(); this.stage = undefined
-    stopOwnedTweens(this.screenTweens)
-    this.loadingPulse = undefined
-    this.ui.focus.clearGroup('loading'); this.ui.focus.clearGroup('p0'); this.ui.focus.clearGroup('stage'); this.ui.focus.clearGroup('presentation'); this.ui.focus.clearGroup('result'); this.ui.focus.clearGroup('end'); this.ui.focus.clearGroup('overlay'); this.ui.focus.clearGroup('overlay-confirm')
-    this.keyCaps = []; this.promptDevice = undefined; this.loadingButton = undefined; this.loadingReady = undefined; this.loadingBar = undefined; this.loadingPercent = undefined; this.buttons.clear(); this.p1View?.destroy(); this.p1View = undefined
-    this.battlePlayer = undefined; this.battleEnemy = undefined; this.battleRoot = undefined
-    this.screen?.destroy(true); this.screen = undefined; this.overlay = undefined
-  }
   private readonly attractKey = (event: KeyboardEvent): void => {
     if (this.appStateMachine.getCurrentState() !== AppState.IDLE || event.repeat) return
     if (this.controlsPanel || this.boardPanel) return
@@ -742,5 +408,11 @@ export class AppScene extends Phaser.Scene {
     video.pause(); video.removeAttribute('src'); video.load()
     this.attract.destroy(); this.attract = undefined; this.noteActivity()
   }
-  private destroyScene(): void { this.clearGeneration(); this.audio?.destroy(); this.audio = undefined; this.stopAttract(); this.closeControls(); this.closeBoard(false); this.input.keyboard?.off('keydown', this.attractKey); window.removeEventListener('gamepadconnected', this.noteActivity); window.removeEventListener('gamepaddisconnected', this.noteActivity); this.destroyScreen(); this.input.off('pointermove', this.noteActivity); this.input.off('pointerdown', this.noteActivity); this.combatUnsubscribe?.(); this.unsubscribe?.(); this.clockUnsubscribe?.(); this.uiUnsubscribers.forEach((unsubscribe) => unsubscribe()); this.inputManager.detachKeyboard(); this.clock.stop() }
+  private destroyScene(): void {
+    this.clearGeneration(); this.audio?.destroy(); this.audio = undefined; this.stopAttract(); this.closeControls(); this.closeBoard(false)
+    this.input.keyboard?.off('keydown', this.attractKey); window.removeEventListener('gamepadconnected', this.noteActivity); window.removeEventListener('gamepaddisconnected', this.noteActivity)
+    this.overlay?.destroy(); this.overlay = undefined; this.current?.destroy(); this.current = undefined
+    this.input.off('pointermove', this.noteActivity); this.input.off('pointerdown', this.noteActivity)
+    this.combatUnsubscribe?.(); this.unsubscribe?.(); this.clockUnsubscribe?.(); this.uiUnsubscribers.forEach((unsubscribe) => unsubscribe()); this.inputManager.detachKeyboard(); this.clock.stop()
+  }
 }

@@ -83,7 +83,7 @@ try {
     await page.keyboard.press(press)
     await page.waitForFunction(() => window.__game.scene.getScene('AppScene').flow.match.world.getFighter('PLAYER').attackPhase !== 'NONE')
     await new Promise(r => setTimeout(r, 60))
-    const [texture, action, debug] = await s(s => [s.battleView.player.image.texture.key, s.inputManager.lastCombatInput.action, s.battleView?.inputDebug?.text])
+    const [texture, action, debug] = await s(s => [s.current.view.player.image.texture.key, s.inputManager.lastCombatInput.action, s.current.view?.inputDebug?.text])
     if (hold) await page.keyboard.up(hold)
     lastDebug = debug
     return [texture, action]
@@ -136,13 +136,13 @@ try {
   check('按住 C 不再防禦（舊存檔的 GUARD 欄位被丟棄）')
 
   // W 跳、S 蹲（純呈現），沒有縱深。
-  await enemyFar(); const y0 = await s(s => s.battleView.player.y)
+  await enemyFar(); const y0 = await s(s => s.current.view.player.y)
   await page.keyboard.press('w'); await page.waitForFunction(() => !window.__game.scene.getScene('AppScene').flow.match.world.getFighter('PLAYER').grounded)
-  assert.ok((await s(s => s.battleView.player.y)) < y0); assert.equal(await s(s => 'z' in s.flow.match.world.getFighter('PLAYER')), false)
+  assert.ok((await s(s => s.current.view.player.y)) < y0); assert.equal(await s(s => 'z' in s.flow.match.world.getFighter('PLAYER')), false)
   await page.screenshot({ path: `${out}/08-jump-w.png` })
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').flow.match.world.getFighter('PLAYER').grounded)
   await page.keyboard.down('s'); await new Promise(r => setTimeout(r, 300))
-  const crouch = await s(s => [s.battleView.player.image.texture.key, s.battleView.player.scaleY, s.flow.match.world.getFighter('PLAYER').y])
+  const crouch = await s(s => [s.current.view.player.image.texture.key, s.current.view.player.scaleY, s.flow.match.world.getFighter('PLAYER').y])
   await page.keyboard.up('s')
   assert.deepEqual(crouch, ['body01-crouch', 1, 820]); await page.screenshot({ path: `${out}/08b-crouch-s.png` })
   check('W 跳躍、S 蹲下（只換圖、不改模擬），角色沒有縱深座標與縮放')
@@ -156,7 +156,7 @@ try {
   check(`D 一直往對手走：最近距離 ${closest.toFixed(0)}（≥ 推擠寬 220），不重疊、不穿過`)
   await s(s => { s.flow.match.world.fighters.PLAYER.x = 2820; s.flow.match.world.fighters.ENEMY.x = 3100 })
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').stage.scroll > 520, null, { timeout: 5000 })
-  const edge = await s(s => [s.stage.scroll, s.stage.world.x + s.battleView.player.x * s.stage.world.scaleX, s.stage.world.x + s.battleView.enemy.x * s.stage.world.scaleX])
+  const edge = await s(s => [s.stage.scroll, s.stage.world.x + s.current.view.player.x * s.stage.world.scaleX, s.stage.world.x + s.current.view.enemy.x * s.stage.world.scaleX])
   assert.ok(edge.slice(1).every(x => x > 0 && x < 1920), `${edge}`)
   await page.screenshot({ path: `${out}/10-camera-right-edge.png` })
   check(`角色到場地右緣：鏡頭跟到 ${edge[0].toFixed(0)}（上限 ≈533），兩人都在畫面內`)
@@ -167,9 +167,9 @@ try {
   check('Escape（PAUSE）開暫停，選單中 Escape（BACK）關閉')
 
   await boot()
-  assert.equal(await s(s => s.battleView?.inputDebug), undefined)
+  assert.equal(await s(s => s.current.view?.inputDebug), undefined)
   await s(s => ['P1_READY', 'P2_SETUP', 'P3_LOADING', 'P4_BATTLE'].forEach(state => s.appStateMachine.transitionTo(state)))
-  assert.equal(await s(s => s.battleView?.inputDebug), undefined)
+  assert.equal(await s(s => s.current.view?.inputDebug), undefined)
   check('沒有 ?inputDebug=1 時不顯示診斷面板')
   assert.deepEqual(report.errors, [])
 } finally {

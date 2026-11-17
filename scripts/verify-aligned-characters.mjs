@@ -39,7 +39,7 @@ try {
   await scene(s => { s.p1Model.focus('P1', 5); s.p1View.sync() })
   await key('f'); await key('f'); await key('f'); await state('P2'); await shot('03-stage')
   await key('Enter'); await state('P3')
-  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').loadingReady)
+  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').current?.ready)
   await key('Enter'); await state('P4'); await page.waitForTimeout(4500); await shot('04-battle-tony-chris')
   const poses = await scene(async s => {
     const { TemporarySpriteRenderer } = await import('/src/game/ui/animation/TemporarySpriteRenderer.ts')

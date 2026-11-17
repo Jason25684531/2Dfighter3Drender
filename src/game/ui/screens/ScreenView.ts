@@ -7,7 +7,11 @@ import { stopOwnedTweens } from '../tweens'
 import { colorHex, reducedMotion, uiTokens } from '../tokens/uiTokens'
 import { typography } from '../tokens/typography'
 import { BattleStage } from '../stage/BattleStage'
-import type { StageId } from '../assets/TestAssetManifest'
+import type { CharacterEntry, StageId } from '../assets/TestAssetManifest'
+import type { SpriteId } from '../animation/TemporarySpriteManifest'
+
+/** P3–P5 共用的對戰雙方呈現資料；由 AppScene 依玩家選擇、CPU 對手與生成結果算出。 */
+export type Matchup = { player: CharacterEntry; playerName: string; enemyName: string; playerSprite?: SpriteId; enemySprite: SpriteId; twoPlayer: boolean; stageId: StageId }
 
 export type Focusable = Phaser.GameObjects.Container & { setFocused: (focused: boolean) => unknown }
 

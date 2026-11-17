@@ -129,7 +129,7 @@ try {
  check('FAILED retry completes; leaving a phase cancels its previous timer')
  await key('Enter'); await waitState('P3')
  await page.evaluate(()=>{ window.__pads=[{connected:true,buttons:[{pressed:false},{pressed:false},{pressed:true}],axes:[]}]; navigator.getGamepads=()=>window.__pads })
- await page.waitForFunction(()=>window.__game.scene.getScene('AppScene').promptDevice==='gamepad')
+ await page.waitForFunction(()=>window.__game.scene.getScene('AppScene').current?.promptDevice==='gamepad')
  await page.evaluate(()=>{window.__pads=[]}); await key('Enter'); await waitState('P4'); await settle(); await finish(); await key('Enter'); await waitState('P6'); await key('Enter'); await waitState('P7')
  await scene(s=>{s.lastActivity=s.time.now-61000}); await settle(); assert.match(await scene(s=>s.appStateMachine.getCurrentState()), /^P7/)
  check('Existing gamepad prompt switches in P3; P7 has no idle timeout')

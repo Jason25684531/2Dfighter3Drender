@@ -48,7 +48,7 @@ async function open() {
     window.__attackWorld = s.flow.match.world; s.flow.match.world.subscribe((e) => { if (e.type === 'ATTACK_STARTED') window.__attacks[e.attacker] += 1 })
   })
   const attacks = async () => { await page.waitForTimeout(250); return page.evaluate(() => ({ ...window.__attacks })) }
-  const loadingReady = () => page.waitForFunction(() => window.__game.scene.getScene('AppScene').loadingReady === true, null, { timeout: 15000 })
+  const loadingReady = () => page.waitForFunction(() => window.__game.scene.getScene('AppScene').current?.ready === true, null, { timeout: 15000 })
   return { page, s, frames, boot, plug, unplug, hold, tap, stick, key, state, waitState, owners, fighting, countAttacks, attacks, loadingReady }
 }
 

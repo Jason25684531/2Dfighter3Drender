@@ -55,12 +55,12 @@ try {
 
   // 4 連擊標語與倒地震動（暫停時鐘後以真實 snapshot 呼叫呈現層）
   await s((s) => { s.clock.pause(); const w = s.flow.match.world; w.fighters.ENEMY.combo = 3; w.fighters.PLAYER.combo = 4; s.updateBattle(s.flow.match.getSnapshot()) })
-  assert.deepEqual(await s((s) => ['PLAYER', 'ENEMY'].map((id) => { const c = s.battleView.combos[id]; return [c.visible, c.x, `${c.hitCount.text} ${c.word.text}`] })), [[true, 60, '4 HITS GREAT!'], [true, 1860, '3 HITS COMBO!']])
+  assert.deepEqual(await s((s) => ['PLAYER', 'ENEMY'].map((id) => { const c = s.current.view.combos[id]; return [c.visible, c.x, `${c.hitCount.text} ${c.word.text}`] })), [[true, 60, '4 HITS GREAT!'], [true, 1860, '3 HITS COMBO!']])
   await page.waitForTimeout(200); await page.screenshot({ path: `${out}/02-combo-callouts.png` })
   await s((s) => { s.tickEvents.push({ type: 'KNOCKDOWN', fighter: 'ENEMY' }); s.updateBattle(s.flow.match.getSnapshot()) })
   assert.equal(await s((s) => s.cameras.main.shakeEffect.isRunning), true)
   await s((s) => { const w = s.flow.match.world; w.fighters.ENEMY.combo = 0; s.updateBattle(s.flow.match.getSnapshot()) })
-  await page.waitForTimeout(400); assert.equal(await s((s) => s.battleView.combos.ENEMY.visible), false)
+  await page.waitForTimeout(400); assert.equal(await s((s) => s.current.view.combos.ENEMY.visible), false)
   check('塗鴉連擊標語：站左的 1P 在左側 4 HITS GREAT!、站右的 2P 在右側 3 HITS COMBO!，歸零淡出隱藏；KNOCKDOWN 觸發畫面震動')
 
   assert.deepEqual(errors, [])
