@@ -9,8 +9,6 @@ import { TemporarySpriteRenderer } from '../animation/TemporarySpriteRenderer'
 import { outcomeFor } from '../animation/TemporarySpriteManifest'
 import { ArenaScreen, type Matchup, type ScreenContext } from './ScreenView'
 
-const ANNOUNCE_SCALE = 0.5
-
 /** P5 停在最後的戰鬥畫面：贏家播勝利動作（播完停最後一格），KO 的輸家倒地；由遊戲時鐘每 tick 推進。 */
 export class PresentationScreen extends ArenaScreen {
   private readonly player: TemporarySpriteRenderer
@@ -38,7 +36,7 @@ export class PresentationScreen extends ArenaScreen {
     if (!result) return
     // 與 P4 同一個 Announcer，縮成一半疊在角色頭頂上方（y < 290），不遮住任何一方。
     const [call, outcome] = finishAnnouncements(result)
-    const announce = (announcement: typeof call, y: number): Phaser.GameObjects.Container => scene.add.container(960, y, [new Announcer(scene).show(announcement).setPosition(0, 0)]).setScale(ANNOUNCE_SCALE)
+    const announce = (announcement: typeof call, y: number): Phaser.GameObjects.Container => scene.add.container(960, y, [new Announcer(scene).show(announcement).setPosition(0, 0)]).setScale(0.5)
     root.add([announce(call, 105), announce(outcome, 240)])
     flow.match.getRoundSummaries().forEach((round, index, rounds) => {
       const panel = new AngularPanel(scene, 210, 100, round.winner === 'PLAYER' ? colors.playerPrimary : round.winner === 'ENEMY' ? colors.enemyPrimary : colors.panelRaised).setPosition(960 + (index - (rounds.length - 1) / 2) * 230, 868)

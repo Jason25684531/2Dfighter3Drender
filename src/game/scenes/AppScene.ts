@@ -123,7 +123,7 @@ export class AppScene extends Phaser.Scene {
       this.playerContext.crouch = fighting && input.crouchHeld
       this.enemyContext.crouch = fighting && Boolean(this.flow.players.P2) && p2.crouchHeld
       this.flow.tick(intentFromInput(input), intentFromInput(p2))
-      if (this.appStateMachine.getCurrentState() === AppState.BATTLE) this.updateBattle()
+      if (this.appStateMachine.getCurrentState() === AppState.BATTLE) this.current?.tick()
     })
     this.uiUnsubscribers.push(this.ui.events.on('SUBSTATE_CHANGED', ({ screen }) => { if (screen === AppState.BATTLE && this.current instanceof BattleScreen) return; this.render(this.appStateMachine.getCurrentState()) }))
     this.uiUnsubscribers.push(this.ui.events.on('OVERLAY_CHANGED', ({ open }) => {
@@ -239,9 +239,8 @@ export class AppScene extends Phaser.Scene {
   }
   private openOverlay(): void {
     if (!this.screen) return
-    this.overlay = new PauseOverlay(this.screenContext, this.screen, `ENTER / ${this.padConfirm()} 確認 ・ ESC / ${padLabel(PAD_SYSTEM.BACK)} 返回`, () => { this.flow.restartMatch(); this.updateBattle() })
+    this.overlay = new PauseOverlay(this.screenContext, this.screen, `ENTER / ${this.padConfirm()} 確認 ・ ESC / ${padLabel(PAD_SYSTEM.BACK)} 返回`, () => { this.flow.restartMatch(); this.current?.tick() })
   }
-  private updateBattle(): void { if (this.current instanceof BattleScreen) this.current.tick() }
 
   /** 選單只認 1P：手把確認鍵＝1P 的輕踢鍵（預設 ✕）。 */
   private padConfirm(): string { return padLabel(this.padProfiles.P1.LIGHT_KICK) }

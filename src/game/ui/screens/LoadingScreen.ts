@@ -18,7 +18,7 @@ export type LoadingOptions = { matchup: Matchup; controls: ControlProfiles; pads
 /** P3：VS 構圖、操作說明與載入進度。素材與生成都完成後 FIGHT! 才可按；失敗時同一顆按鈕變成重試。 */
 export class LoadingScreen extends ScreenView {
   ready?: boolean
-  promptDevice?: string
+  private promptDevice?: string
   private readonly button: ActionButton
   private readonly title: Phaser.GameObjects.Text
   private readonly names: Record<'P1' | 'P2', Phaser.GameObjects.Text>
