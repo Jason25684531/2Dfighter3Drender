@@ -7,7 +7,7 @@ import { faceKey, type GenerationJobs } from '../../app/GenerationJobs'
 import { ActionButton, AngularPanel, KeyCap } from '../VisualComponents'
 import { colorHex, reducedMotion, uiTokens } from '../tokens/uiTokens'
 import { typography } from '../tokens/typography'
-import { loadingViewModel } from '../ViewModels'
+import { LOADING_TITLE, loadingStatus, loadingViewModel } from '../ViewModels'
 import { resolveStageAsset } from '../assets/TestAssetManifest'
 import { spriteTextureFrame, spriteTextureKey, type SpriteId } from '../animation/TemporarySpriteManifest'
 import { isSheetSprite } from '../animation/SheetSpriteManifest'
@@ -20,6 +20,8 @@ export class LoadingScreen extends ScreenView {
   ready?: boolean
   promptDevice?: string
   private readonly button: ActionButton
+  private readonly title: Phaser.GameObjects.Text
+  private readonly names: Record<'P1' | 'P2', Phaser.GameObjects.Text>
   private readonly bar: Phaser.GameObjects.Rectangle
   private readonly percent: Phaser.GameObjects.Text
   private readonly keyCaps: KeyCap[] = []
@@ -33,11 +35,15 @@ export class LoadingScreen extends ScreenView {
     root.add(scene.add.graphics().lineStyle(8, colors.systemBlue, 0.4).lineBetween(1100, 0, 820, 710))
     this.addPreview(vm.character.spriteId, 430)
     this.addPreview(matchup.enemySprite, 1480)?.setFlipX(true)
-    root.add(scene.add.text(130, 565, 'PLAYER', { ...typography.note, color: colorHex('playerGlow') }))
-    root.add(scene.add.text(130, 600, vm.playerName, typography.title))
+    // 小字疊在角色預覽上：加深色描邊維持可讀。
+    const tag = { ...typography.note, stroke: colorHex('background0'), strokeThickness: 5 }
+    root.add(scene.add.text(130, 565, 'PLAYER', { ...tag, color: colorHex('playerGlow') }))
+    const playerName = scene.add.text(130, 600, vm.playerName, typography.title)
     if (vm.character.type === 'BODY_TEMPLATE') root.add(scene.add.text(130, 680, vm.character.displayName + ' · TEMP BODY', { ...typography.note, color: colorHex('resultGold') }))
-    root.add(scene.add.text(1780, 565, matchup.twoPlayer ? 'ENEMY · 2P' : 'ENEMY · CPU', { ...typography.note, color: colorHex('enemyGlow') }).setOrigin(1, 0))
-    root.add(scene.add.text(1780, 600, vm.enemyName, typography.title).setOrigin(1, 0))
+    root.add(scene.add.text(1780, 565, matchup.twoPlayer ? 'ENEMY · 2P' : 'ENEMY · CPU', { ...tag, color: colorHex('enemyGlow') }).setOrigin(1, 0))
+    const enemyName = scene.add.text(1780, 600, vm.enemyName, typography.title).setOrigin(1, 0)
+    this.names = { P1: playerName, P2: enemyName }
+    root.add([playerName, enemyName])
     root.add(scene.add.text(960, 330, 'VS', { ...typography.title, fontSize: type.hero, stroke: colorHex('systemBlue'), strokeThickness: 8 }).setOrigin(0.5).setRotation(-0.08))
     root.add(this.label(vm.stage, 960, 670, type.body))
 
@@ -45,19 +51,22 @@ export class LoadingScreen extends ScreenView {
     panel.add(scene.add.text(-465, -120, 'CONTROLS ・ 操作說明', typography.secondaryAction))
     const key = (...actions: CombatAction[]): string => actions.map((action) => keyLabel(controls.P1[action])).join(' ')
     const padKey = (...actions: CombatAction[]): string => actions.map((action) => padLabel(pads.P1[action])).join(' ')
-    panel.add(scene.add.text(475, -112, `${key('CROUCH')} 蹲 · 按住 ${key('CROUCH')}／← 後退＝防禦 · ${key('PAUSE')} 暫停`, typography.note).setOrigin(1, 0))
     const bindings = [['MOVE', key('MOVE_LEFT', 'MOVE_RIGHT'), padKey('MOVE_LEFT', 'MOVE_RIGHT')], ['JUMP', key('JUMP'), padKey('JUMP')], ['PUNCH', key('LIGHT_PUNCH', 'HEAVY_PUNCH'), padKey('LIGHT_PUNCH', 'HEAVY_PUNCH')], ['KICK', key('LIGHT_KICK', 'HEAVY_KICK'), padKey('LIGHT_KICK', 'HEAVY_KICK')]]
+    // 兩欄各三行：動作名稱｜鍵盤鍵帽｜手把鍵帽；第一列上方標出裝置，讓玩家知道哪一排是自己的。
     bindings.forEach(([action, keyboard, pad], i) => {
-      const x = -455 + (i % 2) * 500, y = -25 + Math.floor(i / 2) * 104
-      panel.add(scene.add.text(x, y - 35, action, typography.note))
-      const keyboardCap = new KeyCap(scene, keyboard, 'keyboard').setPosition(x + 90, y + 15)
-      const padCap = new KeyCap(scene, pad, 'gamepad').setPosition(x + 320, y + 15)
+      const x = -455 + (i % 2) * 500, y = -10 + Math.floor(i / 2) * 82
+      if (i < 2) panel.add([scene.add.text(x + 160, -60, 'KEYBOARD', typography.note).setOrigin(0.5), scene.add.text(x + 340, -60, 'GAMEPAD', typography.note).setOrigin(0.5)])
+      panel.add(scene.add.text(x, y, action, typography.note).setOrigin(0, 0.5))
+      const keyboardCap = new KeyCap(scene, keyboard, 'keyboard').setPosition(x + 160, y)
+      const padCap = new KeyCap(scene, pad, 'gamepad').setPosition(x + 340, y)
       panel.add([keyboardCap, padCap]); this.keyCaps.push(keyboardCap, padCap)
     })
+    panel.add(scene.add.text(0, 120, `${key('CROUCH')} 蹲 · 按住 ${key('CROUCH')}／← 後退＝防禦 · ${key('PAUSE')} 暫停`, typography.note).setOrigin(0.5))
     root.add(panel)
 
     const loading = new AngularPanel(scene, 640, 294, colors.panelRaised).setPosition(1495, 865)
-    loading.add(scene.add.text(-260, -120, 'LOADING ・ 載入中', typography.secondaryAction))
+    this.title = scene.add.text(-260, -120, LOADING_TITLE.LOADING.text, typography.secondaryAction)
+    loading.add(this.title)
     loading.add(scene.add.rectangle(0, -40, 520, 14, colors.background0))
     this.bar = scene.add.rectangle(-260, -40, 520, 14, colors.systemBlue).setOrigin(0, 0.5)
     this.percent = scene.add.text(260, -82, '', typography.note).setOrigin(1, 0.5)
@@ -71,9 +80,11 @@ export class LoadingScreen extends ScreenView {
 
   update(): void {
     const { scene, options: { jobs } } = this
-    ;(['P1', 'P2'] as const).forEach((id, i) => {
+    ;(['P1', 'P2'] as const).forEach((id) => {
       if (!jobs.has(id) || this.portraits.has(id) || !scene.textures.exists(faceKey(id))) return
-      this.root.add(scene.add.image(1215 + i * 92, 670, faceKey(id)).setDisplaySize(80, 80))
+      // 頭像貼在該玩家名字的外側（1P 名字右邊、2P 名字左邊）。
+      const name = this.names[id], x = id === 'P1' ? name.x + name.width + 56 : name.x - name.width - 56
+      this.root.add(scene.add.image(x, name.y + name.height / 2, faceKey(id)).setDisplaySize(80, 80))
       this.portraits.add(id)
     })
     const boot = scene.scene.get('BootScene').load
@@ -83,6 +94,8 @@ export class LoadingScreen extends ScreenView {
     this.bar.setScale(generating ? 0.5 : progress, 1)
     this.percent.setText(generationFailed ? '角色生成失敗 · 可重試或返回' : assetFailed ? '素材載入失敗 · 可重試' : generating ? '角色生成中' : busy ? Math.round(progress * 100) + '%' : 'READY')
     this.button.label.setText(generationFailed || assetFailed ? 'RETRY · 重試' : 'FIGHT!')
+    const status = LOADING_TITLE[loadingStatus({ busy, generating, failed: generationFailed || assetFailed })]
+    this.title.setText(status.text).setColor(colorHex(status.color))
     const ready = !busy && !generationFailed && !assetFailed
     // 失敗時按鈕仍可按（＝重試），只有忙碌中停用。
     if (this.ready !== ready || this.button.input?.enabled !== !busy) {

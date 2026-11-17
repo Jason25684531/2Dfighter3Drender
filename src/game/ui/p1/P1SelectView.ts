@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import type { OwnedUiAction, PlayerSlotId, UIAction } from '../../input/InputManager'
 import { keyLabel, loadProfiles, menuKeys } from '../../input/ControlProfile'
 import { GRID_COLUMNS, NICKNAME_MAX, sectionCounts, sectionOf, type P1SelectionModel, type SelectFeedback, type Slot } from '../../select/P1SelectionModel'
-import { ActionButton, AngularPanel } from '../VisualComponents'
+import { ActionButton, AngularPanel, hintBar } from '../VisualComponents'
 import { spriteDisplayHeight, spriteOriginY, spriteTextureFrame, spriteTextureKey } from '../animation/TemporarySpriteManifest'
 import { isSheetSprite } from '../animation/SheetSpriteManifest'
 import { colorHex, reducedMotion, uiTokens, type UiColorToken } from '../tokens/uiTokens'
@@ -69,7 +69,7 @@ class HeroPreview extends Phaser.GameObjects.Container {
     this.stage.add([this.beam, lines, scene.add.ellipse(0, 4, 300, 44, colors.shadow, 0.5)])
     if (!reducedMotion) this.tweens.push(scene.tweens.add({ targets: lines, y: -60, duration: 2000, repeat: -1 }))
     this.title = scene.add.text(left ? 96 - this.x : 1824 - this.x, 330 - this.y, '', { ...typography.title, fontSize: type.h1, color: colorHex(id.text), stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.standard }).setOrigin(left ? 0 : 1, 0.5)
-    this.kind = label(scene, this.title.x, 384 - this.y, '').setOrigin(left ? 0 : 1, 0.5)
+    this.kind = label(scene, this.title.x, 384 - this.y, '').setOrigin(left ? 0 : 1, 0.5).setStroke(colorHex('background0'), 5)
     this.add([this.stage, this.title, this.kind])
   }
 
@@ -129,7 +129,7 @@ class GridSlotView extends AngularPanel {
     }
     if (empty) {
       this.shape.setStrokeStyle(0)
-      const dash = scene.add.graphics().lineStyle(1, colors.lineDim, 0.8)
+      const dash = scene.add.graphics().lineStyle(1, colors.lineDim, 0.35)
       for (let x = -36; x < 36; x += 10) { dash.lineBetween(x, -51, x + 5, -51); dash.lineBetween(x, 51, x + 5, 51) }
       for (let y = -48; y < 48; y += 10) { dash.lineBetween(-44, y, -44, y + 5); dash.lineBetween(44, y, 44, y + 5) }
       this.add(dash)
@@ -137,16 +137,16 @@ class GridSlotView extends AngularPanel {
     const sprite = !body ? slot.entry?.spriteId : undefined
     if (sprite && scene.textures.exists(spriteTextureKey(sprite, 'idle'))) this.add(scene.add.image(0, -4, spriteTextureKey(sprite, 'idle'), spriteTextureFrame(sprite)).setDisplaySize(84, 84))
     if (body) this.add(label(scene, 0, -14, '+', 'resultGold', type.h2).setOrigin(0.5))
-    this.add(label(scene, -40, -48, pad(slot.index), body ? 'resultGold' : 'textSecondary'))
-    this.add(label(scene, 0, 38, empty ? 'EMPTY' : (slot.entry?.displayName ?? '').slice(0, 8), empty ? 'textSecondary' : 'textPrimary').setOrigin(0.5).setAlpha(empty ? 0.55 : 1))
+    this.add(label(scene, -40, -48, pad(slot.index), body ? 'resultGold' : 'textSecondary', type.micro).setAlpha(empty ? 0.4 : 1))
+    if (!empty) this.add(label(scene, 0, 38, (slot.entry?.displayName ?? '').slice(0, 8), 'textPrimary', type.micro).setOrigin(0.5))
     const tag = (owner: PlayerSlotId, offset: number): Phaser.GameObjects.Container => {
       const id = identity[owner]
-      return scene.add.container(0, offset, [scene.add.rectangle(0, 0, p1.grid.cellWidth, 22, id.main, 0.95), label(scene, 0, 0, `${id.tag} READY`, 'textPrimary').setOrigin(0.5)]).setVisible(false)
+      return scene.add.container(0, offset, [scene.add.rectangle(0, 0, p1.grid.cellWidth, 22, id.main, 0.95), label(scene, 0, 0, `${id.tag} READY`, 'textPrimary', type.micro).setOrigin(0.5)]).setVisible(false)
     }
     this.readyTags = { P1: tag('P1', 18), P2: tag('P2', 40) }
     this.add(Object.values(this.readyTags))
     this.scan = scene.add.rectangle(0, 0, 80, 8, colors.systemBlue, 0.4).setVisible(false)
-    this.statusLabel = label(scene, 36, -40, '', 'statusLime').setOrigin(1, 0.5)
+    this.statusLabel = label(scene, 36, -40, '', 'statusLime', type.micro).setOrigin(1, 0.5)
     this.add([this.scan, this.statusLabel]); this.syncStatus()
     this.setInteractive({ useHandCursor: true })
   }
@@ -181,9 +181,9 @@ class PlayerCursor extends Phaser.GameObjects.Container {
     super(scene, 0, 0)
     const id = identity[owner], left = owner === 'P1'
     this.glow = scene.add.graphics(); this.frame = scene.add.graphics()
-    const tagX = left ? -p1.grid.cellWidth / 2 - 6 : p1.grid.cellWidth / 2 + 6, tagY = left ? -p1.grid.cellHeight / 2 - 14 : p1.grid.cellHeight / 2 + 14
-    this.tag = label(scene, 0, 0, id.tag, 'textPrimary').setOrigin(0.5)
-    const tag = scene.add.container(tagX, tagY, [scene.add.rectangle(0, 0, 44, 24, id.main), this.tag])
+    // 標籤放在格子上緣內側（1P 左、2P／CPU 右），不壓到區段標題或相鄰列；同格時左右並排。
+    this.tag = label(scene, 0, 0, id.tag, 'textPrimary', type.micro).setOrigin(0.5)
+    const tag = scene.add.container(left ? -23 : 23, -p1.grid.cellHeight / 2 + 13, [scene.add.rectangle(0, 0, 42, 24, id.main), this.tag])
     this.add([this.glow, this.frame, tag])
     if (!reducedMotion) this.tweens.push(scene.tweens.add({ targets: this.glow, alpha: 0.35, duration: p1.cursor.breatheMs, yoyo: true, repeat: -1 }))
   }
@@ -423,7 +423,7 @@ export class P1SelectView {
     ;(['P1', 'P2'] as const).forEach((owner) => { const cursor = new PlayerCursor(scene, owner); this.cursors[owner] = cursor; root.add(cursor) })
     ;(['P1', 'P2'] as const).forEach((owner) => this.plate(owner))
     this.modeText = label(scene, 960, 215, '', 'textPrimary', type.body).setOrigin(0.5); root.add(this.modeText)
-    root.add(label(scene, 960, 1010, 'ESC 返回標題', 'textSecondary').setOrigin(0.5))
+    root.add([hintBar(scene, 1010), label(scene, 960, 1010, 'ESC 返回標題', 'textSecondary').setOrigin(0.5)])
     this.keysP1 = label(scene, 96, 1010, '', 'playerGlow').setOrigin(0, 0.5); root.add(this.keysP1)
     this.keysP2 = label(scene, 1824, 1010, '', 'enemyGlow').setOrigin(1, 0.5); root.add(this.keysP2)
   }

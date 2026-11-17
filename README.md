@@ -170,7 +170,8 @@
 | `src/prototype.ts`、`prototype.html` | 隔離原型入口，唯一的 DEV 示範介面，不寫入 API |
 | `src/game/state`、`input`、`time`、`combat`、`match`、`select` | 流程與玩法規則 |
 | `src/game/app`、`api` | 流程編排、持久化、HTTP 邊界 |
-| `src/game/ui`、`scenes` | 呈現元件、view model、Phaser 畫面 |
+| `src/game/ui`、`scenes` | 呈現元件、view model、Phaser 場景 |
+| `src/game/ui/screens` | P0–P7 各畫面的 `ScreenView` 子類別與暫停疊層（見 `docs/architecture/README.md`） |
 | `src/game/config` | AI 難度、舞台調校 |
 | `backend/app` | FastAPI 路由、服務、SQLite schema、計分 |
 | `public/test-assets` | 執行期載入的暫用素材（不進 git，Vite 會整包複製進 `dist`）：舞台、對齊後角色圖集（`1113_characters/runtime`，Customize Body 01–04 = `S1AW`／`S2AM`／`S2LW`／`S3WW`）、特效（`vfx/*-impact-fx/sheet-transparent.png`）、開頭影片、音效。只放執行期會請求的檔案 |

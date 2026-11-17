@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { aspectCover } from './tokens/layout'
-import { battleAnnouncement, battleViewModel, comboCallout, endViewModel, finishAnnouncements, loadingViewModel, leaderboardPanelModel, resultViewModel, stageSelectViewModel } from './ViewModels'
+import { battleAnnouncement, battleViewModel, comboCallout, endViewModel, finishAnnouncements, LOADING_TITLE, loadingStatus, loadingViewModel, leaderboardPanelModel, resultViewModel, stageSelectViewModel } from './ViewModels'
 import { characterEntries, resolveStageAsset, testCharacterManifest, testStageManifest } from './assets/TestAssetManifest'
 import { ExperienceContext } from '../app/ExperienceContext'
 import { p6SubStateForRank } from '../match/ResultResolver'
@@ -110,6 +110,18 @@ describe('visual foundation', () => {
     expect([0, 1, 2, 3, 4, 5, 6, 12].map((hits) => { const c = comboCallout(hits); return c && `${c.count} ${c.word} ${c.color}` })).toEqual([undefined, undefined, '2 HITS COMBO! statusLime', '3 HITS COMBO! statusLime', '4 HITS GREAT! resultGold', '5 HITS GREAT! resultGold', '6 HITS AWESOME! comboMagenta', '12 HITS AWESOME! comboMagenta'])
   })
 
+  it('titles the P3 panel by its real state, failure first', () => {
+    const at = (busy: boolean, generating: boolean, failed: boolean) => loadingStatus({ busy, generating, failed })
+    expect([at(true, false, false), at(true, true, false), at(false, false, false), at(true, true, true), at(false, false, true)]).toEqual(['LOADING', 'GENERATING', 'READY', 'FAILED', 'FAILED'])
+    expect(LOADING_TITLE.READY.text).not.toMatch(/LOADING|載入中/)
+    expect(new Set(Object.values(LOADING_TITLE).map((title) => title.color)).size).toBe(4)
+  })
+  it('colours the P5 finish call and the outcome differently', () => {
+    for (const outcome of ['WIN', 'LOSE', 'DRAW'] as const) for (const finishReason of ['KO', 'TIME_UP'] as const) {
+      const [call, result] = finishAnnouncements({ outcome, finishReason } as never)
+      expect(call.tone, `${outcome}/${finishReason}`).not.toBe(result.tone)
+    }
+  })
   const sources = Object.entries(import.meta.glob<string>(['/src/**/*.ts', '!/src/**/*.test.ts'], { query: '?raw', import: 'default', eager: true }))
   it('keeps every design token referenced by product code', () => {
     const source = sources.filter(([path]) => !path.endsWith('uiTokens.ts')).map(([, text]) => text).join('\n')

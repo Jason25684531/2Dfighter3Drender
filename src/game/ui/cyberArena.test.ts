@@ -44,7 +44,7 @@ describe('Cyber Arena navigation and presentation', () => {
   })
   it('uses Concept A tokens and prevents screen font-size literals', () => {
     expect(uiTokens.slant).toBe(28); expect(uiTokens.colors.playerPrimary).toBe(0xe5172f)
-    expect(Object.values(uiTokens.type)).toEqual([260,120,72,40,30,24,18])
+    expect(Object.values(uiTokens.type)).toEqual([260,120,72,40,30,24,22,18])
     expect(uiTokens.fonts.display).toContain('Oswald')
     expect(sceneSource).not.toMatch(/fontSize:\s*['"]\d+px['"]|fontSize:\s*\d+/)
   })

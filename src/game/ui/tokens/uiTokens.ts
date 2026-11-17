@@ -1,7 +1,8 @@
 export const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 export const uiTokens = {
   slant: 28,
-  type: { hero: 260, display: 120, h1: 72, h2: 40, title: 30, body: 24, label: 18 },
+  // label 是提示與說明的最小字級（展場觀看距離）；micro 只給 P1 角色格內的編號與名稱。
+  type: { hero: 260, display: 120, h1: 72, h2: 40, title: 30, body: 24, label: 22, micro: 18 },
   fonts: { display: 'Oswald, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', body: 'Chivo, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', label: 'Space Grotesk, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', zh: 'Noto Sans TC, Microsoft JhengHei, sans-serif', graffiti: 'Sedgwick Ave Display, Oswald, Arial, sans-serif' },
   logicalWidth: 1920,
   logicalHeight: 1080,
@@ -27,7 +28,7 @@ export const uiTokens = {
     danger: 0xff2e44,
     shadow: 0x000000,
   },
-  opacity: { panel: 0.94, overlay: 0.78, vignette: 0.42, inactive: 0.78 },
+  opacity: { panel: 0.94, overlay: 0.78, hintBar: 0.82, vignette: 0.42, inactive: 0.78 },
   backdrop: { empty: 0.56, content: 0.58, battle: 0.16, presentation: 0.22, result: 0.7, end: 0.64, impact: 0.5 },
   shadowBlur: { subtle: 18, focal: 24, impact: 34 },
   textStroke: { standard: 8, result: 10, badge: 5, announcer: 12, impact: 25 },

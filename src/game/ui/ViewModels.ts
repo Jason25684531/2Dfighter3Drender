@@ -2,8 +2,18 @@ import type { MatchSnapshot, RoundSummary } from '../match/MatchController'
 import type { MatchResult, P6SubState } from '../match/ResultResolver'
 import type { LeaderboardEntry } from '../api/ApiTypes'
 import { testCharacterManifest, testStageManifest, type CharacterEntry, type StageId } from './assets/TestAssetManifest'
+import type { UiColorToken } from './tokens/uiTokens'
 
 export type P2StageSelectViewModel = { heading: string; stages: { id: StageId; label: string; url: string }[]; selectedStageId: StageId }
+/** P3 狀態：失敗優先於生成中，生成中優先於一般載入。 */
+export type LoadingStatus = 'LOADING' | 'GENERATING' | 'READY' | 'FAILED'
+export const loadingStatus = ({ busy, generating, failed }: { busy: boolean; generating: boolean; failed: boolean }): LoadingStatus => failed ? 'FAILED' : generating ? 'GENERATING' : busy ? 'LOADING' : 'READY'
+export const LOADING_TITLE: Record<LoadingStatus, { text: string; color: UiColorToken }> = {
+  LOADING: { text: 'LOADING ・ 載入中', color: 'textPrimary' },
+  GENERATING: { text: 'GENERATING ・ 角色生成中', color: 'systemBlue' },
+  READY: { text: 'READY ・ 就緒', color: 'statusLime' },
+  FAILED: { text: 'FAILED ・ 失敗', color: 'danger' },
+}
 export type P3LoadingViewModel = { character: CharacterEntry; playerName: string; enemyName: string; stage: string; progress: number }
 export type BattleViewModel = { stageId: StageId; playerName: string; enemyName: string; playerHp: number; enemyHp: number; maxHp: number; timerSeconds: number; round: number; playerWins: number; enemyWins: number; combo: number; danger: boolean; lastTenSeconds: boolean; player: MatchSnapshot['world']['fighters']['PLAYER']; enemy: MatchSnapshot['world']['fighters']['ENEMY'] }
 export type AnnouncerTone = 'system' | 'player' | 'enemy' | 'danger' | 'gold'

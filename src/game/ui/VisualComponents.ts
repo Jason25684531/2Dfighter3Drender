@@ -5,6 +5,9 @@ import { stopOwnedTweens } from './tweens'
 import { healthRatio, panelPoints } from './presentationMath'
 import type { Announcement, AnnouncerTone } from './ViewModels'
 
+/** 操作提示的深色底條：提示壓在光柱或場景圖上時維持對比。 */
+export const hintBar = (scene: Phaser.Scene, y: number, height = 48): Phaser.GameObjects.Rectangle => scene.add.rectangle(960, y, uiTokens.logicalWidth, height, uiTokens.colors.background0, uiTokens.opacity.hintBar)
+
 export class AngularPanel extends Phaser.GameObjects.Container {
   readonly shape: Phaser.GameObjects.Polygon
   private readonly focusGlow: Phaser.GameObjects.Polygon

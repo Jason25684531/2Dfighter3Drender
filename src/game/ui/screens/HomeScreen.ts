@@ -1,6 +1,6 @@
 import type Phaser from 'phaser'
 import { AppState } from '../../state/AppState'
-import { ActionButton } from '../VisualComponents'
+import { ActionButton, hintBar } from '../VisualComponents'
 import { uiTokens } from '../tokens/uiTokens'
 import { ScreenView, type ScreenContext } from './ScreenView'
 
@@ -18,6 +18,6 @@ export class HomeScreen extends ScreenView {
     this.focusable('p0', 'p0-start', start, begin)
     this.focusable('p0', 'p0-board', board, onBoard)
     ctx.ui.focus.activate('p0', 'p0-start')
-    root.add(this.label(hint, 960, 960, type.label))
+    root.add([hintBar(this.scene, 960), this.label(hint, 960, 960, type.label)])
   }
 }
