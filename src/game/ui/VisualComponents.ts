@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { colorHex, reducedMotion, uiTokens } from './tokens/uiTokens'
+import { colorHex, reducedMotion, uiTokens, type UiColorToken } from './tokens/uiTokens'
 import { typography } from './tokens/typography'
 import { stopOwnedTweens } from './tweens'
 import { healthRatio, panelPoints } from './presentationMath'
@@ -24,7 +24,7 @@ export class AngularPanel extends Phaser.GameObjects.Container {
     this.focusGlow.setStrokeStyle(12, uiTokens.colors.playerPrimary, focused ? 0.25 : 0)
     const values = { scaleX: focused ? scale : 1, scaleY: focused ? scale : 1, alpha: Math.min(this.alphaCap, focused ? 1 : inactiveAlpha) }
     if (reducedMotion) Object.assign(this, values)
-    else this.focusTween = this.scene.tweens.add({ targets: this, ...values, duration: uiTokens.motion.fast, ease: 'Cubic.Out' })
+    else this.focusTween = this.scene.tweens.add({ targets: this, ...values, duration: uiTokens.motionMs.focus, ease: 'Cubic.Out' })
     return this
   }
   destroy(fromScene?: boolean): void { if (this.focusTween) stopOwnedTweens([this.focusTween]); super.destroy(fromScene) }
@@ -36,7 +36,7 @@ export class ActionButton extends AngularPanel {
   constructor(scene: Phaser.Scene, text: string, width = 380, height = 88, color: number = uiTokens.colors.playerPrimary, subtitle = '') {
     super(scene, width, height, color, 0.96)
     if (color === uiTokens.colors.playerPrimary && scene.game.renderer.type === Phaser.WEBGL) {
-      const gradient = scene.add.graphics().fillGradientStyle(color, 0x840c20, color, 0x840c20).fillPoints(panelPoints(width, height, uiTokens.slant).reduce<Phaser.Math.Vector2[]>((points, value, i, all) => { if (i % 2 === 0) points.push(new Phaser.Math.Vector2(value, all[i + 1])); return points }, []), true)
+      const gradient = scene.add.graphics().fillGradientStyle(color, uiTokens.colors.playerDeep, color, uiTokens.colors.playerDeep).fillPoints(panelPoints(width, height, uiTokens.slant).reduce<Phaser.Math.Vector2[]>((points, value, i, all) => { if (i % 2 === 0) points.push(new Phaser.Math.Vector2(value, all[i + 1])); return points }, []), true)
       this.addAt(gradient, 1)
       this.shape.setFillStyle(color, 0)
       this.glow = this.postFX.addGlow(uiTokens.colors.playerPrimary, 0, 0, false, 0.1, 8)
@@ -60,7 +60,7 @@ export class StageCard extends AngularPanel {
     this.image = scene.add.image(0, -40, texture).setDisplaySize(width - 64, height - 140)
     this.add(this.image)
     this.selectedBand = scene.add.graphics().setPosition(0, height / 2 - 60).setVisible(false)
-    if (scene.game.renderer.type === Phaser.WEBGL) this.selectedBand.fillGradientStyle(uiTokens.colors.playerPrimary, 0x840c20, uiTokens.colors.playerPrimary, 0x840c20)
+    if (scene.game.renderer.type === Phaser.WEBGL) this.selectedBand.fillGradientStyle(uiTokens.colors.playerPrimary, uiTokens.colors.playerDeep, uiTokens.colors.playerPrimary, uiTokens.colors.playerDeep)
     else this.selectedBand.fillStyle(uiTokens.colors.playerPrimary)
     this.selectedBand.fillPoints([{ x: -width / 2 + 12, y: -50 }, { x: width / 2 - 36, y: -50 }, { x: width / 2 - 48, y: 50 }, { x: -width / 2, y: 50 }], true)
     this.add(this.selectedBand)
@@ -81,7 +81,7 @@ export class HealthBar extends Phaser.GameObjects.Container {
     super(scene, 0, 0)
     const x = reverse ? width : 0, origin = reverse ? 1 : 0
     this.add(scene.add.rectangle(x, 0, width, 32, uiTokens.colors.background0).setOrigin(origin, 0.5).setStrokeStyle(2, uiTokens.colors.lineBright))
-    this.lag = scene.add.rectangle(x, 0, width, 26, 0xffffff, 0.25).setOrigin(origin, 0.5)
+    this.lag = scene.add.rectangle(x, 0, width, 26, uiTokens.colors.focus, 0.25).setOrigin(origin, 0.5)
     this.fill = scene.add.rectangle(x, 0, width, 26, color).setOrigin(origin, 0.5)
     this.value = scene.add.text(reverse ? 0 : width, -30, '100', typography.note).setOrigin(reverse ? 0 : 1, 0.5)
     this.add([this.lag, this.fill, this.value])
@@ -131,10 +131,10 @@ export class HexTimer extends Phaser.GameObjects.Container {
 export class KeyCap extends Phaser.GameObjects.Container {
   constructor(scene: Phaser.Scene, key: string, readonly device: 'keyboard' | 'gamepad') {
     super(scene, 0, 0)
-    const color = key === 'A' ? uiTokens.colors.statusLime : key === 'X' ? uiTokens.colors.systemBlue : uiTokens.colors.resultGold
+    const tone: UiColorToken = key === 'A' ? 'statusLime' : key === 'X' ? 'systemBlue' : 'resultGold', color = uiTokens.colors[tone]
     const width = Math.max(42, key.length * 13 + 16)
     this.add(device === 'gamepad' && key.length <= 2 ? scene.add.circle(0, 0, 23, uiTokens.colors.background0).setStrokeStyle(2, color) : scene.add.rectangle(0, 0, width, 46, uiTokens.colors.background0).setStrokeStyle(2, uiTokens.colors.lineBright))
-    this.add(scene.add.text(0, 0, key, { ...typography.note, color: device === 'gamepad' ? `#${color.toString(16)}` : colorHex('textPrimary') }).setOrigin(0.5))
+    this.add(scene.add.text(0, 0, key, { ...typography.note, color: colorHex(device === 'gamepad' ? tone : 'textPrimary') }).setOrigin(0.5))
   }
   setEmphasis(emphasized: boolean): void { this.setAlpha(emphasized ? 1 : 0.48) }
 }

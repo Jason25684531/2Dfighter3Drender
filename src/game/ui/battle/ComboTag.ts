@@ -19,7 +19,7 @@ export class ComboTag extends Phaser.GameObjects.Container {
     super(scene, 0, 600)
     this.splat = scene.add.graphics()
     this.hitCount = scene.add.text(0, -48, '', { ...typography.combo, color: colorHex('textPrimary'), stroke: colorHex('background0'), strokeThickness: 8 })
-    this.word = scene.add.text(0, 24, '', { fontFamily: uiTokens.fonts.graffiti, fontSize: uiTokens.hud.combo, stroke: colorHex('background0'), strokeThickness: 10, padding: { x: 16, y: 10 } }).setShadow(6, 6, '#000000', 0, true, true)
+    this.word = scene.add.text(0, 24, '', { fontFamily: uiTokens.fonts.graffiti, fontSize: uiTokens.hud.combo, stroke: colorHex('background0'), strokeThickness: 10, padding: { x: 16, y: 10 } }).setShadow(6, 6, colorHex('shadow'), 0, true, true)
     this.add([this.splat, this.hitCount, this.word]).setVisible(false)
   }
 

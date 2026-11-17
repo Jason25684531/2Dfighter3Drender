@@ -4,6 +4,7 @@ import { BootScene } from '../scenes/BootScene'
 import type { AppStateMachine } from '../state/AppStateMachine'
 import type { UIFramework } from '../ui/UIFramework'
 import type { ExperienceFlow } from '../app/ExperienceFlow'
+import { colorHex } from '../ui/tokens/uiTokens'
 
 export const createGameConfig = (appStateMachine: AppStateMachine, ui: UIFramework, flow: ExperienceFlow): Phaser.Types.Core.GameConfig => ({
   type: Phaser.AUTO,
@@ -11,7 +12,7 @@ export const createGameConfig = (appStateMachine: AppStateMachine, ui: UIFramewo
   dom: { createContainer: true },
   width: 1920,
   height: 1080,
-  backgroundColor: '#090b12',
+  backgroundColor: colorHex('background0'),
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,

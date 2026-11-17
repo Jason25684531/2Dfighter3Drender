@@ -392,7 +392,7 @@ export class AppScene extends Phaser.Scene {
         if (!context || this.textures.exists(key)) return
         context.beginPath(); context.arc(128, 128, 124, 0, Math.PI * 2); context.clip()
         context.drawImage(image, (image.width - size) / 2, (image.height - size) / 2, size, size, 0, 0, 256, 256)
-        context.lineWidth = 12; context.strokeStyle = '#ffffff'; context.stroke()
+        context.lineWidth = 12; context.strokeStyle = colorHex('focus'); context.stroke()
         this.textures.addCanvas(key, canvas)
       }
       image.src = photo

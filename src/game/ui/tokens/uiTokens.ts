@@ -3,12 +3,8 @@ export const uiTokens = {
   slant: 28,
   type: { hero: 260, display: 120, h1: 72, h2: 40, title: 30, body: 24, label: 18 },
   fonts: { display: 'Oswald, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', body: 'Chivo, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', label: 'Space Grotesk, Noto Sans TC, Arial, Microsoft JhengHei, sans-serif', zh: 'Noto Sans TC, Microsoft JhengHei, sans-serif', graffiti: 'Sedgwick Ave Display, Oswald, Arial, sans-serif' },
-  motion: { fast: reducedMotion ? 0 : 120, enter: reducedMotion ? 0 : 240, ko: reducedMotion ? 0 : 360 },
   logicalWidth: 1920,
   logicalHeight: 1080,
-  safeArea: { x: 96, y: 54, width: 1728, height: 972 },
-  spacing: { xs: 8, sm: 16, md: 28, lg: 44, xl: 68 },
-  panelPadding: 24,
   colors: {
     background0: 0x07080d,
     background1: 0x0e1220,
@@ -16,6 +12,7 @@ export const uiTokens = {
     panelRaised: 0x171c2e,
     lineDim: 0x2a3249,
     playerPrimary: 0xe5172f,
+    playerDeep: 0x840c20,
     playerGlow: 0xff5a6a,
     enemyPrimary: 0x7c3aed,
     enemyGlow: 0xb99bff,
@@ -30,17 +27,13 @@ export const uiTokens = {
     danger: 0xff2e44,
     shadow: 0x000000,
   },
-  opacity: { panel: 0.94, overlay: 0.78, imageOverlay: 0.56, vignette: 0.42, inactive: 0.78, muted: 0.52, focusGlow: 0.22 },
+  opacity: { panel: 0.94, overlay: 0.78, vignette: 0.42, inactive: 0.78 },
   backdrop: { empty: 0.56, content: 0.58, battle: 0.16, presentation: 0.22, result: 0.7, end: 0.64, impact: 0.5 },
-  borderWidth: { quiet: 1, standard: 2, focus: 3 },
-  glowWidth: { focus: 12, energy: 8 },
-  chamfer: 14,
-  shadowBlur: { subtle: 18, semantic: 20, focal: 24, system: 28, impact: 34 },
-  textStroke: { standard: 8, timer: 3, result: 10, badge: 5, announcer: 12, impact: 25 },
+  shadowBlur: { subtle: 18, focal: 24, impact: 34 },
+  textStroke: { standard: 8, result: 10, badge: 5, announcer: 12, impact: 25 },
   focusScale: 1.06,
   stageFocusScale: 1.02,
-  hud: { portrait: 96, healthHeight: 32, timer: 96, combo: 76, nickname: 34, danger: 30 },
-  fighter: { targetHeight: 450, heroHeight: 650 },
+  hud: { combo: 76 },
   // P1 雙玩家選角（design/shared-ia.md §2–§3、concept-a.md）
   p1: {
     bodyHazard: { color: 0xffc247, spacing: 16, alpha: 0.12 },
@@ -52,7 +45,7 @@ export const uiTokens = {
     // ponytail: D-11 暫定值，待營運確認
     idleMs: { select: 60000, customize: 90000, attract: 60000 },
   },
-  motionMs: { focus: reducedMotion ? 0 : 120, enter: reducedMotion ? 0 : 240, modal: reducedMotion ? 0 : 120, announcer: reducedMotion ? 0 : 360, focalReveal: reducedMotion ? 0 : 240 },
+  motionMs: { focus: reducedMotion ? 0 : 120, enter: reducedMotion ? 0 : 240, announcer: reducedMotion ? 0 : 360, focalReveal: reducedMotion ? 0 : 240 },
 } as const
 
 export type UiColorToken = keyof typeof uiTokens.colors

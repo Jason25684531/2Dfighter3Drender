@@ -78,7 +78,7 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   /** 受擊閃白：整隻染白 ms 毫秒。 */
   flash(ms = 60): void {
     const image = this.image
-    image?.setTintFill(0xffffff)
+    image?.setTintFill(uiTokens.colors.focus)
     this.scene.time.delayedCall(ms, () => { if (image?.active) image.clearTint() })
   }
 }

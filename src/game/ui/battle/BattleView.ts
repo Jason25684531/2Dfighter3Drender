@@ -71,7 +71,7 @@ export class BattleView {
     this.lastTen = scene.add.text(1130, 166, '', { ...typography.note, color: colorHex('danger') }).setOrigin(0, 0.5)
     this.firstAttack = scene.add.text(710, 166, 'FIRST ATTACK!', { ...typography.note, color: colorHex('statusLime') }).setOrigin(0.5).setVisible(false)
     this.announcer = new Announcer(scene)
-    if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('inputDebug') === '1') { this.inputDebug = scene.add.text(40, 820, '', { ...typography.note, color: colorHex('statusLime'), backgroundColor: '#000000cc', padding: { x: 12, y: 8 } }); root.add(this.inputDebug) }
+    if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('inputDebug') === '1') { this.inputDebug = scene.add.text(40, 820, '', { ...typography.note, color: colorHex('statusLime'), backgroundColor: colorHex('shadow') + 'cc', padding: { x: 12, y: 8 } }); root.add(this.inputDebug) }
     // DEV ?hitbox：畫 hurtbox（藍）與 active hitbox（紅），對照動畫調招式表。
     if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('hitbox')) { this.boxes = scene.add.graphics(); world.add(this.boxes) }
     root.add([this.timer, this.combos.PLAYER, this.combos.ENEMY, this.danger, this.lastTen, this.firstAttack, this.announcer])

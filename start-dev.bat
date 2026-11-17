@@ -12,7 +12,7 @@ if not exist "node_modules\.bin\vite.cmd" (
   pause & exit /b 1
 )
 
-curl.exe -s -o nul -m 3 http://127.0.0.1: 8188/system_stats
+curl.exe -s -o nul -m 3 http://127.0.0.1:8188/system_stats
 if errorlevel 1 (
   echo [WARN] ComfyUI is not responding on http://127.0.0.1:8188 - character generation will fail until it is started.
 ) else (

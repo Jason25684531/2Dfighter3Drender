@@ -31,8 +31,6 @@ describe('visual foundation', () => {
   it('projects backend leaderboard rows without sorting or recalculating rank', () => { const result = { outcome: 'WIN', title: 'CHAMPION', score: 100, maxPlayerCombo: 2, remainingPlayerHP: 80, playerRoundWins: 1, enemyRoundWins: 0, winner: 'PLAYER', finishReason: 'KO' } as never; const vm = resultViewModel(result, 7, 'RANK_7_TO_19', [{ rank: 7, match_id: 4, session_id: 9, nickname: 'PLAYER', score: 100, title: 'CHAMPION', remaining_hp: 80, max_combo: 2, finished_at: '' }], 9); expect(vm.rank).toBe(7); expect(vm.ranking).toEqual([{ rank: 7, name: 'PLAYER', score: 100, highlighted: true }]) })
   it('projects authoritative battle values without mutating the match', () => { const match = new MatchController(); match.start(); const before = match.getSnapshot(); const vm = battleViewModel(before, 'company-building'); expect(vm.timerSeconds).toBe(60); expect(vm.playerHp).toBe(100); expect(match.getSnapshot()).toEqual(before) })
   it('centralizes the approved focus, panel, depth, and motion anchors', () => {
-    expect(uiTokens.chamfer).toBeGreaterThanOrEqual(10)
-    expect(uiTokens.chamfer).toBeLessThanOrEqual(16)
     expect(uiTokens.focusScale).toBeGreaterThanOrEqual(1.04)
     expect(uiTokens.focusScale).toBeLessThanOrEqual(1.06)
     expect(uiTokens.stageFocusScale).toBeCloseTo(1.02)
@@ -42,7 +40,6 @@ describe('visual foundation', () => {
     expect(uiTokens.motionMs.focus).toBeLessThanOrEqual(160)
     expect(uiTokens.motionMs.enter).toBeGreaterThanOrEqual(150)
     expect(uiTokens.motionMs.enter).toBeLessThanOrEqual(250)
-    expect(uiTokens.glowWidth.focus).toBeGreaterThan(0)
     expect(uiTokens.backdrop.empty).toBeGreaterThanOrEqual(0.45)
     expect(uiTokens.backdrop.empty).toBeLessThanOrEqual(0.6)
     expect(uiTokens.shadowBlur.impact).toBeGreaterThan(uiTokens.shadowBlur.focal)
@@ -111,5 +108,20 @@ describe('visual foundation', () => {
 
   it('names combo tiers at the 2 / 4 / 6 hit boundaries and hides single hits', () => {
     expect([0, 1, 2, 3, 4, 5, 6, 12].map((hits) => { const c = comboCallout(hits); return c && `${c.count} ${c.word} ${c.color}` })).toEqual([undefined, undefined, '2 HITS COMBO! statusLime', '3 HITS COMBO! statusLime', '4 HITS GREAT! resultGold', '5 HITS GREAT! resultGold', '6 HITS AWESOME! comboMagenta', '12 HITS AWESOME! comboMagenta'])
+  })
+
+  const sources = Object.entries(import.meta.glob<string>(['/src/**/*.ts', '!/src/**/*.test.ts'], { query: '?raw', import: 'default', eager: true }))
+  it('keeps every design token referenced by product code', () => {
+    const source = sources.filter(([path]) => !path.endsWith('uiTokens.ts')).map(([, text]) => text).join('\n')
+    const leaves = (node: object, path: string[] = []): string[][] => Object.entries(node).flatMap(([key, value]) => typeof value === 'object' ? leaves(value, [...path, key]) : [[...path, key]])
+    const used = (path: string[]): boolean => {
+      const [parent, key] = path.length > 1 ? path.slice(-2) : ['uiTokens', path[0]]
+      return source.includes(`${parent}.${key}`) || source.includes(`${parent}[`) || (parent === 'colors' && source.includes(`'${key}'`))
+    }
+    expect(leaves(uiTokens).filter((path) => !used(path)).map((path) => path.join('.'))).toEqual([])
+  })
+  it('keeps hex colour literals out of the production UI', () => {
+    const offenders = sources.filter(([path]) => path.startsWith('/src/game/') && !/prototype|uiTokens\.ts$/.test(path)).flatMap(([path, text]) => text.split('\n').filter((line) => /0x[0-9a-f]{6}\b|['"`]#[0-9a-f]{3,8}['"`]/i.test(line) && !/seed|SEED/.test(line)).map((line) => `${path}: ${line.trim().slice(0, 80)}`))
+    expect(offenders).toEqual([])
   })
 })

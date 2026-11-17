@@ -8,7 +8,7 @@ import { presentationSheetFor, spriteFrameFor, type Presentation } from './Tempo
 describe('aligned character sheets', () => {
   it('matches all source manifests/PNG geometry and compact runtime sheets', () => {
     for (const [id, sprite] of Object.entries(alignedSprites)) {
-      const root = `public/test-assets/1113_characters/${sprite.folder}`
+      const root = `assest/source/1113_characters/${sprite.folder}`
       const manifest = sprite.manifestFallback ? undefined : JSON.parse(readFileSync(`${root}/reference_aligned_manifest.json`, 'utf8'))
       expect(sprite.manifestFallback).toBe(['tony', 'chris'].includes(id))
       expect(sprite.sourceCellSize).toBe(manifest?.cell_size ?? 1024)

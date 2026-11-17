@@ -173,7 +173,8 @@
 | `src/game/ui`、`scenes` | 呈現元件、view model、Phaser 畫面 |
 | `src/game/config` | AI 難度、舞台調校 |
 | `backend/app` | FastAPI 路由、服務、SQLite schema、計分 |
-| `public/test-assets` | 暫用素材唯一來源（不進 git）：舞台、角色（Customize Body 01–04 = `S1AW`／`S2AM`／`S2LW`／`S3WW`）、特效（`vfx/*-impact-fx/sheet-transparent.png` 直接載入）、開頭影片，以及 `prepare-stage-assets.py` 的原始檔 |
+| `public/test-assets` | 執行期載入的暫用素材（不進 git，Vite 會整包複製進 `dist`）：舞台、對齊後角色圖集（`1113_characters/runtime`，Customize Body 01–04 = `S1AW`／`S2AM`／`S2LW`／`S3WW`）、特效（`vfx/*-impact-fx/sheet-transparent.png`）、開頭影片、音效。只放執行期會請求的檔案 |
+| `assest` | 原始素材（不進 git、不進 `dist`）：`prepare-stage-assets.py` 的影片與前景圖、`source/1113_characters` 為 `prepare-aligned-characters.py` 的輸入、`source/legacy-characters` 為已停用的舊角色 |
 | `scripts` | Playwright 實機驗證與素材處理腳本 |
 | `docs/architecture` | 系統架構圖、遊戲流程圖與校正說明 |
 | `openspec/specs` | 已接受的需求規格 |
@@ -228,6 +229,12 @@ Playwright 腳本在前端啟動後執行，截圖輸出到 `outputs/*-verificat
 | `scripts/verify-experience.mjs` | P0–P4 完整流程、相機、舞台後備 |
 | `scripts/verify-kevin.mjs` | Kevin 圖集與呈現投影 |
 | `scripts/verify-prototype.mjs` | 原型流程、共用 HUD、暫停、減少動態 |
+| `scripts/verify-screens.mjs` | 單人 P0→P7 全流程截圖（可指定輸出資料夾），並斷言所有 `/test-assets/` 請求零 404、無頁面錯誤 |
+| `scripts/verify-versus.mjs` | 2P 改鍵（跨玩家衝突被拒）、2P 加入、雙人戰鬥由 2P 操作 ENEMY、連擊標語、倒地震動 |
+| `scripts/verify-aligned-characters.mjs` | 對齊後角色圖集載入與呈現（需另起隔離後端於 19881） |
+| `scripts/verify-comfy-live.py` | 對本機 ComfyUI（8188）實跑一次生成（需 ComfyUI 與後端） |
+
+素材處理腳本（需要 Pillow；場景腳本另需 ffmpeg）：`scripts/prepare-aligned-characters.py` 由 `assest/source/1113_characters` 產生 `public/test-assets/1113_characters/runtime` 與 `AlignedSpriteData.json`；`scripts/prepare-stage-assets.py` 由 `assest/` 產生實驗室影片、前景與開頭動畫。
 
 ## Roadmap
 

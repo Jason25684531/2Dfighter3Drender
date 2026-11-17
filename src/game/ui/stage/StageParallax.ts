@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { stageTextureKey, type StageId } from '../assets/TestAssetManifest'
 import { MAX_SCROLL, STAGE_TUNING } from '../../config/stageTuning'
+import { uiTokens } from '../tokens/uiTokens'
 
 const { parallax } = STAGE_TUNING
 /** 某層在鏡頭上限時仍不露邊所需的寬度（畫面像素）。 */
@@ -33,7 +34,7 @@ export class StageParallax {
       // 前景底部對齊、等比放大到足以涵蓋自己的位移。
       if (scene.textures.exists('lab-foreground')) { this.foreground = scene.add.image(960, 1080, 'lab-foreground').setOrigin(0.5, 1); this.foreground.setScale(Math.max(coverWidth(parallax.foreground), 2880) / this.foreground.width); front.add(this.foreground) }
     }
-    this.middle = scene.add.graphics().fillStyle(0x75d6ff, 0.035)
+    this.middle = scene.add.graphics().fillStyle(uiTokens.colors.systemBlue, 0.035)
     for (let i = -3; i < 10; i++) this.middle.fillRect(i * 400, 210, 36, 650)
     back.add(this.middle)
   }

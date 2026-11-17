@@ -1,14 +1,16 @@
-"""Run with Python + Pillow; preserve originals and rebuild compact runtime sheets."""
+"""Run with Python + Pillow; read originals from assest/source and rebuild compact runtime sheets under public/."""
 import json
 from statistics import median
 from pathlib import Path, PureWindowsPath
 
 from PIL import Image
 
-ROOT = Path(__file__).resolve().parents[1] / 'public/test-assets/1113_characters'
+REPO = Path(__file__).resolve().parents[1]
+SOURCE = REPO / 'assest/source/1113_characters'
+RUNTIME = REPO / 'public/test-assets/1113_characters/runtime'
 metadata = {}
 for folder in ['S1AW', 'S2AM', 'S2LW', 'S3WW', 'Tony', 'Chris', 'GO', 'SE7EN']:
-    source = ROOT / folder
+    source = SOURCE / folder
     manifest = source / 'reference_aligned_manifest.json'
     data = json.loads(manifest.read_text(encoding='utf-8')) if manifest.exists() else None
     # ponytail: Tony/Chris lack manifests; matching 4-column PNG geometry supplies counts until provided.
@@ -16,7 +18,7 @@ for folder in ['S1AW', 'S2AM', 'S2LW', 'S3WW', 'Tony', 'Chris', 'GO', 'SE7EN']:
     entries = data['actions'] if data else {p.stem: {'sprite_sheet': p.name} for p in sorted(source.glob('*.png'))}
     assert len(entries) == 15 and cell > 0 and fps > 0, folder
     actions = {}
-    destination = ROOT / 'runtime' / folder
+    destination = RUNTIME / folder
     destination.mkdir(parents=True, exist_ok=True)
     for action, entry in entries.items():
         filename = PureWindowsPath(entry['sprite_sheet']).name
