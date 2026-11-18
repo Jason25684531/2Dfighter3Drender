@@ -3,7 +3,9 @@ import type { OwnedUiAction, PlayerSlotId, UIAction } from '../../input/InputMan
 import { keyLabel, loadProfiles, menuKeys } from '../../input/ControlProfile'
 import { GRID_COLUMNS, NICKNAME_MAX, sectionCounts, sectionOf, type P1SelectionModel, type SelectFeedback, type Slot } from '../../select/P1SelectionModel'
 import { ActionButton, AngularPanel, hintBar } from '../VisualComponents'
-import { spriteDisplayHeight, spriteOriginY, spriteTextureFrame, spriteTextureKey } from '../animation/TemporarySpriteManifest'
+import { spriteDisplayHeight, spriteOriginY, spriteTextureFrame, spriteTextureKey, type SpriteId } from '../animation/TemporarySpriteManifest'
+import { headKey } from './headCrop'
+import { PAD_SYSTEM, padLabel } from '../../input/GamepadProfile'
 import { isSheetSprite } from '../animation/SheetSpriteManifest'
 import { colorHex, reducedMotion, uiTokens, type UiColorToken } from '../tokens/uiTokens'
 import { typography } from '../tokens/typography'
@@ -13,6 +15,8 @@ import { NAME_KEYS, NameKeyboard } from './NameKeyboard'
 export type P1ViewHooks = {
   offline: boolean
   onInput: (owner: PlayerSlotId, action: OwnedUiAction) => void
+  /** 右鍵或 R2：請求刪除該格的已生成角色（由 AppScene 判斷能不能刪並確認）。 */
+  onDelete?: (index: number) => void
   onFocus: (owner: PlayerSlotId, index: number) => void
   onNickname: (owner: PlayerSlotId, name: string) => void
   onProcessingDone?: () => void
@@ -75,7 +79,8 @@ class HeroPreview extends Phaser.GameObjects.Container {
 
   /** stamp：READY＝已就緒；LOCKED＝已鎖定 Body、尚待拍照；CPU＝單人模式的對手。 */
   show(slot: Slot | undefined, stamp: 'READY' | 'LOCKED' | 'CPU' | undefined, nickname = '', dim = false): void {
-    const sprite = slot?.entry?.spriteId
+    // 兩側全身放大約 5 倍：原圖待機（AppScene 選到時載入）到了就換，精簡版只當載入前的替身。
+    const compact = slot?.entry?.spriteId, sprite: SpriteId | undefined = compact && this.scene.textures.exists(`hd-${compact}-idle`) ? `hd-${compact}` : compact
     const texture = slot?.entry?.heroTextureKey ?? (sprite && spriteTextureKey(sprite, 'idle'))
     const key = `${slot?.index}|${stamp}|${nickname}|${dim}|${sprite}|${slot?.entry?.type}|${slot?.entry?.heroTextureKey}|${Boolean(texture && this.scene.textures.exists(texture))}`
     if (key === this.key) return
@@ -110,6 +115,9 @@ class HeroPreview extends Phaser.GameObjects.Container {
   destroy(fromScene?: boolean): void { this.flash?.remove(); this.pulse?.stop(); stopOwnedTweens(this.tweens); super.destroy(fromScene) }
 }
 
+/** 最近一張「幾乎沒有細節」的照片；確認頁會整頁重建，所以記在模組層。 */
+let blankPhoto: string | undefined
+
 /** DEPTH 3：單一格子。 */
 class GridSlotView extends AngularPanel {
   private readonly readyTags: Record<PlayerSlotId, Phaser.GameObjects.Container>
@@ -134,8 +142,7 @@ class GridSlotView extends AngularPanel {
       for (let y = -48; y < 48; y += 10) { dash.lineBetween(-44, y, -44, y + 5); dash.lineBetween(44, y, 44, y + 5) }
       this.add(dash)
     }
-    const sprite = !body ? slot.entry?.spriteId : undefined
-    if (sprite && scene.textures.exists(spriteTextureKey(sprite, 'idle'))) this.add(scene.add.image(0, -4, spriteTextureKey(sprite, 'idle'), spriteTextureFrame(sprite)).setDisplaySize(84, 84))
+    this.setHead()
     if (body) this.add(label(scene, 0, -14, '+', 'resultGold', type.h2).setOrigin(0.5))
     this.add(label(scene, -40, -48, pad(slot.index), body ? 'resultGold' : 'textSecondary', type.micro).setAlpha(empty ? 0.4 : 1))
     if (!empty) this.add(label(scene, 0, 38, (slot.entry?.displayName ?? '').slice(0, 8), 'textPrimary', type.micro).setOrigin(0.5))
@@ -149,6 +156,13 @@ class GridSlotView extends AngularPanel {
     this.statusLabel = label(scene, 36, -40, '', 'statusLime', type.micro).setOrigin(1, 0.5)
     this.add([this.scan, this.statusLabel]); this.syncStatus()
     this.setInteractive({ useHandCursor: true })
+  }
+  private head?: Phaser.GameObjects.Image
+  /** 頭像貼圖（512×512，AppScene 預先畫好）到了才建；身形格只畫「+」。 */
+  setHead(): void {
+    const sprite = this.slot.type === 'BODY_TEMPLATE' ? undefined : this.slot.entry?.spriteId
+    if (this.head || !sprite || !this.scene.textures.exists(headKey(sprite))) return
+    this.head = this.scene.add.image(0, -10, headKey(sprite)).setDisplaySize(72, 72); this.addAt(this.head, this.getIndex(this.shape) + 1)
   }
   setReady(owner: PlayerSlotId, ready: boolean): void { this.readyTags[owner].setVisible(ready) }
   syncStatus(): void {
@@ -250,9 +264,10 @@ export class P1SelectView {
   private onExit?: () => void
 
   get exitOpen(): boolean { return Boolean(this.exitPanel) }
+  refreshHeads(): void { this.slotViews.forEach((view) => view.setHead()) }
   setOffline(): void { this.offlineLabel?.setText('● OFFLINE · 成績不會被記錄').setColor(colorHex('danger')) }
 
-  confirmExit(onExit: () => void): void {
+  confirmExit(onExit: () => void, title = 'RETURN TO GRID? · 返回選角？', note = '只解除目前玩家的鎖定'): void {
     if (this.exitPanel) return
     this.onExit = onExit; this.exitChoice = 0
     this.timers.forEach((timer) => { timer.paused = true })
@@ -261,8 +276,8 @@ export class P1SelectView {
     const panel = this.scene.add.container(960, 540)
     panel.add(this.scene.add.rectangle(0, 0, 1920, 1080, colors.background0, 0.85).setInteractive())
     panel.add(new AngularPanel(this.scene, 760, 340, colors.panelRaised))
-    panel.add(label(this.scene, 0, -100, 'RETURN TO GRID? · 返回選角？', 'textPrimary', type.title).setOrigin(0.5))
-    panel.add(label(this.scene, 0, -42, '只解除目前玩家的鎖定', 'textSecondary', type.body).setOrigin(0.5))
+    panel.add(label(this.scene, 0, -100, title, 'textPrimary', type.title).setOrigin(0.5))
+    panel.add(label(this.scene, 0, -42, note, 'textSecondary', type.body).setOrigin(0.5))
     this.exitButtons = ['CANCEL', 'CONFIRM'].map((text, i) => {
       const button = new ActionButton(this.scene, text, 300, 80, i ? colors.playerPrimary : colors.panel).setPosition(i ? 170 : -170, 80)
       button.on('pointerup', () => this.closeExit(i === 1)); panel.add(button); return button
@@ -364,15 +379,24 @@ export class P1SelectView {
     this.stream?.getTracks().forEach((track) => track.stop()); this.stream = undefined; this.cameraVideo = undefined; this.media?.destroy(); this.media = undefined
   }
 
-  /** Capture 按下確認時先擷取 webcam 畫面；照片只存在 model 記憶體，沒有相機時保持 Mock。 */
+  /** Capture 按下確認時以相機原生解析度擷取 webcam 畫面（換頭需要臉部細節）；照片只存在 model 記憶體。 */
   captureOnConfirm(owner: PlayerSlotId, action: OwnedUiAction): void {
     const video = this.cameraVideo
     if (this.model.phase !== 'CUSTOMIZE' || owner !== this.model.owner || action !== 'CONFIRM' || !this.model.nicknameValid(owner) || !(video instanceof HTMLVideoElement) || !video.videoWidth) return
-    const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = Math.round(640 * video.videoHeight / video.videoWidth)
+    const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight
     const context = canvas.getContext('2d'); if (!context) return
     context.translate(canvas.width, 0); context.scale(-1, 1) // 與鏡像預覽一致
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
-    this.model.setPhoto(owner, canvas.toDataURL('image/jpeg', 0.85))
+    const photo = canvas.toDataURL('image/jpeg', 0.85)
+    this.model.setPhoto(owner, photo)
+    // ponytail: 亮度標準差 < 40 視為「沒拍到人」（實測：鏡頭被遮的灰畫面 33、有人臉 52–83），只提醒不擋；誤報多再改用人臉偵測。
+    const probe = Object.assign(document.createElement('canvas'), { width: 160, height: 90 }).getContext('2d', { willReadFrequently: true })
+    if (!probe) return
+    probe.drawImage(canvas, 0, 0, 160, 90)
+    const pixels = probe.getImageData(0, 0, 160, 90).data, count = pixels.length / 4
+    let sum = 0, squares = 0
+    for (let i = 0; i < pixels.length; i += 4) { const light = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3; sum += light; squares += light * light }
+    blankPhoto = Math.sqrt(squares / count - (sum / count) ** 2) < 40 ? photo : undefined
   }
 
   private startCamera(note: Phaser.GameObjects.Text, band: Phaser.GameObjects.Text): void {
@@ -417,13 +441,13 @@ export class P1SelectView {
     section(`ROSTER · ${counts.ROSTER.used}/${counts.ROSTER.total}`, 0, GRID_COLUMNS, rosterTop, rosterHeight, colors.lineDim, 'textPrimary')
     model.slots.forEach((slot) => {
       const view = new GridSlotView(scene, slot)
-      view.on('pointerover', () => this.hooks.onFocus('P1', slot.index)).on('pointerup', () => { this.hooks.onFocus('P1', slot.index); this.hooks.onInput('P1', 'CONFIRM') })
+      view.on('pointerover', () => this.hooks.onFocus('P1', slot.index)).on('pointerup', (pointer: Phaser.Input.Pointer) => { this.hooks.onFocus('P1', slot.index); if (pointer.button === 2) this.hooks.onDelete?.(slot.index); else this.hooks.onInput('P1', 'CONFIRM') })
       this.slotViews.push(view); root.add(view)
     })
     ;(['P1', 'P2'] as const).forEach((owner) => { const cursor = new PlayerCursor(scene, owner); this.cursors[owner] = cursor; root.add(cursor) })
     ;(['P1', 'P2'] as const).forEach((owner) => this.plate(owner))
     this.modeText = label(scene, 960, 215, '', 'textPrimary', type.body).setOrigin(0.5); root.add(this.modeText)
-    root.add([hintBar(scene, 1010), label(scene, 960, 1010, 'ESC 返回標題', 'textSecondary').setOrigin(0.5)])
+    root.add([hintBar(scene, 1010), label(scene, 960, 1010, `ESC 返回標題 · 右鍵／${padLabel(PAD_SYSTEM.DELETE)} 刪除生成角色`, 'textSecondary').setOrigin(0.5)])
     this.keysP1 = label(scene, 96, 1010, '', 'playerGlow').setOrigin(0, 0.5); root.add(this.keysP1)
     this.keysP2 = label(scene, 1824, 1010, '', 'enemyGlow').setOrigin(1, 0.5); root.add(this.keysP2)
   }
@@ -482,7 +506,7 @@ export class P1SelectView {
       this.nameCount = label(scene, 1280, 352, '', 'textSecondary').setOrigin(1, 0.5); root.add(this.nameCount)
       this.nameInput = this.createNameInput(owner, player.nickname)
       button('BACK', `${id.back} · 返回`, 790, colors.panelRaised, 'BACK')
-      this.takePhoto = button('TAKE PHOTO', `${id.confirm} · 拍照`, 1130, id.main, 'CONFIRM').setEnabled(!player.faceGenUsed)
+      this.takePhoto = button('TAKE PHOTO', `${id.confirm} / ENTER / □ · 拍照`, 1130, id.main, 'CONFIRM').setEnabled(!player.faceGenUsed)
       const skip = new ActionButton(scene, 'SKIP PHOTO', 300, 72, colors.panelRaised, `${keyLabel(loadProfiles()[owner].LIGHT_KICK)} · 跳過拍照`).setPosition(960, 1024)
       skip.on('pointerup', () => this.hooks.onSkip?.()); root.add(skip)
       this.nameHint = label(scene, 960, 856, player.faceGenUsed ? FACE_USED_HINT : 'ENTER A NAME FIRST · 請先輸入名稱', player.faceGenUsed ? 'textSecondary' : 'danger').setOrigin(0.5); root.add(this.nameHint)
@@ -493,7 +517,7 @@ export class P1SelectView {
         const image = document.createElement('img'); image.src = player.photo; image.alt = 'Captured photo'
         image.style.cssText = 'width:636px;height:336px;object-fit:contain;background:#000'
         this.media = scene.add.dom(960, 640, image)
-        root.add(label(scene, 960, 446, 'PHOTO · 確認後將上傳生成角色', 'statusLime').setOrigin(0.5))
+        root.add(player.photo === blankPhoto ? label(scene, 960, 446, 'NO FACE? · 畫面幾乎沒有細節，可能沒拍到人或鏡頭被遮住，建議重拍', 'resultGold').setOrigin(0.5) : label(scene, 960, 446, 'PHOTO · 確認後將上傳生成角色', 'statusLime').setOrigin(0.5))
       } else {
         root.add(label(scene, 960, 790, 'MOCK PHOTO · 模擬照片', 'textSecondary').setOrigin(0.5))
       }

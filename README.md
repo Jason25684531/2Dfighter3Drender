@@ -2,9 +2,21 @@
 
 ## ComfyUI 角色生成
 
-本機需啟動 FastAPI、Vite 和 `127.0.0.1:8188` 的 ComfyUI，並保留 `ComfyUI_API/CAMCharacter_Swa__1112(API).json` 及其自訂節點、模型與模板素材。後端可用 `COMFYUI_URL` 和 `COMFYUI_OUTPUT` 環境變數調整服務位址及 ComfyUI output 目錄。前端 API 位址使用 `VITE_API_BASE_URL`；不同來源須設置後端 `EXP2_CORS_ORIGINS`。
+本機需啟動 FastAPI、Vite 和 `127.0.0.1:8188` 的 ComfyUI，並保留 `ComfyUI_API/CAMCharacter_Swa__1112(API).json` 及其自訂節點、模型與模板素材。工作流檔可直接放 ComfyUI 存出的 UI 格式，後端送單前自動轉成 API 格式；節點對應見 `docs/Taskforce 2028 FTG_README_交接說明.md`（#1 模板、#2 名稱、#3 照片）。後端可用 `COMFYUI_URL` 和 `COMFYUI_OUTPUT` 環境變數調整服務位址及 ComfyUI output 目錄。前端 API 位址使用 `VITE_API_BASE_URL`；不同來源須設置後端 `EXP2_CORS_ORIGINS`。
 
-選擇身體後，可拍照並確認生成；鍵盤輕踢或手把輕拳可跳過拍照。拍攝照片會上傳至 ComfyUI，並交由工作流使用的外部生成服務處理。載入畫面等待所有已提交的角色；失敗時可重試或返回。為避免工作流清除既有同名角色，輸出位於 `taskforce_2028_ftg/_jobs/<任務ID>/<玩家名稱>_<模板>/Sprite_Sheet_reference_aligned`。任務狀態保存在後端程序記憶體，後端重啟後需重新提交；ComfyUI 輸入照片和輸出檔不會自動刪除。
+選擇身體後，可拍照並確認生成；鍵盤輕踢或手把輕拳可跳過拍照。拍攝照片會上傳至 ComfyUI，並交由工作流使用的外部生成服務處理。照片以相機原生解析度、與預覽相同的鏡像方向上傳。載入畫面等待所有已提交的角色；失敗時可重試或返回。輸出位於 ComfyUI 原生資料夾 `taskforce_2028_ftg/<玩家名稱>_<模板代號>/`（1=S1AW、2=S2AM、3=S1AM、4=S3WW），遊戲讀 `manifest/game_manifest.json` 與 `Sprite_Sheet_reference_aligned/`；同名同模板會覆寫。任務狀態保存在後端程序記憶體，後端重啟後需重新提交；ComfyUI 輸入照片和輸出檔不會自動刪除。
+
+P3 是練習場：生成與素材載入期間，玩家可在舞台上用戰鬥鍵自由練習（生成中先用所選身形，完成後自動換成生成角色；單人時對手是不出招的木樁，雙人時由 2P 操作；不計分，回合結束自動重開）。全部完成後才能按 FIGHT! 進入正式對戰：F、Enter、手把 ✕ 或 START 都可以開戰；完成前按 F 或手把 ✕ 只會出招。拍照時輸入名字後按 Enter 離開名字框，再按 Enter／F／手把 □ 或 START 拍照；照片若幾乎沒有細節（鏡頭被遮住、沒拍到人），確認頁會提醒重拍。
+
+### 展場電腦：關閉 ComfyUI 視窗的「快速編輯模式」
+
+ComfyUI 的 cmd 視窗被滑鼠點到時，Windows 會進入「選取」模式（標題列出現「選取」），ComfyUI 停止輸出、整個卡住，遊戲端會一直顯示生成中。臨時解法：點一下該視窗後按 Esc 或 Enter。永久關閉：
+
+1. 在 ComfyUI 的 cmd 視窗標題列按右鍵 →「內容」（Windows Terminal 則是「設定」→ 預設值 → 進階）。
+2. 「選項」分頁取消勾選「快速編輯模式」與「插入模式」→ 確定。
+3. 對所有新開的 cmd 視窗一次生效（以 Windows 使用者身分執行一次）：`reg add HKCU\Console /v QuickEdit /t REG_DWORD /d 0 /f`，之後重新開啟 `run_nvidia_gpu.bat`。
+
+確認方式：在視窗內點一下，標題列不再出現「選取」。
 
 瀏覽器 2D 格鬥遊戲框架，技術棧為 Vite、TypeScript、Phaser 3、FastAPI 與 SQLite。邏輯解析度是 1920×1080，目標是展場（kiosk）單機遊玩。
 
@@ -23,7 +35,7 @@
 已上線的玩法細節：
 
 - P0 有【排行榜】按鈕，開啟 Top 10 覆蓋面板，離線時顯示提示。
-- P1 角色格分成三區：CUSTOMIZE（01–04）、OFFICERS（05–10）、ROSTER（11–40）。
+- P1 角色格分成三區：CUSTOMIZE（01–04 = S1AW／S2AM／S2LW／S3WW，拍照用 ComfyUI 產出、跳過用原始圖集）、OFFICERS（05–09 = Chris／GO／Joneey／Tony／SE7EN，10 空格）、ROSTER（11–40，已生成角色）。
 - 1P 模式在 P1 選角頁一次完成：鎖定角色 → 紫色 CPU 游標選對手 → ← → 選難度（EASY／NORMAL／HARD）→ 確認。P2 一律只選場景。選對手時 2P 按自己的確認鍵（預設 NUM 1）加入，會捨棄 CPU 選擇改為雙人選角；雙人時 2P 在戰鬥中真人操作 ENEMY，不使用 AI，結果照常以 1P 計入排行榜。
 - 戰鬥是單一水平軸（已移除 2.5D 縱深）：W 跳、S 蹲。四種攻擊（F／U／G／I）傷害相同，輕重只影響動畫與特效大小。
 - 命中時在接觸點播放爆炸特效（重拳重腳較大），防禦成功播放藍色波紋，弧面朝向攻擊者。
@@ -97,7 +109,7 @@
 | P0_IDLE | 標題 | EMPTY 等 | 開始、排行榜、P 開頭影片、C 操作設定 | 結束 session、清除選擇 |
 | P1_READY | 選角（1P／2P、自訂身體拍照、1P 選 CPU 對手與難度） | READY／CUSTOMIZE／REVIEW／PROCESSING／FALLBACK | 選角、選對手與難度、加入 2P | 建立 session |
 | P2_SETUP | 選場景 | DEFAULT | 選場景 | 重置對戰 |
-| P3_LOADING | VS 與操作說明 | DEFAULT | 確認 FIGHT! | 無 |
+| P3_LOADING | 練習場（生成／載入期間可練習）與操作說明 | DEFAULT | 完成後 Enter／手把 START 確認 FIGHT! | 無 |
 | P4_BATTLE | 戰鬥（含回合 K.O.／TIME UP 停留） | NORMAL／COMBO／DANGER／LAST_10_SECONDS | 戰鬥、ESC 暫停 | 開始對戰、建立後端 match |
 | P5_PRESENTATION | K.O.／TIME UP／DRAW 與勝負 | DEFAULT | 查看結算 | 結果已送出 |
 | P6_RESULT | 結算與排行 | RANK_1_TO_6 等 | 繼續 | 無 |
@@ -174,7 +186,7 @@
 | `src/game/ui/screens` | P0–P7 各畫面的 `ScreenView` 子類別與暫停疊層（見 `docs/architecture/README.md`） |
 | `src/game/config` | AI 難度、舞台調校 |
 | `backend/app` | FastAPI 路由、服務、SQLite schema、計分 |
-| `public/test-assets` | 執行期載入的暫用素材（不進 git，Vite 會整包複製進 `dist`）：舞台、對齊後角色圖集（`1113_characters/runtime`，Customize Body 01–04 = `S1AW`／`S2AM`／`S2LW`／`S3WW`）、特效（`vfx/*-impact-fx/sheet-transparent.png`）、開頭影片、音效。只放執行期會請求的檔案 |
+| `public/test-assets` | 執行期載入的暫用素材（不進 git，Vite 會整包複製進 `dist`）：舞台、對齊後角色圖集（`1113_characters/runtime`，Customize Body 01–04 = `S1AW`／`S2AM`／`S2LW`／`S3WW`；Body 03 拍照生成用 S1AM 模板，跳過拍照仍是 S2LW 圖集）、特效（`vfx/*-impact-fx/sheet-transparent.png`）、開頭影片、音效。只放執行期會請求的檔案 |
 | `assest` | 原始素材（不進 git、不進 `dist`）：`prepare-stage-assets.py` 的影片與前景圖、`source/1113_characters` 為 `prepare-aligned-characters.py` 的輸入、`source/legacy-characters` 為已停用的舊角色 |
 | `scripts` | Playwright 實機驗證與素材處理腳本 |
 | `docs/architecture` | 系統架構圖、遊戲流程圖與校正說明 |
@@ -228,14 +240,13 @@ Playwright 腳本在前端啟動後執行，截圖輸出到 `outputs/*-verificat
 | `scripts/verify-audio.mjs` | 音效 cue 序列及 Chrome FLAC／WAV 解碼 |
 | `scripts/verify-p1.mjs` | 選角格、雙人、自訂拍照、單人選對手、閒置逾時、離線 |
 | `scripts/verify-experience.mjs` | P0–P4 完整流程、相機、舞台後備 |
-| `scripts/verify-kevin.mjs` | Kevin 圖集與呈現投影 |
 | `scripts/verify-prototype.mjs` | 原型流程、共用 HUD、暫停、減少動態 |
 | `scripts/verify-screens.mjs` | 單人 P0→P7 全流程截圖（可指定輸出資料夾），並斷言所有 `/test-assets/` 請求零 404、無頁面錯誤 |
 | `scripts/verify-versus.mjs` | 2P 改鍵（跨玩家衝突被拒）、2P 加入、雙人戰鬥由 2P 操作 ENEMY、連擊標語、倒地震動 |
 | `scripts/verify-aligned-characters.mjs` | 對齊後角色圖集載入與呈現（需另起隔離後端於 19881） |
 | `scripts/verify-comfy-live.py` | 對本機 ComfyUI（8188）實跑一次生成（需 ComfyUI 與後端） |
 
-素材處理腳本（需要 Pillow；場景腳本另需 ffmpeg）：`scripts/prepare-aligned-characters.py` 由 `assest/source/1113_characters` 產生 `public/test-assets/1113_characters/runtime` 與 `AlignedSpriteData.json`；`scripts/prepare-stage-assets.py` 由 `assest/` 產生實驗室影片、前景與開頭動畫。
+素材處理腳本（需要 Pillow；場景腳本另需 ffmpeg）：`scripts/prepare-aligned-characters.py` 由 `assest/source/1113_characters`（每角色 15 張原圖 + `game_manifest.json`，Tony 無 manifest 時以圖檔幾何推算）產生 `public/test-assets/1113_characters/runtime` 的每格 256 精簡圖與 `AlignedSpriteData.json`。美術交來的原圖要先放進 `assest/source/1113_characters/<角色>/`，腳本會清空並重建對應的 runtime 資料夾；可用 ComfyUI 內附的 `python_embeded\python.exe` 執行（已含 Pillow）。`scripts/prepare-stage-assets.py` 由 `assest/` 產生實驗室影片、前景與開頭動畫。
 
 ## Roadmap
 

@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import type { FighterSnapshot } from '../../combat/CombatWorld'
 import { uiTokens } from '../tokens/uiTokens'
-import { presentationSheetFor, resolvePresentation, spriteActionFor, spriteDisplayHeight, spriteFrameFor, spriteOriginY, spriteTextureFrame, spriteTextureKey, type Presentation, type PresentationContext, type SpriteAction, type SpriteId } from './TemporarySpriteManifest'
+import { presentationSheetFor, resolvePresentation, spriteActionFor, spriteDisplayHeight, spriteFrameFor, spriteOriginY, spriteTextureFrame, spriteTextureKey, victoryHop, type Presentation, type PresentationContext, type SpriteAction, type SpriteId } from './TemporarySpriteManifest'
 import { isSheetSprite } from './SheetSpriteManifest'
 import { crouchFrame, peakFrame } from './SpriteHitTest'
 
@@ -40,6 +40,7 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     if (!this.image || !this.spriteId) return
     // 起身無敵：每 2 tick 明暗交替；tick 驅動，暫停時一起停。
     this.image.setAlpha(fighter.invulnerableTicks > 0 && (tick >> 1) % 2 ? 0.35 : 1)
+    this.image.setY(context?.outcome === 'WIN' ? victoryHop(tick) : 0)
     const action = spriteActionFor(fighter, context)
     // 招式在新 attackId 出現時鎖定，攻擊中途不因放開蹲鍵等而換圖。
     const presentation = !isSheetSprite(this.spriteId) ? undefined : action === 'attack' && fighter.attackId === this.attackId && this.action === 'attack' ? this.presentation : resolvePresentation(fighter, context)

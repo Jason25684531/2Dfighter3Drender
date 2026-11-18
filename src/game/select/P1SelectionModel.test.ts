@@ -45,7 +45,7 @@ describe('P1 selection model', () => {
       faceGenUsed: { P1: true },
     })
     expect(model.player('P1')).toMatchObject({ cursor: 11, nickname: 'ONE', faceGenUsed: true })
-    expect(model.player('P2')).toMatchObject({ joined: true, cursor: 6, nickname: 'TWO', faceGenUsed: false })
+    expect(model.player('P2')).toMatchObject({ joined: true, cursor: 5, nickname: 'TWO', faceGenUsed: false })
     model.input('P1', 'CONFIRM'); model.input('P2', 'CONFIRM')
     expect(model.result()).toEqual({ P1: { characterId: 'generated-job', nickname: 'ONE' }, P2: { characterId: 'preset-b', nickname: 'TWO' } })
   })
@@ -56,17 +56,17 @@ describe('P1 selection model', () => {
       model.slot(5).status = status; expect(model.input('P1', 'CONFIRM')).toBe('REJECTED'); expect(model.player('P1').locked).toBeUndefined()
     }
   })
-  it('lays out 40 honest slots: 4 body templates, 6 featured, the rest empty', () => {
+  it('lays out 40 honest slots: 4 body templates, 5 officers, the rest empty', () => {
     const { slots } = new P1SelectionModel()
     expect(slots).toHaveLength(40)
     expect(slots.slice(0, 4).map((slot) => slot.entry?.displayName)).toEqual(['BODY 01', 'BODY 02', 'BODY 03', 'BODY 04'])
-    expect(slots.slice(4, 10).map((slot) => slot.entry?.displayName)).toEqual(['Tony', 'Chris', 'GO', 'SE7EN', 'KEVIN', 'CUSTOM01'])
-    expect(slots.slice(10).every((slot) => slot.type === 'EMPTY' && !slot.entry)).toBe(true)
+    expect(slots.slice(4, 9).map((slot) => slot.entry?.displayName)).toEqual(['Chris', 'GO', 'Joneey', 'Tony', 'SE7EN'])
+    expect(slots.slice(9).every((slot) => slot.type === 'EMPTY' && !slot.entry)).toBe(true)
     expect(new P1SelectionModel([]).slots.slice(0, 4).map(slot => slot.entry?.id)).toEqual(['body-01', 'body-02', 'body-03', 'body-04'])
   })
   it('splits the grid into CUSTOMIZE 01–04, OFFICERS 05–10, ROSTER 11–40 with counts', () => {
     expect([1, 4, 5, 10, 11, 40].map(sectionOf)).toEqual(['CUSTOMIZE', 'CUSTOMIZE', 'OFFICERS', 'OFFICERS', 'ROSTER', 'ROSTER'])
-    expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 6, total: 6 }, ROSTER: { used: 0, total: 30 } })
+    expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 5, total: 6 }, ROSTER: { used: 0, total: 30 } })
   })
   it('puts generated characters in ROSTER and overflows extra featured characters after OFFICERS', () => {
     const entry = (id: string, type: CharacterEntry['type']): CharacterEntry => ({ id, displayName: id, type, status: 'AVAILABLE' })
@@ -104,20 +104,20 @@ describe('P1 selection model', () => {
   })
   it('defaults the CPU opponent to the next officer, never a body template', () => {
     const body = new P1SelectionModel(); body.focus('P1', 2); body.input('P1', 'CONFIRM'); body.setNickname('P1', 'DEMO'); body.skipCustomize()
-    expect([body.phase, body.rival?.cursor, body.heroSlot('P2')?.entry?.displayName]).toEqual(['OPPONENT', 5, 'Tony'])
-    const last = new P1SelectionModel(); last.focus('P1', 10); last.input('P1', 'CONFIRM')
+    expect([body.phase, body.rival?.cursor, body.heroSlot('P2')?.entry?.displayName]).toEqual(['OPPONENT', 5, 'Chris'])
+    const last = new P1SelectionModel(); last.focus('P1', 9); last.input('P1', 'CONFIRM')
     expect(last.rival?.cursor).toBe(5)
   })
   it('CASE A: solo pick moves on to choosing the CPU opponent and difficulty on the same grid', () => {
     const model = new P1SelectionModel(); expect(model.input('P1', 'CONFIRM')).toBe('CONFIRMED')
     expect(model.phase).toBe('OPPONENT'); expect(model.rival).toEqual({ cursor: 6, difficulty: 'NORMAL' }); expect(model.status('P2')).toBe('OPPONENT')
-    expect(model.heroSlot('P2')?.entry?.displayName).toBe('Chris'); expect(model.opponent()).toBeUndefined()
+    expect(model.heroSlot('P2')?.entry?.displayName).toBe('GO'); expect(model.opponent()).toBeUndefined()
     press(model, 'P1', 'NAV_RIGHT'); expect([model.rival?.cursor, model.player('P1').cursor]).toEqual([7, 5]) // 1P 方向鍵只移動對手游標
     expect(model.input('P1', 'CONFIRM')).toBe('CONFIRMED'); expect(model.phase).toBe('DIFFICULTY')
     press(model, 'P1', 'NAV_RIGHT'); expect(model.rival?.difficulty).toBe('HARD'); press(model, 'P1', 'NAV_RIGHT'); expect(model.rival?.difficulty).toBe('EASY')
     press(model, 'P1', 'NAV_LEFT', 'CONFIRM')
     expect(model.phase).toBe('ALL_READY'); expect(model.status('P2')).toBe('CPU_READY')
-    expect(model.result()).toEqual({ P1: { characterId: 'preset-a' } }); expect(model.opponent()).toEqual({ characterId: 'preset-c', difficulty: 'HARD' })
+    expect(model.result()).toEqual({ P1: { characterId: 'preset-b' } }); expect(model.opponent()).toEqual({ characterId: 'preset-g', difficulty: 'HARD' })
   })
   it('rejects own or empty slot as opponent and backs out step by step', () => {
     const model = new P1SelectionModel(); model.input('P1', 'CONFIRM')
@@ -174,7 +174,7 @@ describe('P1 selection model', () => {
   it('allows both players to lock the same character', () => {
     const model = new P1SelectionModel(); model.input('P2', 'CONFIRM'); toSlot(model, 'P2', 5)
     model.input('P1', 'CONFIRM'); model.input('P2', 'CONFIRM')
-    expect(model.result()).toEqual({ P1: { characterId: 'preset-a' }, P2: { characterId: 'preset-a' } })
+    expect(model.result()).toEqual({ P1: { characterId: 'preset-b' }, P2: { characterId: 'preset-b' } })
   })
   it('duo ALL_READY: back unlocks that player, re-confirm readies again', () => {
     const model = new P1SelectionModel(); model.input('P2', 'CONFIRM'); toSlot(model, 'P2', 7); model.input('P1', 'CONFIRM'); model.input('P2', 'CONFIRM')

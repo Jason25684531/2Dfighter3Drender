@@ -1,7 +1,7 @@
 import type { MatchSnapshot, RoundSummary } from '../match/MatchController'
 import type { MatchResult, P6SubState } from '../match/ResultResolver'
 import type { LeaderboardEntry } from '../api/ApiTypes'
-import { testCharacterManifest, testStageManifest, type CharacterEntry, type StageId } from './assets/TestAssetManifest'
+import { testStageManifest, type StageId } from './assets/TestAssetManifest'
 import type { UiColorToken } from './tokens/uiTokens'
 
 export type P2StageSelectViewModel = { heading: string; stages: { id: StageId; label: string; url: string }[]; selectedStageId: StageId }
@@ -14,7 +14,6 @@ export const LOADING_TITLE: Record<LoadingStatus, { text: string; color: UiColor
   READY: { text: 'READY ・ 就緒', color: 'statusLime' },
   FAILED: { text: 'FAILED ・ 失敗', color: 'danger' },
 }
-export type P3LoadingViewModel = { character: CharacterEntry; playerName: string; enemyName: string; stage: string; progress: number }
 export type BattleViewModel = { stageId: StageId; playerName: string; enemyName: string; playerHp: number; enemyHp: number; maxHp: number; timerSeconds: number; round: number; playerWins: number; enemyWins: number; combo: number; danger: boolean; lastTenSeconds: boolean; player: MatchSnapshot['world']['fighters']['PLAYER']; enemy: MatchSnapshot['world']['fighters']['ENEMY'] }
 export type AnnouncerTone = 'system' | 'player' | 'enemy' | 'danger' | 'gold'
 /** big：K.O.／TIME UP 用最大字級。 */
@@ -28,7 +27,6 @@ export type EndViewModel = { nextPlayerName?: string; nextPlayerLabel?: string }
 
 export const stageSelectViewModel = (selectedStageId: StageId = 'laboratory'): P2StageSelectViewModel => ({ heading: 'SELECT STAGE', stages: Object.values(testStageManifest), selectedStageId })
 
-export const loadingViewModel = (character: CharacterEntry = testCharacterManifest.presetA, enemyName = 'ROG_SAGA', stage = 'LABORATORY', progress = 1, playerName = character.displayName): P3LoadingViewModel => ({ character, playerName, enemyName, stage, progress: Math.max(0, Math.min(1, progress)) })
 
 export const battleViewModel = (snapshot: MatchSnapshot, stageId: StageId, playerName = 'ROG_Player', enemyName = 'ROG_SAGA'): BattleViewModel => {
   const player = snapshot.world.fighters.PLAYER; const enemy = snapshot.world.fighters.ENEMY; const maxHp = 100

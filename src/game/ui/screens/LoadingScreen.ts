@@ -4,95 +4,98 @@ import type { InputManager } from '../../input/InputManager'
 import { keyLabel, type CombatAction, type ControlProfiles } from '../../input/ControlProfile'
 import { padLabel, type PadProfiles } from '../../input/GamepadProfile'
 import { faceKey, type GenerationJobs } from '../../app/GenerationJobs'
+import { intentFromInput, type CombatEvent } from '../../combat/CombatWorld'
+import { MatchController, ROUND_TICKS } from '../../match/MatchController'
+import { practiceTick } from '../../match/practice'
+import { FIXED_STEP_MS, type GameClock } from '../../time/GameClock'
+import type { PresentationContext } from '../animation/TemporarySpriteManifest'
+import { BattleView } from '../battle/BattleView'
 import { ActionButton, AngularPanel, KeyCap } from '../VisualComponents'
 import { colorHex, reducedMotion, uiTokens } from '../tokens/uiTokens'
 import { typography } from '../tokens/typography'
-import { LOADING_TITLE, loadingStatus, loadingViewModel } from '../ViewModels'
+import { LOADING_TITLE, loadingStatus } from '../ViewModels'
 import { resolveStageAsset } from '../assets/TestAssetManifest'
-import { spriteTextureFrame, spriteTextureKey, type SpriteId } from '../animation/TemporarySpriteManifest'
-import { isSheetSprite } from '../animation/SheetSpriteManifest'
-import { ScreenView, type Matchup, type ScreenContext } from './ScreenView'
+import { ArenaScreen, type Matchup, type ScreenContext } from './ScreenView'
 
-export type LoadingOptions = { matchup: Matchup; controls: ControlProfiles; pads: PadProfiles; input: InputManager; jobs: GenerationJobs; retry: () => boolean }
+export type LoadingOptions = { matchup: Matchup; controls: ControlProfiles; pads: PadProfiles; input: InputManager; clock: GameClock; jobs: GenerationJobs; retry: () => boolean }
 
-/** P3：VS 構圖、操作說明與載入進度。素材與生成都完成後 FIGHT! 才可按；失敗時同一顆按鈕變成重試。 */
-export class LoadingScreen extends ScreenView {
+/** P3 練習場：生成與素材載入期間可自由練習（獨立的練習對戰，不計分）；都完成後 FIGHT! 才可按，失敗時同一顆按鈕變成重試。 */
+export class LoadingScreen extends ArenaScreen {
   ready?: boolean
+  private readonly practice = new MatchController()
+  private readonly view: BattleView
+  private readonly events: CombatEvent[] = []
+  private readonly unsubscribe: () => void
+  private readonly playerContext: PresentationContext = {}
+  private readonly enemyContext: PresentationContext = {}
   private promptDevice?: string
   private readonly button: ActionButton
   private readonly title: Phaser.GameObjects.Text
-  private readonly names: Record<'P1' | 'P2', Phaser.GameObjects.Text>
   private readonly bar: Phaser.GameObjects.Rectangle
   private readonly percent: Phaser.GameObjects.Text
   private readonly keyCaps: KeyCap[] = []
-  private readonly portraits = new Set<'P1' | 'P2'>()
+  private face?: Phaser.GameObjects.Image
   private pulse?: Phaser.Tweens.Tween
 
   constructor(ctx: ScreenContext, root: Phaser.GameObjects.Container, private readonly options: LoadingOptions) {
-    super(ctx, root)
-    const { scene } = this, { colors, type } = uiTokens, { matchup, controls, pads } = options
-    const vm = loadingViewModel(matchup.player, matchup.enemyName, resolveStageAsset(matchup.stageId).label, 1, matchup.playerName)
-    root.add(scene.add.graphics().lineStyle(8, colors.systemBlue, 0.4).lineBetween(1100, 0, 820, 710))
-    this.addPreview(vm.character.spriteId, 430)
-    this.addPreview(matchup.enemySprite, 1480)?.setFlipX(true)
-    // 小字疊在角色預覽上：加深色描邊維持可讀。
-    const tag = { ...typography.note, stroke: colorHex('background0'), strokeThickness: 5 }
-    root.add(scene.add.text(130, 565, 'PLAYER', { ...tag, color: colorHex('playerGlow') }))
-    const playerName = scene.add.text(130, 600, vm.playerName, typography.title)
-    if (vm.character.type === 'BODY_TEMPLATE') root.add(scene.add.text(130, 680, vm.character.displayName + ' · TEMP BODY', { ...typography.note, color: colorHex('resultGold') }))
-    root.add(scene.add.text(1780, 565, matchup.twoPlayer ? 'ENEMY · 2P' : 'ENEMY · CPU', { ...tag, color: colorHex('enemyGlow') }).setOrigin(1, 0))
-    const enemyName = scene.add.text(1780, 600, vm.enemyName, typography.title).setOrigin(1, 0)
-    this.names = { P1: playerName, P2: enemyName }
-    root.add([playerName, enemyName])
-    root.add(scene.add.text(960, 330, 'VS', { ...typography.title, fontSize: type.hero, stroke: colorHex('systemBlue'), strokeThickness: 8 }).setOrigin(0.5).setRotation(-0.08))
-    root.add(this.label(vm.stage, 960, 670, type.body))
+    super(ctx, root, options.matchup.stageId, uiTokens.backdrop.battle)
+    const { scene } = this, { colors } = uiTokens, { matchup, controls, pads } = options
+    const config = this.practice.world.getConfig()
+    this.unsubscribe = this.practice.world.subscribe((event) => { this.events.push(event) })
+    this.practice.start()
+    this.view = new BattleView(scene, this.arena, this.stage.world, { stage: matchup.stageId, playerSprite: matchup.playerSprite, enemySprite: matchup.enemySprite, playerName: matchup.playerName, enemyName: matchup.enemyName, twoPlayer: matchup.twoPlayer, floorY: config.floorY, maxHp: config.maxHp, input: options.input, audio: ctx.audio, combat: this.practice.world })
+    this.view.update(this.practice.getSnapshot(), [], this.playerContext, undefined, this.enemyContext)
 
-    const panel = new AngularPanel(scene, 1030, 294, colors.panelRaised).setPosition(620, 865)
-    panel.add(scene.add.text(-465, -120, 'CONTROLS ・ 操作說明', typography.secondaryAction))
     const key = (...actions: CombatAction[]): string => actions.map((action) => keyLabel(controls.P1[action])).join(' ')
     const padKey = (...actions: CombatAction[]): string => actions.map((action) => padLabel(pads.P1[action])).join(' ')
+    const panel = new AngularPanel(scene, 1040, 150, colors.panelRaised).setPosition(560, 985)
+    panel.add(scene.add.text(-490, -50, `PRACTICE ・ 練習場  ·  ${resolveStageAsset(matchup.stageId).label}  ·  ${key('CROUCH')} 蹲 · 後退＝防禦`, { ...typography.note, color: colorHex('statusLime') }).setOrigin(0, 0.5))
     const bindings = [['MOVE', key('MOVE_LEFT', 'MOVE_RIGHT'), padKey('MOVE_LEFT', 'MOVE_RIGHT')], ['JUMP', key('JUMP'), padKey('JUMP')], ['PUNCH', key('LIGHT_PUNCH', 'HEAVY_PUNCH'), padKey('LIGHT_PUNCH', 'HEAVY_PUNCH')], ['KICK', key('LIGHT_KICK', 'HEAVY_KICK'), padKey('LIGHT_KICK', 'HEAVY_KICK')]]
-    // 兩欄各三行：動作名稱｜鍵盤鍵帽｜手把鍵帽；第一列上方標出裝置，讓玩家知道哪一排是自己的。
     bindings.forEach(([action, keyboard, pad], i) => {
-      const x = -455 + (i % 2) * 500, y = -10 + Math.floor(i / 2) * 82
-      if (i < 2) panel.add([scene.add.text(x + 160, -60, 'KEYBOARD', typography.note).setOrigin(0.5), scene.add.text(x + 340, -60, 'GAMEPAD', typography.note).setOrigin(0.5)])
-      panel.add(scene.add.text(x, y, action, typography.note).setOrigin(0, 0.5))
-      const keyboardCap = new KeyCap(scene, keyboard, 'keyboard').setPosition(x + 160, y)
-      const padCap = new KeyCap(scene, pad, 'gamepad').setPosition(x + 340, y)
-      panel.add([keyboardCap, padCap]); this.keyCaps.push(keyboardCap, padCap)
+      const x = -490 + i * 255
+      const keyboardCap = new KeyCap(scene, keyboard, 'keyboard').setPosition(x + 115, 20), padCap = new KeyCap(scene, pad, 'gamepad').setPosition(x + 200, 20)
+      panel.add([scene.add.text(x, 20, action, typography.note).setOrigin(0, 0.5), keyboardCap, padCap]); this.keyCaps.push(keyboardCap, padCap)
     })
-    panel.add(scene.add.text(0, 120, `${key('CROUCH')} 蹲 · 按住 ${key('CROUCH')}／← 後退＝防禦 · ${key('PAUSE')} 暫停`, typography.note).setOrigin(0.5))
     root.add(panel)
 
-    const loading = new AngularPanel(scene, 640, 294, colors.panelRaised).setPosition(1495, 865)
-    this.title = scene.add.text(-260, -120, LOADING_TITLE.LOADING.text, typography.secondaryAction)
-    loading.add(this.title)
-    loading.add(scene.add.rectangle(0, -40, 520, 14, colors.background0))
-    this.bar = scene.add.rectangle(-260, -40, 520, 14, colors.systemBlue).setOrigin(0, 0.5)
-    this.percent = scene.add.text(260, -82, '', typography.note).setOrigin(1, 0.5)
-    this.button = new ActionButton(scene, 'FIGHT!', 440, 92, colors.playerPrimary, `ENTER / ${padLabel(pads.P1.LIGHT_KICK)} ・ 開始`).setPosition(0, 55).setEnabled(false)
+    const loading = new AngularPanel(scene, 680, 150, colors.panelRaised).setPosition(1540, 985)
+    this.title = scene.add.text(-315, -45, LOADING_TITLE.LOADING.text, typography.note).setOrigin(0, 0.5)
+    this.bar = scene.add.rectangle(-315, 15, 300, 12, colors.systemBlue).setOrigin(0, 0.5)
+    this.percent = scene.add.text(-315, 45, '', typography.note).setOrigin(0, 0.5)
+    this.button = new ActionButton(scene, 'FIGHT!', 300, 92, colors.playerPrimary, `${keyLabel(controls.P1.LIGHT_PUNCH)} / ENTER / ${padLabel(pads.P1.LIGHT_KICK)}`).setPosition(165, 0).setEnabled(false)
     const fight = (): void => { if (!options.retry() && this.ready) ctx.go(AppState.BATTLE) }
     this.button.on('pointerup', fight)
-    loading.add([this.bar, this.percent, this.button]); root.add(loading)
+    loading.add([this.title, scene.add.rectangle(-315, 15, 300, 12, colors.background0).setOrigin(0, 0.5), this.bar, this.percent, this.button]); root.add(loading)
     this.focusable('loading', 'loading-fight', this.button, fight, false)
-    this.update()
+    this.refresh()
   }
 
-  update(): void {
+  tick(): void {
+    const { input, matchup } = this.options, p1 = input.consumeGameplaySnapshot(), p2 = input.consumeGameplaySnapshot('P2')
+    this.playerContext.crouch = p1.crouchHeld; this.enemyContext.crouch = matchup.twoPlayer && p2.crouchHeld
+    practiceTick(this.practice, intentFromInput(p1), matchup.twoPlayer ? intentFromInput(p2) : undefined)
+    // 練習不限時：HUD 計時固定在整回合，不顯示倒數。
+    this.view.update({ ...this.practice.getSnapshot(), remainingTicks: ROUND_TICKS }, this.events.splice(0), this.playerContext, this.practice.getRoundSummaries().at(-1), this.enemyContext)
+  }
+
+  update(deltaMs: number): void {
+    this.view.renderAt(Math.min(1, Math.max(0, this.options.clock.getRemainderMs() / FIXED_STEP_MS)))
+    this.stage.follow(this.view.player.x, this.view.enemy.x, reducedMotion ? Infinity : deltaMs / 1000)
+    this.refresh()
+  }
+
+  destroy(): void { this.unsubscribe(); this.view.destroy(); super.destroy() }
+
+  private refresh(): void {
     const { scene, options: { jobs } } = this
-    ;(['P1', 'P2'] as const).forEach((id) => {
-      if (!jobs.has(id) || this.portraits.has(id) || !scene.textures.exists(faceKey(id))) return
-      // 頭像貼在該玩家名字的外側（1P 名字右邊、2P 名字左邊）。
-      const name = this.names[id], x = id === 'P1' ? name.x + name.width + 56 : name.x - name.width - 56
-      this.root.add(scene.add.image(x, name.y + name.height / 2, faceKey(id)).setDisplaySize(80, 80))
-      this.portraits.add(id)
-    })
+    // 生成中在狀態列左側顯示拍攝頭像（只顯示 1P；2P 的生成狀態併在同一條狀態）。
+    if (!this.face && jobs.has('P1') && scene.textures.exists(faceKey('P1'))) { this.face = scene.add.image(1130, 985, faceKey('P1')).setDisplaySize(80, 80); this.root.add(this.face) }
     const boot = scene.scene.get('BootScene').load
     const generationFailed = jobs.failed, assetFailed = jobs.assets === 'failed', generating = jobs.generating
     const busy = boot.isLoading() || scene.load.isLoading() || generating || jobs.assets === 'loading'
     const progress = busy ? (scene.load.isLoading() ? scene.load.progress : boot.progress) : 1
     this.bar.setScale(generating ? 0.5 : progress, 1)
-    this.percent.setText(generationFailed ? '角色生成失敗 · 可重試或返回' : assetFailed ? '素材載入失敗 · 可重試' : generating ? '角色生成中' : busy ? Math.round(progress * 100) + '%' : 'READY')
+    this.percent.setText(generationFailed ? '生成失敗 · 可重試' : assetFailed ? '載入失敗 · 可重試' : generating ? '角色生成中 · 先練習' : busy ? Math.round(progress * 100) + '%' : 'READY · 可開戰')
     this.button.label.setText(generationFailed || assetFailed ? 'RETRY · 重試' : 'FIGHT!')
     const status = LOADING_TITLE[loadingStatus({ busy, generating, failed: generationFailed || assetFailed })]
     this.title.setText(status.text).setColor(colorHex(status.color))
@@ -105,14 +108,5 @@ export class LoadingScreen extends ScreenView {
     }
     const device = this.options.input.lastDevice()
     if (device !== this.promptDevice) { this.promptDevice = device; this.keyCaps.forEach((cap) => cap.setEmphasis(cap.device === device)) }
-  }
-
-  private addPreview(spriteId: SpriteId | undefined, x: number): Phaser.GameObjects.Sprite | undefined {
-    const key = spriteId && spriteTextureKey(spriteId, 'idle')
-    if (!key || !this.scene.textures.exists(key)) return undefined
-    const image = this.scene.add.sprite(x, 360, key, spriteTextureFrame(spriteId)).setDisplaySize(700, 700)
-    if (isSheetSprite(spriteId) && !reducedMotion && this.scene.anims.exists(`${spriteId}-idle`)) image.play(`${spriteId}-idle`)
-    this.root.add(image)
-    return image
   }
 }

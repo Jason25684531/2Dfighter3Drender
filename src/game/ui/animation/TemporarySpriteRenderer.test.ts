@@ -36,7 +36,7 @@ describe('TemporarySpriteRenderer', () => {
 
   it('blinks while invulnerable and restores full alpha afterwards', () => {
     const alphas: number[] = []
-    const image = { height: 128, texture: { key: 'kevin-idle' }, frame: { name: 0 }, setOrigin() { return this }, setScale() { return this }, setTexture() { return this }, setAlpha(a: number) { alphas.push(a); return this } }
+    const image = { height: 128, texture: { key: 'kevin-idle' }, frame: { name: 0 }, setOrigin() { return this }, setScale() { return this }, setTexture() { return this }, setY() { return this }, setAlpha(a: number) { alphas.push(a); return this } }
     const scene = { add: { ellipse: () => ({ setY: vi.fn() }), image: () => image }, textures: { exists: () => true } }
     const renderer = new TemporarySpriteRenderer(scene as never, 'kevin', 820)
     const fighter = new CombatWorld().getFighter('PLAYER')

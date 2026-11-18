@@ -64,7 +64,7 @@ describe('gamepad bindings', () => {
   it('validates pad codes and reserves R1 and L3', () => {
     expect(['B0', 'B4', 'A5-'].map(padProblem)).toEqual([undefined, undefined, undefined])
     for (const bad of ['KeyF', 'B', 'A1', 'B-1', 'A2*', 'B999', 'A0+', 'A3-', 'B5', 'B10']) expect(padProblem(bad)).toBeTruthy()
-    expect([padProblem('B5'), padProblem('B10')]).toEqual(['R1 IS RESERVED', 'L3 IS RESERVED'])
+    expect([padProblem('B5'), padProblem('B10'), padProblem('B7')]).toEqual(['R1 IS RESERVED', 'L3 IS RESERVED', 'R2 IS RESERVED'])
   })
   it('persists per-player pad bindings under exp2.gamepad.v1 without touching the keyboard save', () => {
     const store = memory({ [CONTROLS_STORAGE_KEY]: 'keyboard' })
@@ -76,7 +76,7 @@ describe('gamepad bindings', () => {
   })
   it('falls back per player for missing, corrupted, wrong-version, incomplete, or duplicate data and refuses to save them', () => {
     const defaults = { P1: DEFAULT_PAD_BINDINGS, P2: DEFAULT_PAD_BINDINGS }
-    const custom = { ...DEFAULT_PAD_BINDINGS, HEAVY_KICK: 'B7' }
+    const custom = { ...DEFAULT_PAD_BINDINGS, HEAVY_KICK: 'B6' }
     for (const bad of [undefined, '{not json', JSON.stringify({ version: 2, profiles: { P1: custom } }), JSON.stringify({ version: 1, profiles: { P1: { LIGHT_PUNCH: 'B4' } } }), JSON.stringify({ version: 1, profiles: { P1: { ...DEFAULT_PAD_BINDINGS, JUMP: 'B2' } } }), JSON.stringify({ version: 1, profiles: { P1: { ...DEFAULT_PAD_BINDINGS, JUMP: 'KeyW' } } }), JSON.stringify({ version: 1, profiles: { P1: { ...DEFAULT_PAD_BINDINGS, LIGHT_PUNCH: 'B5' } } }), JSON.stringify({ version: 1, profiles: { P1: { ...DEFAULT_PAD_BINDINGS, PAUSE: 'B10' } } })])
       expect(loadPadProfiles(memory(bad === undefined ? {} : { [PAD_STORAGE_KEY]: bad }))).toEqual(defaults)
     expect(loadPadProfiles(memory({ [PAD_STORAGE_KEY]: JSON.stringify({ version: 1, profiles: { P1: { LIGHT_PUNCH: 'B4' }, P2: custom } }) }))).toEqual({ P1: DEFAULT_PAD_BINDINGS, P2: custom })

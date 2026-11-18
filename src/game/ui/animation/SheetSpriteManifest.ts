@@ -26,7 +26,7 @@ export const sheetSprites = {
   body01: { folder: 'Customize_body_01', size: 256, renamed: { 'punch-jump': '10_Punch_Jump.png', 'kick-crouch': '15_Kick_Crounch.png' } as Record<string, string> },
 } as const
 type StaticSheetSpriteId = keyof typeof sheetSprites
-export type SheetSpriteId = StaticSheetSpriteId | AlignedSpriteId | `generated-${string}` | 'generated1' | 'generated2'
+export type SheetSpriteId = StaticSheetSpriteId | AlignedSpriteId | `generated-${string}` | `hd-${string}`
 export type AlignedSpriteId = keyof typeof alignedMetadata
 export const alignedSprites = alignedMetadata
 export type AlignedSprite = (typeof alignedSprites)[AlignedSpriteId]
@@ -35,7 +35,7 @@ const generatedSprites = new Map<string, AlignedSprite>()
 export const registerGeneratedSprite = (id: string, sprite: AlignedSprite): void => { generatedSprites.set(id, sprite) }
 export const alignedSprite = (id: string | undefined): AlignedSprite | undefined => id === undefined ? undefined : id in alignedSprites ? alignedSprites[id as AlignedSpriteId] : generatedSprites.get(id)
 const sheetSpriteIds: SheetSpriteId[] = [...Object.keys(sheetSprites) as StaticSheetSpriteId[], ...Object.keys(alignedSprites) as AlignedSpriteId[]]
-export const isSheetSprite = (id: string | undefined): id is SheetSpriteId => id !== undefined && (id in sheetSprites || id in alignedSprites || id.startsWith('generated-') || id === 'generated1' || id === 'generated2')
+export const isSheetSprite = (id: string | undefined): id is SheetSpriteId => id !== undefined && (id in sheetSprites || id in alignedSprites || id.startsWith('generated-') || id.startsWith('hd-'))
 export const alignedAction = (id: string | undefined, key: string) => {
   const sprite = alignedSprite(id)
   const number = key === 'block' ? '06' : sheetAnimations.find(action => action.key === key)?.filename.slice(0, 2)
@@ -48,7 +48,8 @@ export const sheetUrl = (id: SheetSpriteId, key: string, filename: string): stri
 }
 export const alignedAnimations = [...sheetAnimations, { key: 'block', filename: '06_Block.png', loop: false }]
 const animationsFor = (id: SheetSpriteId) => alignedSprite(id) ? alignedAnimations : sheetAnimations
-export const loadSheetSprites = (scene: Phaser.Scene): void => sheetSpriteIds.forEach((id) => animationsFor(id).forEach(({ key, filename }) => {
+/** legacy＝連同 Kevin／body01（只有原型頁用）；展場開機只預載名冊角色。 */
+export const loadSheetSprites = (scene: Phaser.Scene, legacy = false): void => sheetSpriteIds.filter((id) => legacy || id in alignedSprites).forEach((id) => animationsFor(id).forEach(({ key, filename }) => {
   const size = alignedSprite(id)?.size ?? sheetSprites[id as StaticSheetSpriteId].size
   scene.load.spritesheet(`${id}-${key}`, sheetUrl(id, key, filename), { frameWidth: size, frameHeight: size, endFrame: (alignedAction(id, key)?.frames ?? SHEET_FRAME_COUNT) - 1 })
 }))

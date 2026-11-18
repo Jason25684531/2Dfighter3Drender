@@ -1,4 +1,4 @@
-// 隔離原型的瀏覽器實測；先啟動 Vite（預設 http://127.0.0.1:5189）。沿用 verify-kevin 的 Playwright／Chrome。
+// 隔離原型的瀏覽器實測；先啟動 Vite（預設 http://127.0.0.1:5189）。需要 Playwright 與本機 Chrome。
 import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright')

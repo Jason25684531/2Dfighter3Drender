@@ -27,6 +27,7 @@ const owners = ['P1', 'P2'] as const
 const stages = Object.keys(testStageManifest) as StageId[]
 
 export class ExperiencePrototypeScene extends BootScene {
+  protected readonly legacySheets = true
   page: DemoPage = 'P1'
   model = new P1SelectionModel()
   readonly match = new MatchController()

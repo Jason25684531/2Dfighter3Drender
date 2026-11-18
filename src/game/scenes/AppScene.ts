@@ -17,6 +17,8 @@ import { P1SelectView } from '../ui/p1/P1SelectView'
 import { endViewModel, leaderboardPanelModel, resultViewModel } from '../ui/ViewModels'
 import { characterEntries, characterEntry, resolveStageAsset, stageTextureKey, testCharacterManifest, type CharacterEntry, type StageId } from '../ui/assets/TestAssetManifest'
 import type { PresentationContext, SpriteId } from '../ui/animation/TemporarySpriteManifest'
+import { alignedSprites, type AlignedSpriteId } from '../ui/animation/SheetSpriteManifest'
+import { deleteGeneratedCharacter, dropGeneratedTextures, dropHead, loadHdSprite, loadHeads, sharpSprite } from '../api/CharacterGeneration'
 import { keyLabel, loadProfiles, saveProfiles } from '../input/ControlProfile'
 import { ControlsPanel } from '../ui/controls/ControlsPanel'
 import { loadPadProfiles, PAD_SYSTEM, padLabel, savePadProfiles, type PadProfiles } from '../input/GamepadProfile'
@@ -86,6 +88,7 @@ export class AppScene extends Phaser.Scene {
       if (this.appStateMachine.getCurrentState() === AppState.LOADING) this.render(AppState.LOADING)
     })
     this.selectedStageId = resolveStageAsset(this.persistence?.context.snapshot.selectedStageId).id
+    this.input.mouse?.disableContextMenu()
     this.input.on('pointermove', this.noteActivity); this.input.on('pointerdown', this.noteActivity)
     if (typeof window !== 'undefined') this.inputManager.attachKeyboard(window)
     this.inputManager.setCombatBindings(this.controls); this.inputManager.setPadBindings(this.padProfiles)
@@ -115,8 +118,9 @@ export class AppScene extends Phaser.Scene {
       this.render(nextState)
     })
     this.clockUnsubscribe = this.clock.subscribe(() => {
-      if (this.appStateMachine.getCurrentState() === AppState.PRESENTATION) { this.current?.tick(); return }
-      if (this.appStateMachine.getCurrentState() !== AppState.BATTLE) return
+      const state = this.appStateMachine.getCurrentState()
+      if (state === AppState.PRESENTATION || state === AppState.LOADING) { this.current?.tick(); return }
+      if (state !== AppState.BATTLE) return
       const input = this.inputManager.consumeGameplaySnapshot(), p2 = this.inputManager.consumeGameplaySnapshot('P2')
       // 蹲是純呈現：只在可操作時顯示（起手序列與回合結束停留不蹲）；ENEMY 只有 2P 真人時才看 2P 的蹲鍵。
       const fighting = this.flow.match.getSnapshot().matchState === 'FIGHTING'
@@ -149,7 +153,7 @@ export class AppScene extends Phaser.Scene {
       if (this.attract) { this.stopAttract(); this.attractInputConsumed = true }
     }
     this.attractPadButtons = padButtons
-    const visualState = this.appStateMachine.getCurrentState(), battling = visualState === AppState.BATTLE, pausedBefore = this.clock.isPaused()
+    const visualState = this.appStateMachine.getCurrentState(), battling = visualState === AppState.BATTLE, practicing = visualState === AppState.LOADING, pausedBefore = this.clock.isPaused()
     // P1／P2 逐層返回；P3／P5／P6 返回主畫面（backRoutes）。
     const backScreen = ([AppState.READY, AppState.SETUP, AppState.LOADING, AppState.PRESENTATION, AppState.RESULT] as AppStateValue[]).includes(visualState)
     const allOwned = this.inputManager.consumeOwnedUiActions(), allActions = this.inputManager.consumeUiActions()
@@ -160,9 +164,9 @@ export class AppScene extends Phaser.Scene {
     if (this.attract || this.attractInputConsumed || this.controlsPanel || this.boardPanel) {
       // 開頭動畫、操作設定或排行榜開啟中：UI 輸入不穿透到 P0；1P（含手把）的 BACK／CONFIRM 可關閉排行榜。
       if (this.boardPanel && [...actions, ...p1Owned].some((action) => action === 'BACK' || action === 'CONFIRM')) this.closeBoard()
-      // 面板開啟時鍵盤由面板自己攔截；這裡只把 1P 手把的選單動作交給面板（共用選單只認 1P）。
-      this.controlsPanel?.updatePad(owned.filter(({ owner, device }) => owner === 'P1' && device).map(({ action }) => action))
-    } else if (visualState === AppState.IDLE && this.inputManager.controlsPress('P1')) {
+      // 面板開啟時鍵盤由面板自己攔截；這裡把兩位玩家手把的選單動作都交給面板。
+      this.controlsPanel?.updatePad(owned.filter(({ device }) => device))
+    } else if (visualState === AppState.IDLE && (this.inputManager.controlsPress('P1') || this.inputManager.controlsPress('P2'))) {
       this.openControls()
     } else if (visualState === AppState.READY && this.p1Model) {
       const captureOwner = this.p1Model.phase === 'CUSTOMIZE' ? this.p1Model.owner : undefined
@@ -174,6 +178,11 @@ export class AppScene extends Phaser.Scene {
         const skip = attack.attackPressed && this.inputManager.lastDevice() === 'keyboard' && attack.attack === 'LIGHT_KICK'
         if (skip) { this.p1Model.skipCustomize(); this.syncP1() }
       }
+      for (const owner of ['P1', 'P2'] as const) if (this.inputManager.deletePress(owner) && this.p1Model.phase === 'GRID') this.requestDelete(this.p1Model.player(owner).cursor)
+      // 拍照／確認照片時 Enter（離開名字框後）與手把 START 也算確認：手把 ✕ 在這頁要留給螢幕鍵盤打字。
+      const flowOwner = this.p1Model.phase === 'CUSTOMIZE' || this.p1Model.phase === 'REVIEW' ? this.p1Model.owner : undefined
+      const startPressed = actions.includes('CONFIRM') || (pause && this.inputManager.lastDevice() === 'gamepad')
+      if (flowOwner && startPressed && !this.p1View?.exitOpen && !owned.some((input) => input.owner === flowOwner && input.action === 'CONFIRM')) this.p1Input(flowOwner, 'CONFIRM')
       // P1 由 1P/2P 擁有者鍵位操作；未標記輸入只保留 Esc（選角中返回標題）。
       if (this.p1View?.exitOpen) this.p1View.handleExit([...actions, ...p1Owned])
       else if (actions.includes('BACK')) {
@@ -188,6 +197,11 @@ export class AppScene extends Phaser.Scene {
     } else if (battling && !this.ui.navigation.isOverlayOpen()) {
       // P4 未暫停：只看 Combat profile 的 PAUSE，選單鍵不作用；暫停後才交給選單鍵。本場操作者（1P，雙人時含 2P）的手把斷線也暫停。
       if (pause || lostPad) this.ui.navigation.dispatch('OPEN_MENU')
+    } else if (practicing) {
+      // P3 練習：READY 前 FIGHT! 停用，確認鍵（F／手把 ✕）只是練習出招；READY 後確認鍵、Enter、手把 START 都開戰。返回＝Esc 或手把返回鍵。
+      const menu = [...actions, ...owned.filter(({ owner, device, action }) => owner === 'P1' && (action === 'CONFIRM' || (device && action === 'BACK'))).map(({ action }) => action)]
+      if (pause && this.inputManager.lastDevice() === 'gamepad') menu.push('CONFIRM')
+      menu.filter((action) => action === 'CONFIRM' || action === 'BACK').forEach((action) => this.ui.navigation.dispatch(action))
     } else {
       // 暫停選單只屬於 P4；其他畫面的 Escape／M 不開啟選單。
       // 1P 選單鍵（鍵盤跟自訂鍵位，或 1P 的手把）在後續選單同樣有效；2P 的鍵盤與手把都不併入（2P 鍵與未標記鍵重複，會重複觸發）。
@@ -197,7 +211,7 @@ export class AppScene extends Phaser.Scene {
     this.attractInputConsumed = false
     this.checkIdle(time)
     // 選單或暫停中的跳躍／攻擊按下不留到戰鬥（手把 A／B 同時是確認／返回與輕踢／重踢）；關閉暫停的那一下也算選單輸入。
-    if (!battling || pausedBefore || this.clock.isPaused()) { this.inputManager.consumeGameplaySnapshot(); this.inputManager.consumeGameplaySnapshot('P2') }
+    if ((!battling && !practicing) || pausedBefore || this.clock.isPaused()) { this.inputManager.consumeGameplaySnapshot(); this.inputManager.consumeGameplaySnapshot('P2') }
     this.clock.advance(delta)
     this.current?.update(delta)
   }
@@ -215,7 +229,7 @@ export class AppScene extends Phaser.Scene {
       [AppState.IDLE]: () => new HomeScreen(ctx, root, `${keyLabel(this.controls.P1.LIGHT_PUNCH)} / ENTER / ${this.padConfirm()} 確認 · ← → 切換 · P 播放開頭動畫 · C / ${padLabel(PAD_SYSTEM.CONTROLS)} 操作設定`, () => this.openBoard()),
       [AppState.READY]: () => new SelectScreen(ctx, root, this.jobs.entriesReady ? (parent) => this.createP1View(parent) : undefined),
       [AppState.SETUP]: () => new StageSelectScreen(ctx, root, this.selectedStageId, this.stepTotal(), (id) => this.selectStage(id), () => this.confirmStage()),
-      [AppState.LOADING]: () => new LoadingScreen(ctx, root, { matchup: this.matchup(), controls: this.controls, pads: this.padProfiles, input: this.inputManager, jobs: this.jobs, retry: () => this.jobs.retry(this.selectedCharacterIds()) }),
+      [AppState.LOADING]: () => new LoadingScreen(ctx, root, { matchup: this.matchup(), controls: this.controls, pads: this.padProfiles, input: this.inputManager, clock: this.clock, jobs: this.jobs, retry: () => this.jobs.retry(this.selectedCharacterIds(), [this.playerSpriteId(), this.enemySpriteId()]) }),
       [AppState.BATTLE]: () => new BattleScreen(ctx, root, this.matchup(), this.flow, { input: this.inputManager, clock: this.clock, takeEvents: () => this.tickEvents.splice(0), playerContext: this.playerContext, enemyContext: this.enemyContext }),
       [AppState.PRESENTATION]: () => new PresentationScreen(ctx, root, this.matchup(), this.flow),
       [AppState.RESULT]: () => new ResultScreen(ctx, root, this.flow.result && resultViewModel(this.flow.result, this.persistence?.context.snapshot.backendRank ?? null, p6SubStateForRank(this.persistence?.context.snapshot.backendRank), this.flow.leaderboard, this.persistence?.context.snapshot.sessionId)),
@@ -226,7 +240,7 @@ export class AppScene extends Phaser.Scene {
   }
 
   private addBackground(container: Phaser.GameObjects.Container, state: AppStateValue): void {
-    if (state === AppState.BATTLE || state === AppState.PRESENTATION) return
+    if (state === AppState.LOADING || state === AppState.BATTLE || state === AppState.PRESENTATION) return
     const darkness = state === AppState.IDLE ? uiTokens.backdrop.empty : state === AppState.END ? uiTokens.backdrop.end : state === AppState.RESULT ? uiTokens.backdrop.result : uiTokens.backdrop.content
     const cover = aspectCover(2752, 1536, uiTokens.logicalWidth, uiTokens.logicalHeight)
     this.stageBackdrop = this.add.image(cover.x + cover.width / 2, cover.y + cover.height / 2, stageTextureKey(this.selectedStageId)).setDisplaySize(cover.width, cover.height)
@@ -260,9 +274,12 @@ export class AppScene extends Phaser.Scene {
 
   private createP1View(root: Phaser.GameObjects.Container): P1SelectView {
     this.p1Model ??= new P1SelectionModel([...characterEntries(), ...this.jobs.entries], { players: this.flow.players, faceGenUsed: this.persistence?.context.snapshot.faceGenUsed })
+    ;(['P1', 'P2'] as const).forEach((owner) => { const index = this.p1Model?.heroSlot(owner)?.index; if (index) void this.loadRosterPreview(index) })
+    void loadHeads(this, this.p1Model.slots.flatMap((slot) => slot.entry ? [slot.entry] : []), () => this.p1View?.refreshHeads())
     return new P1SelectView(this, root, this.p1Model, {
       offline: this.p1Offline || this.persistence?.lastLeaderboardOk === false,
       onInput: (owner, action) => this.p1Input(owner, action),
+      onDelete: (index) => this.requestDelete(index),
       onFocus: (owner, index) => { if (this.p1Model?.focus(owner, index)) { this.p1View?.sync(); void this.loadRosterPreview(index) } },
       onNickname: (owner, name) => { this.p1Model?.setNickname(owner, name); this.lastActivity = this.time.now },
       onSkip: () => { this.p1Model?.skipCustomize(); this.syncP1() },
@@ -292,12 +309,32 @@ export class AppScene extends Phaser.Scene {
     const index = this.p1Model?.heroSlot(owner)?.index
     if (index) void this.loadRosterPreview(index)
   }
+  /** 右鍵／R2：只有選角總覽階段、沒被任何玩家鎖定的已生成角色可以刪；先跳確認框（預設取消）。 */
+  private requestDelete(index: number): void {
+    const model = this.p1Model, entry = model?.slot(index).entry
+    if (!model || model.phase !== 'GRID' || this.p1View?.exitOpen || !entry?.generationId) return
+    if (model.player('P1').locked === index || model.player('P2').locked === index) return
+    this.p1View?.confirmExit(() => { void this.deleteCharacter(index) }, `DELETE ${entry.displayName.slice(0, 12)}? · 刪除角色？`, '會永久刪除這個角色的素材資料夾，無法復原')
+  }
+  private async deleteCharacter(index: number): Promise<void> {
+    const entry = this.p1Model?.slot(index).entry, spriteId = entry?.spriteId
+    if (!entry?.generationId || !spriteId) return
+    // 刪除失敗（例如資料夾已被別處刪掉）也一樣重新讀名冊，畫面以後端實際內容為準。
+    await deleteGeneratedCharacter(entry.generationId).catch(() => undefined)
+    await this.jobs.refreshEntries()
+    dropGeneratedTextures(this, spriteId); dropHead(this, spriteId)
+    const cursors = (['P1', 'P2'] as const).map((owner) => this.p1Model?.player(owner).cursor ?? 5)
+    this.p1Model = undefined; this.render(AppState.READY)
+    ;(['P1', 'P2'] as const).forEach((owner, i) => this.p1Model?.focus(owner, Math.min(cursors[i], Math.max(...this.p1Model.slots.filter((slot) => slot.entry).map((slot) => slot.index)))))
+    this.syncP1()
+  }
   private async refreshGeneratedEntries(): Promise<void> {
     await this.jobs.refreshEntries()
     if (this.appStateMachine.getCurrentState() === AppState.READY && !this.p1Model) this.render(AppState.READY)
   }
   private async loadRosterPreview(index: number): Promise<void> {
-    const entry = this.p1Model?.slot(index).entry
+    const entry = this.p1Model?.slot(index).entry, sprite = entry?.spriteId
+    if (sprite && sprite in alignedSprites) { try { await loadHdSprite(this, sprite as AlignedSpriteId, true); this.p1View?.sync() } catch { /* 原圖載入失敗就繼續用精簡版預覽。 */ } return }
     if (!entry?.generationId || !entry.spriteId || this.textures.exists(`${entry.spriteId}-idle`)) return
     try { await this.jobs.load(entry.generationId, true); this.p1View?.sync() } catch { /* The battle loading screen reports missing assets. */ }
   }
@@ -317,7 +354,8 @@ export class AppScene extends Phaser.Scene {
     ;(['P1', 'P2'] as const).forEach((id) => { const assetId = this.jobs.assetId(id); if (assetId && players[id]) players[id] = { ...players[id], characterId: `generated-${assetId}` } })
     this.flow.setPlayers(players); this.flow.opponent = this.p1Model.opponent()
     this.applyFaces()
-    this.jobs.loadSelected(this.selectedCharacterIds())
+    // 原圖若在進 P3 之後才載完，重畫一次練習場讓角色換成清楚版。
+    void this.jobs.loadSelected(this.selectedCharacterIds(), [this.playerSpriteId(), this.enemySpriteId()]).then(() => { if (this.appStateMachine.getCurrentState() === AppState.LOADING) this.render(AppState.LOADING) })
     this.appStateMachine.transitionTo(AppState.SETUP)
   }
   private selectedCharacterIds(): Array<string | undefined> { return Object.values(this.flow.players).map((player) => player?.characterId) }
@@ -363,7 +401,7 @@ export class AppScene extends Phaser.Scene {
   /** 流程總步數：選角（含拍照、1P 選對手）＋選場景。 */
   private stepTotal(): number { return this.hasCustom() ? 4 : 3 }
   private hasCustom(): boolean { return Object.values(this.flow.players).some((player) => characterEntry(player?.characterId)?.type === 'BODY_TEMPLATE') }
-  private matchup(): Matchup { return { player: this.playerEntry(), playerName: this.playerName(), enemyName: this.enemyName(), playerSprite: this.playerSpriteId(), enemySprite: this.enemySpriteId(), twoPlayer: Boolean(this.flow.players.P2), stageId: this.selectedStageId } }
+  private matchup(): Matchup { return { player: this.playerEntry(), playerName: this.playerName(), enemyName: this.enemyName(), playerSprite: sharpSprite(this.playerSpriteId()), enemySprite: sharpSprite(this.enemySpriteId()), twoPlayer: Boolean(this.flow.players.P2), stageId: this.selectedStageId } }
   private playerEntry(): CharacterEntry { return this.rosterEntry(this.flow.players.P1?.characterId) ?? testCharacterManifest.presetA }
   private playerName(): string { return this.flow.players.P1?.nickname || this.playerEntry().displayName }
   // 單人：ENEMY 為選定的 CPU 對手；雙人：ENEMY 為 2P 的選擇，由 2P 操作。

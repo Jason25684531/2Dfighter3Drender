@@ -21,10 +21,10 @@ try {
   const check = text => { report.checks.push(text); console.log('PASS ' + text) }
   await page.goto('http://127.0.0.1:5189/')
   await state('P0'); await key('Enter'); await state('P1')
-  assert.deepEqual(await scene(s => s.p1Model.slots.slice(0, 10).map(slot => slot.entry.spriteId)), ['s1aw', 's2am', 's2lw', 's3ww', 'tony', 'chris', 'go', 'se7en', 'kevin', 'body01'])
+  assert.deepEqual(await scene(s => s.p1Model.slots.slice(0, 9).map(slot => slot.entry.spriteId)), ['s1aw', 's2am', 's2lw', 's3ww', 'chris', 'go', 'joneey', 'tony', 'se7en'])
   assert.deepEqual(await scene(s => ['aria-idle-1', 'kael-idle-1', 'riven-idle-1'].filter(key => s.textures.exists(key))), [])
   await shot('01-roster')
-  for (const [index, id] of ['s1aw', 's2am', 's2lw', 's3ww', 'tony', 'chris', 'go', 'se7en'].entries()) {
+  for (const [index, id] of ['s1aw', 's2am', 's2lw', 's3ww', 'chris', 'go', 'joneey', 'tony', 'se7en'].entries()) {
     await scene((s, index) => { s.p1Model.focus('P1', index + 1); s.p1View.sync() }, index)
     await shot(`02-preview-${id}`)
   }
@@ -53,7 +53,7 @@ try {
       ['punch-jump', { attack: 'LIGHT_PUNCH', grounded: false }], ['kick-jump', { attack: 'LIGHT_KICK', grounded: false }],
       ['punch-crouch', { attack: 'LIGHT_PUNCH' }, { crouch: true }], ['kick-crouch', { attack: 'LIGHT_KICK' }, { crouch: true }],
     ]
-    for (const id of ['s1aw','s2am','s2lw','s3ww','tony','chris','go','se7en']) {
+    for (const id of ['s1aw','s2am','s2lw','s3ww','chris','go','joneey','tony','se7en']) {
       const renderer = new TemporarySpriteRenderer(s, id, base.y)
       for (const [i, [expected, patch, context]] of cases.entries()) {
         const fighter = { ...base, state: 'ATTACK', grounded: true, attackPhase: 'ACTIVE', attackTicks: 1, attackId: i + 100, ...patch }

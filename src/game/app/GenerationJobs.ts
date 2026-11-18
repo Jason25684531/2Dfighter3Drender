@@ -1,7 +1,8 @@
 import type Phaser from 'phaser'
 import type { PlayerSlotId } from '../input/InputManager'
 import type { CharacterEntry } from '../ui/assets/TestAssetManifest'
-import { dropGeneratedTextures, generateCharacter, listGeneratedCharacters, loadGeneratedCharacter } from '../api/CharacterGeneration'
+import { dropGeneratedTextures, dropHdActions, generateCharacter, listGeneratedCharacters, loadGeneratedCharacter, loadHdSprite } from '../api/CharacterGeneration'
+import { alignedSprites, type AlignedSpriteId } from '../ui/animation/SheetSpriteManifest'
 
 /** P3 載入畫面在生成期間顯示的拍照頭像。 */
 export const faceKey = (id: PlayerSlotId): string => `face-${id}`
@@ -54,26 +55,27 @@ export class GenerationJobs {
     return loading
   }
 
-  /** 進 P2 前載入雙方選定的已生成角色完整圖集；characterIds 中非 `generated-` 的會略過。 */
-  loadSelected(characterIds: Array<string | undefined>): void {
+  /** 進 P2 前載入雙方的完整圖集：已生成角色（characterIds 中 `generated-`）與名冊角色的原圖（sprites 中屬於名冊的）。 */
+  loadSelected(characterIds: Array<string | undefined>, sprites: Array<string | undefined> = []): Promise<void> {
     const ids = characterIds.filter((id): id is string => Boolean(id?.startsWith('generated-'))).map((id) => id.slice('generated-'.length))
-    if (!ids.length) { this.assets = 'ready'; return }
+    const roster = sprites.filter((id): id is AlignedSpriteId => Boolean(id && id in alignedSprites))
+    if (!ids.length && !roster.length) { this.assets = 'ready'; return Promise.resolve() }
     this.assets = 'loading'
-    void Promise.all(ids.map((id) => this.load(id))).then(() => { this.assets = 'ready' }, () => { this.assets = 'failed' })
+    return Promise.all([...ids.map((id) => this.load(id)), ...roster.map((id) => loadHdSprite(this.scene, id))]).then(() => { this.assets = 'ready' }, () => { this.assets = 'failed' })
   }
 
   /** P3 重試：重新送出失敗的生成；素材載入失敗則重新載入。回傳 true 表示有東西正在重試。 */
-  retry(characterIds: Array<string | undefined>): boolean {
+  retry(characterIds: Array<string | undefined>, sprites: Array<string | undefined> = []): boolean {
     const failed = (Object.entries(this.jobs) as Array<[PlayerSlotId, Job]>).filter(([, job]) => job.state === 'failed')
     failed.forEach(([owner, { name, template, photo }]) => this.start(owner, name, template, photo))
-    if (this.assets === 'failed') { this.loadSelected(characterIds); return true }
+    if (this.assets === 'failed') { this.loadSelected(characterIds, sprites); return true }
     return failed.length > 0
   }
 
   clear(): void {
     Object.values(this.jobs).forEach((job) => job.controller.abort())
     this.jobs = {}
-    dropGeneratedTextures(this.scene)
+    dropGeneratedTextures(this.scene); dropHdActions(this.scene)
     this.loads.clear(); this.assets = 'idle'
   }
 }

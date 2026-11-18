@@ -6,6 +6,7 @@ import { LAB_STAGE_DIR } from '../ui/stage/StageParallax'
 import { GameAudio } from '../audio/GameAudio'
 
 export class BootScene extends Phaser.Scene {
+  protected readonly legacySheets: boolean = false
   constructor() {
     super('BootScene')
   }
@@ -13,7 +14,7 @@ export class BootScene extends Phaser.Scene {
   preload(): void {
     GameAudio.load(this)
     Object.values(testStageManifest).forEach((stage) => this.load.image(stageTextureKey(stage.id), stage.url))
-    loadSheetSprites(this)
+    loadSheetSprites(this, this.legacySheets)
     loadImpactFx(this)
     this.load.image('lab-poster', `${LAB_STAGE_DIR}/poster.jpg`)
     this.load.image('lab-foreground', `${LAB_STAGE_DIR}/foreground.png`)

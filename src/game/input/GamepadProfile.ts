@@ -46,8 +46,8 @@ export const updateSlots = (slots: PadSlots, now: PadDown, previous: PadDown): P
   return next
 }
 
-/** 固定的系統鍵，不可綁定：R1＝返回，L3＝在 P0 開啟 CONTROLS。 */
-export const PAD_SYSTEM = { BACK: 'B5', CONTROLS: 'B10' } as const satisfies Record<string, PadCode>
+/** 固定的系統鍵，不可綁定：R1＝返回，L3＝在 P0 開啟 CONTROLS，R2＝在選角刪除已存的生成角色。 */
+export const PAD_SYSTEM = { BACK: 'B5', CONTROLS: 'B10', DELETE: 'B7' } as const satisfies Record<string, PadCode>
 const SYSTEM_CODES = new Set<string>(Object.values(PAD_SYSTEM))
 
 const CODE = /^(?:B(\d{1,2})|A(\d{1,2})([+-]))$/

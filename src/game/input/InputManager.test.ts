@@ -292,6 +292,14 @@ describe('InputManager gamepad UI actions', () => {
     expect([input.controlsPress('P1'), input.controlsPress('P2')]).toEqual([false, false])
     expect(input.consumeOwnedUiActions()).toEqual([]); expect(input.consumeUiActions()).toEqual([])
   })
+  it('reports a fresh R2 press per player for deleting a saved character, without a menu action', () => {
+    const input = owned(2)
+    input.update([pad([7]), pad()])
+    expect([input.deletePress('P1'), input.deletePress('P2')]).toEqual([true, false])
+    input.update([pad([7]), pad()])
+    expect(input.deletePress('P1')).toBe(false)
+    expect(input.consumeOwnedUiActions()).toEqual([]); expect(input.consumeUiActions()).toEqual([])
+  })
   it('emits one confirm for a held button and one more only after release', () => {
     const input = owned()
     for (const pressed of [[0], [0], [0], [], [0]]) input.update([pad(pressed)])

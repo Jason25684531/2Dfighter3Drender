@@ -180,6 +180,7 @@ export class InputManager {
   padPress(player: PlayerSlotId): PadCode | undefined { return [...this.gameplay[player].padPresses][0] }
   /** 本幀該玩家手把新按下 L3（P0 開啟 CONTROLS）；不是選單動作，所以不進擁有者佇列。 */
   controlsPress(player: PlayerSlotId): boolean { return this.gameplay[player].padPresses.has(PAD_SYSTEM.CONTROLS) }
+  deletePress(player: PlayerSlotId): boolean { return this.gameplay[player].padPresses.has(PAD_SYSTEM.DELETE) }
   /** 任一玩家的 PAUSE 都算；兩邊都清掉，共用鍵（Escape）不會留到下一次。 */
   consumePause(): boolean { const p1 = this.gameplay.P1.pending.delete('PAUSE'), p2 = this.gameplay.P2.pending.delete('PAUSE'); return p1 || p2 }
   getActionState(action: InputAction, player: PlayerSlotId = 'P1'): InputState { return { ...((isUi(action) ? this.states.get(action) : this.gameplay[player].states.get(action)) ?? idle()) } }

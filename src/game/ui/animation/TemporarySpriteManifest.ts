@@ -2,7 +2,7 @@ import type { FighterId, FighterSnapshot } from '../../combat/CombatWorld'
 import { alignedAction, alignedSprite, isSheetSprite, SHEET_FRAME_COUNT } from './SheetSpriteManifest'
 import type { AttackAction } from '../../input/ControlProfile'
 
-export type SpriteId = 'tony' | 'chris' | 'go' | 'se7en' | 'kevin' | 'body01' | 's1aw' | 's2am' | 's2lw' | 's3ww' | `generated-${string}` | 'generated1' | 'generated2'
+export type SpriteId = 'tony' | 'chris' | 'go' | 'joneey' | 'se7en' | 'kevin' | 'body01' | 's1aw' | 's2am' | 's2lw' | 's3ww' | `generated-${string}` | `hd-${string}`
 // victory 只有 sheet 角色有素材；舊替身角色不載入，畫面停在前一張。
 export type SpriteAction = 'idle' | 'walk' | 'jump' | 'attack' | 'hurt' | 'guard' | 'victory'
 
@@ -39,6 +39,8 @@ export type Presentation = keyof typeof presentationSheet
 export type PresentationContext = { crouch?: boolean; outcome?: 'WIN' }
 const standingAttack: Record<AttackAction, Presentation> = { LIGHT_PUNCH: 'PUNCH_LIGHT', HEAVY_PUNCH: 'PUNCH_HEAVY', LIGHT_KICK: 'KICK_LIGHT', HEAVY_KICK: 'KICK_HEAVY' }
 /** Combat 決定狀態與招式種類，這裡只決定播哪張圖；不讀寫 Combat。蹲姿是純呈現（Combat 沒有蹲）。 */
+/** 贏家的跳動（像素，向上為負）：有些角色的勝利圖集幾乎等於待機，跳動讓勝利一眼看得出來。 */
+export const victoryHop = (tick: number): number => -Math.abs(Math.sin(tick / 4)) * 28
 /** 回合結束停留期間，贏家播勝利；平手與戰鬥中沒有。 */
 export const outcomeFor = (id: FighterId, matchState: string, roundWinner: FighterId | null | undefined): PresentationContext['outcome'] => (matchState === 'ROUND_END' || matchState === 'MATCH_END') && roundWinner === id ? 'WIN' : undefined
 export const resolvePresentation = (fighter: FighterSnapshot, { crouch = false, outcome }: PresentationContext = {}): Presentation => {
@@ -68,7 +70,7 @@ export const spriteFrameFor = (fighter: FighterSnapshot, action: SpriteAction, e
     }
     const frame = Math.floor(Math.max(0, elapsedTicks) * aligned.fps / 24)
     if (action === 'hurt' && fighter.state === 'HIT_STUN') return Math.min(2, frame)
-    return key === 'idle' || key === 'walk' || key === 'crouch' ? frame % count : Math.min(last, frame)
+    return key === 'idle' || key === 'walk' || key === 'crouch' || action === 'victory' ? frame % count : Math.min(last, frame)
   }
   if (isSheetSprite(id)) {
     if (action === 'guard' && peak !== undefined) return peak

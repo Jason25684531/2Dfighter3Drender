@@ -12,7 +12,7 @@ const rowY = (i: number): number => 200 + i * 48 + [2, 4, 6, 8, RESET_ROW].filte
 export type Device = 'KEYBOARD' | 'GAMEPAD'
 export type PadSettings = { profiles: PadProfiles; onSave: (profiles: PadProfiles) => void; input: Pick<InputManager, 'padOwner' | 'padPress'> }
 
-/** 1P／2P 操作設定面板（列表時 ←→ 切換玩家、TAB 切換鍵盤／搖桿）；開啟期間獨占鍵盤（capture），按鍵不會流到 InputManager 或 Phaser。PLAYER 1 的搖桿也能完整操作（updatePad）。 */
+/** 1P／2P 操作設定面板（列表時 ←→ 切換玩家、TAB 切換鍵盤／搖桿）；開啟期間獨占鍵盤（capture），按鍵不會流到 InputManager 或 Phaser。1P、2P 的搖桿也都能完整操作（updatePad）。 */
 export class ControlsPanel {
   private readonly root: Phaser.GameObjects.Container
   private readonly rows: Array<{ focus: Phaser.GameObjects.Rectangle; key: Phaser.GameObjects.Text }> = []
@@ -60,20 +60,20 @@ export class ControlsPanel {
   destroy(): void { window.removeEventListener('keydown', this.onKey, true); this.root.destroy(true) }
 
   /**
-   * 每幀由場景呼叫，p1 是 PLAYER 1 手把本幀的選單動作。
+   * 每幀由場景呼叫，inputs 是兩位玩家手把本幀的選單動作；面板共用，任一方都能操作。
    * 擷取狀態在處理本幀動作之前判斷：啟動擷取的那一下 ✕ 同時也是新按下的鍵碼，要等下一幀才開始收。
-   * 擷取中 R1（任一方的返回）等同 Escape；GAMEPAD 分頁只收目前玩家自己手把的新按下。
+   * 擷取中只有正在改鍵的玩家按 R1 才等同 Escape（另一位不會取消對方）；GAMEPAD 分頁只收該玩家自己手把的新按下。
    */
-  updatePad(p1: readonly OwnedUiAction[]): void {
+  updatePad(inputs: readonly { owner: PlayerSlotId; action: OwnedUiAction }[]): void {
     const { editor } = this
     if (editor.state === 'LISTENING_FOR_KEY') {
       const code = this.device === 'GAMEPAD' ? this.pad.input.padPress(this.player) : undefined
-      if (p1.includes('BACK') || code === PAD_SYSTEM.BACK) editor.capture('Escape')
+      if (inputs.some(({ owner, action }) => owner === this.player && action === 'BACK') || code === PAD_SYSTEM.BACK) editor.capture('Escape')
       else if (code) editor.capture(code)
       else return
       this.sync(); return
     }
-    p1.forEach((action) => this.command(action))
+    inputs.forEach(({ action }) => this.command(action))
   }
 
   private switchPlayer(): void { if (this.editor.state !== 'SELECT_BINDING') return; this.player = this.player === 'P1' ? 'P2' : 'P1'; this.editor.message = ''; this.sync() }
@@ -84,7 +84,7 @@ export class ControlsPanel {
     if (this.device === 'GAMEPAD' && editor.state === 'SELECT_BINDING' && editor.focus !== RESET_ROW && this.pad.input.padOwner(this.player) === undefined) { editor.message = `PRESS ANY BUTTON ON THE PLAYER ${this.player.slice(1)} STICK FIRST`; return }
     editor.activate()
   }
-  /** 列表與對話框的選單動作；鍵盤與 1P 手把共用。 */
+  /** 列表與對話框的選單動作；鍵盤與兩位玩家的手把共用。 */
   private command(action: OwnedUiAction): void {
     const { editor } = this, dialog = editor.state === 'CONFLICT' || editor.state === 'CONFIRM_RESET'
     if (action === 'NAV_UP' || action === 'NAV_DOWN') { if (!dialog) editor.move(action === 'NAV_UP' ? -1 : 1) }
@@ -116,13 +116,13 @@ export class ControlsPanel {
       key.setText(i === RESET_ROW ? '' : listening ? gamepad ? 'PRESS A BUTTON...' : 'PRESS A KEY...' : `[ ${editor.rules.label(editor.bindings[COMBAT_ACTIONS[i]])} ]`).setColor(colorHex(listening ? 'resultGold' : 'textPrimary'))
     })
     const k = menuKeys(this.editors.KEYBOARD[this.player].bindings, this.player), label = (codes?: readonly string[]): string => keyLabel(codes?.[0] ?? '')
-    // 面板只聽 1P 搖桿，所以確認鍵顯示 1P 的輕踢鍵。
-    const confirm = padLabel(this.editors.GAMEPAD.P1.bindings.LIGHT_KICK), back = padLabel(PAD_SYSTEM.BACK)
+    // 兩位玩家的搖桿都能操作面板，確認鍵顯示目前玩家自己的輕踢鍵。
+    const confirm = padLabel(this.editors.GAMEPAD[this.player].bindings.LIGHT_KICK), back = padLabel(PAD_SYSTEM.BACK)
     this.hint.setText(!gamepad
       ? `↑↓ / ${label(k.NAV_UP)} ${label(k.NAV_DOWN)} 選擇 · ENTER / ${label(k.CONFIRM)} 改鍵 · ESC / ${label(k.BACK)} 返回 · ← → 切換玩家`
       : editor.state === 'LISTENING_FOR_KEY'
         ? `按下 ${this.player.slice(1)}P 搖桿要綁定的按鈕 · ${back} / ESC 取消`
-        : `1P 搖桿：↑↓ 選擇 · ${confirm} 改鍵 · ${back} 返回 · ← → 切換玩家 · TAB 鍵盤`)
+        : `搖桿：↑↓ 選擇 · ${confirm} 改鍵 · ${back} 返回 · ← → 切換玩家 · TAB 鍵盤`)
     combinationRows(editor.bindings, editor.rules.label).forEach(({ label, keys }, i) => this.combos[i].setText(`${label}　${keys}`))
     this.message.setText(editor.state === 'CONFIRM_RESET' ? '' : editor.message)
     this.dialog?.destroy(true); this.dialog = undefined

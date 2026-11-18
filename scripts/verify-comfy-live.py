@@ -13,7 +13,7 @@ OUT = Path('outputs/aligned-character-verification')
 OUT.mkdir(parents=True, exist_ok=True)
 API = 'http://127.0.0.1:19881/api/v1'
 COMFY = 'http://127.0.0.1:8188'
-COMFY_OUTPUT = Path(r'C:\ComfyUI_windows_portable_260701\ComfyUI\output	askforce_2028_ftg')
+COMFY_OUTPUT = Path(r'C:\ComfyUI_windows_portable_260701\ComfyUI\output\taskforce_2028_ftg')
 
 
 def request(url, body=None):
@@ -29,7 +29,8 @@ try:
     report['version'] = stats['system'].get('comfyui_version')
     nodes = request(COMFY + '/object_info')
     workflow = json.loads(Path('ComfyUI_API/CAMCharacter_Swa__1112(API).json').read_text(encoding='utf-8'))
-    report['missingNodes'] = sorted({node['class_type'] for node in workflow.values()} - nodes.keys())
+    types = {node['type'] for node in workflow['nodes']} if 'nodes' in workflow else {node['class_type'] for node in workflow.values()}
+    report['missingNodes'] = sorted(types - nodes.keys())
     report['workflowNodesAvailable'] = not report['missingNodes']
     # Synthetic, non-personal JPEG exercises upload/submission without using a visitor photo.
     image = Image.new('RGB', (512, 512), (130, 130, 130))

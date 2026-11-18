@@ -12,6 +12,9 @@ if not exist "node_modules\.bin\vite.cmd" (
   pause & exit /b 1
 )
 
+rem Console QuickEdit freezes any cmd window (ComfyUI included) the moment it is clicked; new windows read this key.
+reg add HKCU\Console /v QuickEdit /t REG_DWORD /d 0 /f >nul
+
 curl.exe -s -o nul -m 3 http://127.0.0.1:8188/system_stats
 if errorlevel 1 (
   echo [WARN] ComfyUI is not responding on http://127.0.0.1:8188 - character generation will fail until it is started.
