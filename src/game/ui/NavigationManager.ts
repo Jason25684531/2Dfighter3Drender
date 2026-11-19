@@ -7,6 +7,8 @@ export type UIAction = 'NAV_UP' | 'NAV_DOWN' | 'NAV_LEFT' | 'NAV_RIGHT' | 'CONFI
 export class NavigationManager {
   private overlayOpen = false
   private overlayConfirm?: 'RESTART' | 'EXIT'
+  /** 回上一頁／主選單的閘門；回傳 false 即拒絕（例如已送出算圖）。 */
+  leaveGuard: () => boolean = () => true
   constructor(private readonly app: AppStateMachine, private readonly focus: FocusManager, private readonly events: UIEventBus) {}
   isOverlayOpen(): boolean { return this.overlayOpen }
   dispatch(action: UIAction): boolean {
@@ -17,7 +19,7 @@ export class NavigationManager {
   private handle(action: UIAction): boolean {
     if (action === 'BACK' && !this.overlayOpen) {
       const state = this.app.getCurrentState(), back = backRoutes[state]
-      if (back) return this.app.transitionTo(back)
+      if (back) return this.leaveGuard() && this.app.transitionTo(back)
       if (state !== AppState.BATTLE) return false
     }
     if (action === 'NAV_UP' || action === 'NAV_LEFT') { this.focus.move(-1); return true }; if (action === 'NAV_DOWN' || action === 'NAV_RIGHT') { this.focus.move(1); return true }

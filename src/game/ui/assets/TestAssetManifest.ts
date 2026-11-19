@@ -12,13 +12,14 @@ export type SlotType = 'BODY_TEMPLATE' | 'FEATURED' | 'CUSTOM' | 'EMPTY'
 export type SlotStatus = 'AVAILABLE' | 'PROCESSING' | 'READY' | 'FAILED'
 export type CharacterEntry = { id: string; displayName: string; type: Exclude<SlotType, 'EMPTY'>; status: SlotStatus; spriteId?: SpriteId; heroTextureKey?: string; bodyTemplateId?: string; generationId?: string }
 
-// 長官區 05–09，依序填格；10 留空。
+// 長官區 05–10，依序填格：GO、SE7EN、Joneey、YG、Tony、Chris。
 export const testCharacterManifest = {
-  presetB: { id: 'preset-b', displayName: 'Chris', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'chris' },
   presetC: { id: 'preset-c', displayName: 'GO', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'go' },
-  presetG: { id: 'preset-g', displayName: 'Joneey', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'joneey' },
-  presetA: { id: 'preset-a', displayName: 'Tony', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'tony' },
   presetF: { id: 'preset-f', displayName: 'SE7EN', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'se7en' },
+  presetG: { id: 'preset-g', displayName: 'Joneey', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'joneey' },
+  presetH: { id: 'preset-h', displayName: 'YG', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'yg' },
+  presetA: { id: 'preset-a', displayName: 'Tony', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'tony' },
+  presetB: { id: 'preset-b', displayName: 'Chris', type: 'FEATURED', status: 'AVAILABLE', spriteId: 'chris' },
 } as const satisfies Record<string, CharacterEntry>
 
 // Body 01–04 依序對應 S1AW／S2AM／S2LW／S3WW 正式身形；選角畫面一律畫剪影（shared-ia §4.4）。

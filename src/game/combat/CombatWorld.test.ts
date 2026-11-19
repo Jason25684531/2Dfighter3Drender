@@ -29,6 +29,25 @@ describe('CombatWorld', () => {
     expect(events.filter(event => event.type === 'ATTACK_STARTED').at(-1)).toMatchObject({ attack: 'HEAVY_KICK' })
   })
 
+  it('counts every landed hit of back-to-back attacks as one combo, whatever the weight', () => {
+    const attacks = [...ATTACK_ACTIONS], peaks = new Map<string, number>()
+    for (const sequence of attacks.flatMap((a) => attacks.flatMap((b) => attacks.map((c) => [a, b, c])))) {
+      const world = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: 1300, ENEMY: 1450 } })
+      let hits = 0, peak = 0, next = 0
+      world.subscribe((event) => { if (event.type === 'HIT' && event.attacker === 'PLAYER') hits += 1 })
+      for (let t = 0; t < 400 && next < 3; t += 1) {
+        const ready = world.getFighter('PLAYER').attackPhase === 'NONE' && next === hits
+        tick(world, ready ? { ...neutral, attackPressed: true, attack: sequence[next++] } : neutral)
+        peak = Math.max(peak, world.getFighter('PLAYER').combo)
+      }
+      for (let t = 0; t < 60; t += 1) { tick(world); peak = Math.max(peak, world.getFighter('PLAYER').combo) }
+      expect({ sequence, combo: peak }).toEqual({ sequence, combo: hits })
+      peaks.set(sequence.join('>'), peak)
+    }
+    // 重攻擊兩下就倒地，第三招打不到；其餘輕重混打三下都要累計到 3。
+    for (const sequence of ['LIGHT_PUNCH>LIGHT_PUNCH>LIGHT_PUNCH', 'LIGHT_PUNCH>HEAVY_PUNCH>LIGHT_KICK', 'LIGHT_KICK>LIGHT_KICK>HEAVY_PUNCH', 'HEAVY_PUNCH>LIGHT_KICK>HEAVY_KICK']) expect({ sequence, combo: peaks.get(sequence) }).toEqual({ sequence, combo: 3 })
+  })
+
   it('emits a jump event', () => {
     const world = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: 1300, ENEMY: 1520 } }), events: CombatEvent[] = []
     world.subscribe(event => events.push(event))

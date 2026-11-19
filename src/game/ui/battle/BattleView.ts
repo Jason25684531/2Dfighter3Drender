@@ -93,7 +93,9 @@ export class BattleView {
       const blocked = events.some(other => other.type === 'BLOCK' && other.attackId === event.attackId && other.attacker === event.attacker)
       // 打擊感：受擊閃白、頓幀抖動（renderAt）、重擊小震。
       if (!blocked) this.fighter(event.defender).flash()
-      if (!reducedMotion) this.jitter = { id: event.defender, amplitude: blocked ? 4 : 8 }
+      // 倒地那一擊只留畫面震動；受擊者本身不再左右抖，才會一路順著倒下。
+      const falling = events.some(other => other.type === 'KNOCKDOWN' && other.fighter === event.defender)
+      if (!reducedMotion) this.jitter = falling ? undefined : { id: event.defender, amplitude: blocked ? 4 : 8 }
       if (!blocked && event.attack.startsWith('HEAVY') && !reducedMotion) this.scene.cameras.main.shake(120, 0.003)
       const kind = blocked ? 'guard' : 'hit', facing = snapshot.world.fighters[blocked ? event.defender : event.attacker].facing
       playImpactFx(this.scene, this.world, kind, event.at.x, event.at.y, impactFlip(facing), impactScale(kind, event.attack))

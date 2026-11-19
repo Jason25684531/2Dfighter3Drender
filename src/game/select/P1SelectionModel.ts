@@ -9,11 +9,12 @@ export const SLOT_COUNT = GRID_COLUMNS * GRID_ROWS
 export const NICKNAME_MAX = 16
 
 export type Slot = { index: number; type: SlotType; status?: SlotStatus; entry?: CharacterEntry }
-export type P1Phase = 'GRID' | 'OPPONENT' | 'DIFFICULTY' | 'CUSTOMIZE' | 'REVIEW' | 'PROCESSING' | 'FAILED' | 'ALL_READY'
+// NAME＝輸入暱稱頁；CUSTOMIZE＝拍照頁（UX v03 UC02-4／UC03-1：暱稱與拍照分兩屏）。
+export type P1Phase = 'GRID' | 'OPPONENT' | 'DIFFICULTY' | 'NAME' | 'CUSTOMIZE' | 'REVIEW' | 'PROCESSING' | 'FAILED' | 'ALL_READY'
 export type GenerationState = 'PHOTO_CONFIRMED' | 'REQUESTING' | 'PROCESSING' | 'API_READY' | 'DOWNLOADING' | 'DECODED' | 'RUNTIME_READY' | 'FAILED'
 export type PlayerStatus = 'JOIN' | 'SELECTING' | 'READY' | 'WAITING' | 'CUSTOMIZE' | 'OPPONENT' | 'DIFFICULTY' | 'CPU_READY'
 export type OpponentChoice = { characterId: string; difficulty: AiProfileId }
-export type SelectFeedback = 'REJECTED' | 'JOIN_HINT' | 'NAME_REQUIRED' | 'FACE_GENERATION_USED'
+export type SelectFeedback = 'REJECTED' | 'JOIN_HINT' | 'NAME_REQUIRED' | 'FACE_GENERATION_USED' | 'NAME_TAKEN'
 export type SelectionInputResult = SelectFeedback | 'CONFIRMED'
 // photo：本機擷取的 dataURL，只存在記憶體、不進 result()／API。
 type PlayerState = { joined: boolean; cursor: number; locked?: number; nickname: string; customized: boolean; faceGenUsed?: boolean; generation?: GenerationState; photo?: string }
@@ -81,6 +82,8 @@ export class P1SelectionModel {
   heroSlot(id: PlayerSlotId): Slot | undefined { const p = this.state[id]; return p.joined ? this.slot(p.locked ?? p.cursor) : id === 'P2' && this.rival ? this.slot(this.rival.cursor) : undefined }
   isBody(id: PlayerSlotId): boolean { const locked = this.state[id].locked; return locked !== undefined && this.slot(locked).type === 'BODY_TEMPLATE' }
   isReady(id: PlayerSlotId): boolean { const p = this.state[id]; return p.joined && p.locked !== undefined && (!this.isBody(id) || p.customized) }
+  /** 同一局 2P 不得與 1P 同名（UX v03 UC02-4）；1P 先輸入，不需檢查。 */
+  nicknameTaken(id: PlayerSlotId): boolean { return id === 'P2' && this.state.P1.nickname.trim() !== '' && this.state.P1.nickname.trim().toLowerCase() === this.state.P2.nickname.trim().toLowerCase() }
   nicknameValid(id: PlayerSlotId): boolean { const length = this.state[id].nickname.trim().length; return length > 0 && length <= NICKNAME_MAX }
   setNickname(id: PlayerSlotId, name: string): void { this.state[id].nickname = name.slice(0, NICKNAME_MAX) }
   setPhoto(id: PlayerSlotId, photo: string | undefined): void { this.state[id].photo = photo }
@@ -108,10 +111,16 @@ export class P1SelectionModel {
       return undefined
     }
     if (this.phase === 'PROCESSING') return undefined
-    if (this.phase === 'CUSTOMIZE' || this.phase === 'REVIEW') {
+    if (this.phase === 'NAME' || this.phase === 'CUSTOMIZE' || this.phase === 'REVIEW') {
       if (id !== this.owner) return undefined
-      if (this.phase === 'CUSTOMIZE' && action === 'CONFIRM') { if (this.state[id].faceGenUsed) return 'FACE_GENERATION_USED'; if (!this.nicknameValid(id)) return 'NAME_REQUIRED'; this.phase = 'REVIEW'; return 'CONFIRMED' }
-      else if (this.phase === 'CUSTOMIZE' && action === 'BACK') this.abortCustomize()
+      if (this.phase === 'NAME' && action === 'CONFIRM') {
+        if (!this.nicknameValid(id)) return 'NAME_REQUIRED'
+        if (this.nicknameTaken(id)) return 'NAME_TAKEN'
+        this.phase = 'CUSTOMIZE'; return 'CONFIRMED'
+      }
+      else if (this.phase === 'NAME' && action === 'BACK') this.abortCustomize()
+      else if (this.phase === 'CUSTOMIZE' && action === 'CONFIRM') { if (this.state[id].faceGenUsed) return 'FACE_GENERATION_USED'; if (!this.nicknameValid(id)) return 'NAME_REQUIRED'; this.phase = 'REVIEW'; return 'CONFIRMED' }
+      else if (this.phase === 'CUSTOMIZE' && action === 'BACK') this.phase = 'NAME'
       else if (this.phase === 'REVIEW' && action === 'CONFIRM') {
         if (this.state[id].faceGenUsed) return 'FACE_GENERATION_USED'
         this.state[id].faceGenUsed = true; this.state[id].generation = 'PHOTO_CONFIRMED'; this.phase = 'PROCESSING'; return 'CONFIRMED'
@@ -178,7 +187,7 @@ export class P1SelectionModel {
   private advance(): void {
     if (this.phase !== 'GRID' || players.some((id) => this.state[id].joined && this.state[id].locked === undefined)) return
     const next = this.queue()[0]
-    if (next) { this.owner = next; this.phase = 'CUSTOMIZE' } else if (this.state.P2.joined) this.phase = 'ALL_READY'
+    if (next) { this.owner = next; this.phase = 'NAME' } else if (this.state.P2.joined) this.phase = 'ALL_READY'
     else { this.rival ??= { cursor: this.defaultRival(this.state.P1.locked as number), difficulty: DEFAULT_AI_PROFILE.id }; this.phase = 'OPPONENT' }
   }
 

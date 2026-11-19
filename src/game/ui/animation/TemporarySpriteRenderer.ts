@@ -1,10 +1,13 @@
 import Phaser from 'phaser'
 import type { FighterSnapshot } from '../../combat/CombatWorld'
 import { uiTokens } from '../tokens/uiTokens'
-import { presentationSheetFor, resolvePresentation, spriteActionFor, spriteDisplayHeight, spriteFrameFor, spriteOriginY, spriteTextureFrame, spriteTextureKey, victoryHop, type Presentation, type PresentationContext, type SpriteAction, type SpriteId } from './TemporarySpriteManifest'
+import { presentationSheetFor, resolvePresentation, spriteActionFor, spriteDisplayHeight, spriteFrameFor, spriteOriginY, spriteTextureFrame, spriteTextureKey, type Presentation, type PresentationContext, type SpriteAction, type SpriteId } from './TemporarySpriteManifest'
 import { isSheetSprite } from './SheetSpriteManifest'
 import { crouchFrame, peakFrame } from './SpriteHitTest'
 
+
+/** 起身無敵：固定半透明，不閃爍。 */
+const INVULNERABLE_ALPHA = 0.6
 
 export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private readonly shadow: Phaser.GameObjects.Ellipse
@@ -14,6 +17,9 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   /** 目前播放的呈現語意（sheet 角色）；攻擊期間鎖定。 */
   presentation?: Presentation
   private actionStartTick = 0
+  private shownFrame = 0
+  /** 受擊→倒地共用 prone 圖集；倒地動畫接著目前影格往下播，不從第 0 格重來。 */
+  private frameFloor = 0
   private attackId = 0
   private lastTick?: number
   private previousPosition = { x: 0, y: 0 }
@@ -38,17 +44,16 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     this.currentPosition = position; this.lastTick = tick; this.direction = fighter.facing === 'LEFT' ? -1 : 1
     this.renderAt(1)
     if (!this.image || !this.spriteId) return
-    // 起身無敵：每 2 tick 明暗交替；tick 驅動，暫停時一起停。
-    this.image.setAlpha(fighter.invulnerableTicks > 0 && (tick >> 1) % 2 ? 0.35 : 1)
-    this.image.setY(context?.outcome === 'WIN' ? victoryHop(tick) : 0)
+    this.image.setAlpha(fighter.invulnerableTicks > 0 ? INVULNERABLE_ALPHA : 1)
     const action = spriteActionFor(fighter, context)
     // 招式在新 attackId 出現時鎖定，攻擊中途不因放開蹲鍵等而換圖。
     const presentation = !isSheetSprite(this.spriteId) ? undefined : action === 'attack' && fighter.attackId === this.attackId && this.action === 'attack' ? this.presentation : resolvePresentation(fighter, context)
     if (action !== this.action || presentation !== this.presentation || fighter.state !== this.fighterState || (action === 'attack' && fighter.attackId !== this.attackId) || tick < this.actionStartTick) {
+      this.frameFloor = presentation === 'PRONE' && this.presentation === 'PRONE' ? this.shownFrame : 0
       this.action = action; this.fighterState = fighter.state; this.presentation = presentation; this.actionStartTick = tick; this.attackId = fighter.attackId
     }
     const sheet = presentation && presentationSheetFor(this.spriteId, presentation)
-    const frame = spriteFrameFor(fighter, action, tick - this.actionStartTick, this.spriteId, this.peak(action, sheet), sheet)
+    const frame = this.shownFrame = Math.max(this.frameFloor, spriteFrameFor(fighter, action, tick - this.actionStartTick, this.spriteId, this.peak(action, sheet), sheet))
     const key = sheet ? `${this.spriteId}-${sheet}` : spriteTextureKey(this.spriteId, action, frame)
     const textureFrame = spriteTextureFrame(this.spriteId, frame)
     if (this.scene.textures.exists(key) && (this.image.texture.key !== key || (textureFrame !== undefined && String(this.image.frame.name) !== String(textureFrame)))) this.image.setTexture(key, textureFrame).setScale(spriteDisplayHeight(this.spriteId) / this.image.height)

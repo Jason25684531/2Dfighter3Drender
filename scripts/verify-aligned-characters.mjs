@@ -21,21 +21,21 @@ try {
   const check = text => { report.checks.push(text); console.log('PASS ' + text) }
   await page.goto('http://127.0.0.1:5189/')
   await state('P0'); await key('Enter'); await state('P1')
-  assert.deepEqual(await scene(s => s.p1Model.slots.slice(0, 9).map(slot => slot.entry.spriteId)), ['s1aw', 's2am', 's2lw', 's3ww', 'chris', 'go', 'joneey', 'tony', 'se7en'])
+  assert.deepEqual(await scene(s => s.p1Model.slots.slice(0, 10).map(slot => slot.entry.spriteId)), ['s1aw', 's2am', 's2lw', 's3ww', 'go', 'se7en', 'joneey', 'yg', 'tony', 'chris'])
   assert.deepEqual(await scene(s => ['aria-idle-1', 'kael-idle-1', 'riven-idle-1'].filter(key => s.textures.exists(key))), [])
   await shot('01-roster')
-  for (const [index, id] of ['s1aw', 's2am', 's2lw', 's3ww', 'chris', 'go', 'joneey', 'tony', 'se7en'].entries()) {
+  for (const [index, id] of ['s1aw', 's2am', 's2lw', 's3ww', 'go', 'se7en', 'joneey', 'yg', 'tony', 'chris'].entries()) {
     await scene((s, index) => { s.p1Model.focus('P1', index + 1); s.p1View.sync() }, index)
     await shot(`02-preview-${id}`)
   }
-  check('Ordered custom/officer roster, all eight previews, no legacy preloads')
+  check('Ordered custom/officer roster, all ten previews, no legacy preloads')
   const loaded = await scene((s, metadata) => Object.entries(metadata).flatMap(([id, sprite]) => Object.entries(sprite.actions).map(([number, action]) => {
     const key = ({ '01':'intro-victory','02':'idle','03':'walk','04':'jump','05':'crouch','06':'block','07':'prone','08':'attack','09':'punch-heavy','10':'punch-jump','11':'punch-crouch','12':'kick-light','13':'kick-heavy','14':'kick-jump','15':'kick-crouch' })[number]
     const texture = s.textures.get(`${id}-${key}`), animation = s.anims.get(`${id}-${key}`)
     return { id, key, frames: texture.frameTotal - 1, expected: action.frames, fps: animation.frameRate, expectedFps: sprite.fps, width: texture.get(0).width }
   })), metadata)
   for (const action of loaded) { assert.equal(action.frames, action.expected); assert.equal(action.fps, action.expectedFps); assert.equal(action.width, 256) }
-  check('All 120 textures/animations match frame counts, cell dimensions and manifest fps')
+  check('All 150 textures/animations match frame counts, cell dimensions and manifest fps')
   await scene(s => { s.p1Model.focus('P1', 5); s.p1View.sync() })
   await key('f'); await key('f'); await key('f'); await state('P2'); await shot('03-stage')
   await key('Enter'); await state('P3')
@@ -53,7 +53,7 @@ try {
       ['punch-jump', { attack: 'LIGHT_PUNCH', grounded: false }], ['kick-jump', { attack: 'LIGHT_KICK', grounded: false }],
       ['punch-crouch', { attack: 'LIGHT_PUNCH' }, { crouch: true }], ['kick-crouch', { attack: 'LIGHT_KICK' }, { crouch: true }],
     ]
-    for (const id of ['s1aw','s2am','s2lw','s3ww','chris','go','joneey','tony','se7en']) {
+    for (const id of ['s1aw','s2am','s2lw','s3ww','go','se7en','joneey','yg','tony','chris']) {
       const renderer = new TemporarySpriteRenderer(s, id, base.y)
       for (const [i, [expected, patch, context]] of cases.entries()) {
         const fighter = { ...base, state: 'ATTACK', grounded: true, attackPhase: 'ACTIVE', attackTicks: 1, attackId: i + 100, ...patch }
@@ -69,7 +69,7 @@ try {
     s.clock.resume()
     return results
   })
-  assert.equal(poses.length, 120); check('Actual Phaser renderer resolves all 15 presentations for all eight aligned characters')
+  assert.equal(poses.length, 150); check('Actual Phaser renderer resolves all 15 presentations for all ten aligned characters')
   // End rounds quickly through world state; keep the production flow and persistence paths.
   for (let round = 0; round < 2; round++) {
     await scene(s => { s.flow.match.world.fighters.ENEMY.currentHP = 0 })

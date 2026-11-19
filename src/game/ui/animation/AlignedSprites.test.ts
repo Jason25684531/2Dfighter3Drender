@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { CombatWorld } from '../../combat/CombatWorld'
 import { alignedAction, alignedSprites, registerGeneratedSprite, sheetAnimations, sheetUrl, type AlignedSprite } from './SheetSpriteManifest'
-import { presentationSheetFor, spriteFrameFor, victoryHop, type Presentation } from './TemporarySpriteManifest'
+import { presentationSheetFor, spriteFrameFor, type Presentation } from './TemporarySpriteManifest'
 
 describe('aligned character sheets', () => {
   it('matches all source manifests/PNG geometry and compact runtime sheets', () => {
@@ -35,13 +35,9 @@ describe('aligned character sheets', () => {
     expect(spriteFrameFor(idle, 'idle', 100, 'generated-probe', undefined, 'intro-victory')).toBe(7)
     expect(presentationSheetFor('generated-probe', 'BLOCK')).toBe('block')
   })
-  it('loops the victory animation and hops the winner instead of freezing on the last frame', () => {
+  it('loops the victory animation instead of freezing on the last frame', () => {
     const fighter = new CombatWorld().getFighter('PLAYER')
     expect([3, 9, 15, 21].map((t) => spriteFrameFor(fighter, 'victory', t, 'chris', undefined, 'intro-victory'))).toEqual([2, 6, 2, 6])
-    const hops = Array.from({ length: 40 }, (_, t) => victoryHop(t))
-    expect(Math.min(...hops)).toBeLessThan(-10)
-    expect(Math.max(...hops)).toBeLessThanOrEqual(0)
-    expect(Math.min(...hops)).toBeGreaterThanOrEqual(-28)
   })
   it('resolves every semantic action and bounds every combat phase to available frames', () => {
     const fighter = new CombatWorld().getFighter('PLAYER')

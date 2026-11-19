@@ -11,7 +11,7 @@ REPO = Path(__file__).resolve().parents[1]
 SOURCE = REPO / 'assest/source/1113_characters'
 RUNTIME = REPO / 'public/test-assets/1113_characters/runtime'
 metadata = {}
-for folder in ['S1AW', 'S2AM', 'S2LW', 'S3WW', 'Chris', 'GO', 'Joneey', 'Tony', 'SE7EN']:
+for folder in ['S1AW', 'S2AM', 'S2LW', 'S3WW', 'GO', 'SE7EN', 'Joneey', 'YG', 'Tony', 'Chris']:
     source = SOURCE / folder
     manifest = source / 'game_manifest.json'
     data = json.loads(manifest.read_text(encoding='utf-8')) if manifest.exists() else None

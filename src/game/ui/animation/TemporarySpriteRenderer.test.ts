@@ -34,15 +34,39 @@ describe('TemporarySpriteRenderer', () => {
     }
   })
 
-  it('blinks while invulnerable and restores full alpha afterwards', () => {
-    const alphas: number[] = []
-    const image = { height: 128, texture: { key: 'kevin-idle' }, frame: { name: 0 }, setOrigin() { return this }, setScale() { return this }, setTexture() { return this }, setY() { return this }, setAlpha(a: number) { alphas.push(a); return this } }
+  const fake = (key: string) => {
+    const log = { alphas: [] as number[], ys: [] as number[], frames: [] as number[] }
+    const image = { height: 256, texture: { key }, frame: { name: 0 }, setOrigin() { return this }, setScale() { return this }, setY(y: number) { log.ys.push(y); return this },
+      setAlpha(a: number) { log.alphas.push(a); return this }, setTexture(k: string, f: number) { this.texture.key = k; this.frame.name = f; log.frames.push(f); return this } }
     const scene = { add: { ellipse: () => ({ setY: vi.fn() }), image: () => image }, textures: { exists: () => true } }
-    const renderer = new TemporarySpriteRenderer(scene as never, 'kevin', 820)
+    return { log, renderer: new TemporarySpriteRenderer(scene as never, 'go', 820) }
+  }
+
+  it('shows a steady translucent body, not a blink, while invulnerable', () => {
+    const { log, renderer } = fake('go-idle')
     const fighter = new CombatWorld().getFighter('PLAYER')
-    for (let tick = 0; tick < 4; tick += 1) renderer.update({ ...fighter, invulnerableTicks: 5 }, tick)
-    renderer.update(fighter, 4)
-    expect(alphas).toEqual([1, 1, 0.35, 0.35, 1])
+    for (let tick = 0; tick < 6; tick += 1) renderer.update({ ...fighter, invulnerableTicks: 8 - tick }, tick)
+    renderer.update(fighter, 6)
+    expect(new Set(log.alphas.slice(0, 6)).size).toBe(1); expect(log.alphas[0]).toBeLessThan(1)
+    expect(log.alphas.at(-1)).toBe(1)
+  })
+
+  it('keeps the fall moving forward when a flinch turns into a knockdown', () => {
+    const { log, renderer } = fake('go-idle')
+    const fighter = new CombatWorld().getFighter('PLAYER')
+    for (let tick = 0; tick < 12; tick += 1) renderer.update({ ...fighter, state: 'HIT_STUN', hitStunTicks: 14 - tick }, tick)
+    const flinch = log.frames.length
+    for (let tick = 12; tick < 26; tick += 1) renderer.update({ ...fighter, state: 'KNOCKDOWN', knockdownTicks: 26 - tick }, tick)
+    expect(log.frames.length).toBeGreaterThan(flinch)
+    expect(log.frames.every((frame, i) => i === 0 || frame >= log.frames[i - 1])).toBe(true)
+    expect(log.frames.at(-1)).toBe(7)
+  })
+
+  it('keeps the winner on the ground while the victory animation plays', () => {
+    const { log, renderer } = fake('go-idle')
+    const fighter = new CombatWorld().getFighter('PLAYER')
+    for (let tick = 0; tick < 40; tick += 1) renderer.update(fighter, tick, { outcome: 'WIN' })
+    expect(log.ys.every((y) => y === 0)).toBe(true)
   })
 
   it('draws generated characters at the same battle height as the roster', () => {

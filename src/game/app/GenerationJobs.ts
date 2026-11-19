@@ -23,6 +23,8 @@ export class GenerationJobs {
   has(owner: PlayerSlotId): boolean { return Boolean(this.jobs[owner]) }
   assetId(owner: PlayerSlotId): string | undefined { return this.jobs[owner]?.assetId }
   get generating(): boolean { return Object.values(this.jobs).some((job) => job.state === 'processing') }
+  /** 已送出算圖且沒有失敗：之後不可回上一頁或主選單（UX v03 UC03-1／UC05-1）。失敗或素材載入失敗時放行，機台才不會卡死。 */
+  get locked(): boolean { const jobs = Object.values(this.jobs); return jobs.length > 0 && this.assets !== 'failed' && jobs.every((job) => job.state !== 'failed') }
   get failed(): boolean { return Object.values(this.jobs).some((job) => job.state === 'failed') }
 
   async refreshEntries(): Promise<void> {

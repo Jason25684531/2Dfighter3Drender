@@ -56,6 +56,7 @@ export class AppScene extends Phaser.Scene {
   private p1Offline = false
   private lastActivity = 0
   private idleLabel?: Phaser.GameObjects.Text
+  private lockedNotice?: Phaser.GameObjects.Text
   private stageBackdrop?: Phaser.GameObjects.Image
   private attract?: Phaser.GameObjects.DOMElement
   private attractInputConsumed = false
@@ -87,6 +88,7 @@ export class AppScene extends Phaser.Scene {
       // 等待畫面上的模板預覽換成剛生成的角色。
       if (this.appStateMachine.getCurrentState() === AppState.LOADING) this.render(AppState.LOADING)
     })
+    this.ui.navigation.leaveGuard = () => !this.renderLocked() || this.notifyRenderLocked()
     this.selectedStageId = resolveStageAsset(this.persistence?.context.snapshot.selectedStageId).id
     this.input.mouse?.disableContextMenu()
     this.input.on('pointermove', this.noteActivity); this.input.on('pointerdown', this.noteActivity)
@@ -180,7 +182,7 @@ export class AppScene extends Phaser.Scene {
       }
       for (const owner of ['P1', 'P2'] as const) if (this.inputManager.deletePress(owner) && this.p1Model.phase === 'GRID') this.requestDelete(this.p1Model.player(owner).cursor)
       // 拍照／確認照片時 Enter（離開名字框後）與手把 START 也算確認：手把 ✕ 在這頁要留給螢幕鍵盤打字。
-      const flowOwner = this.p1Model.phase === 'CUSTOMIZE' || this.p1Model.phase === 'REVIEW' ? this.p1Model.owner : undefined
+      const flowOwner = this.p1Model.phase === 'NAME' || this.p1Model.phase === 'CUSTOMIZE' || this.p1Model.phase === 'REVIEW' ? this.p1Model.owner : undefined
       const startPressed = actions.includes('CONFIRM') || (pause && this.inputManager.lastDevice() === 'gamepad')
       if (flowOwner && startPressed && !this.p1View?.exitOpen && !owned.some((input) => input.owner === flowOwner && input.action === 'CONFIRM')) this.p1Input(flowOwner, 'CONFIRM')
       // P1 由 1P/2P 擁有者鍵位操作；未標記輸入只保留 Esc（選角中返回標題）。
@@ -220,7 +222,7 @@ export class AppScene extends Phaser.Scene {
   private render(state: AppStateValue): void {
     this.overlay?.destroy(); this.overlay = undefined
     this.current?.destroy(); this.current = undefined
-    this.buttons.clear(); this.idleLabel = undefined; this.stageBackdrop = undefined
+    this.buttons.clear(); this.idleLabel = undefined; this.lockedNotice = undefined; this.stageBackdrop = undefined
     document.body.style.setProperty('--backdrop', `url("${resolveStageAsset(this.selectedStageId).url}")`)
     const root = this.add.container(0, 0).setAlpha(reducedMotion ? 1 : 0)
     this.addBackground(root, state)
@@ -290,6 +292,8 @@ export class AppScene extends Phaser.Scene {
     if (this.p1View?.exitOpen) return
     this.noteActivity()
     const model = this.p1Model, phase = model?.phase
+    // 已送出算圖的玩家不能解除鎖定或退回上一步；另一位沒有送出的玩家照常操作。
+    if (action === 'BACK' && this.renderLocked() && this.jobs.has(owner)) { this.notifyRenderLocked(); return }
     if (phase === 'CUSTOMIZE' && model?.owner === owner && action === 'CONFIRM' && model.player(owner).faceGenUsed) { this.p1View?.feedback(owner, 'FACE_GENERATION_USED'); return }
     this.p1View?.captureOnConfirm(owner, action)
     if (phase === 'CUSTOMIZE' && model?.owner === owner && action === 'CONFIRM' && model.nicknameValid(owner) && !model.player(owner).photo) { this.p1View?.cameraUnavailable(); return }
@@ -348,6 +352,19 @@ export class AppScene extends Phaser.Scene {
     const substate = phase === 'GRID' || phase === 'OPPONENT' || phase === 'DIFFICULTY' || phase === 'ALL_READY' ? 'READY' : phase === 'FAILED' ? 'FALLBACK' : phase
     if (!this.ui.substates.set(AppState.READY, substate)) this.p1View?.sync()
   }
+  /** 選角／載入階段、已送出算圖：不可回上一頁或主選單。其餘畫面（對戰、結算）不受影響。 */
+  private renderLocked(): boolean {
+    const state = this.appStateMachine.getCurrentState()
+    return (state === AppState.READY || state === AppState.SETUP || state === AppState.LOADING) && this.jobs.locked
+  }
+  /** 回傳 false 讓呼叫端直接拒絕；提示 2 秒後自動消失，畫面重建時一併銷毀。 */
+  private notifyRenderLocked(): false {
+    this.lockedNotice?.destroy()
+    const notice = this.add.text(960, 42, '角色算圖中 · 已送出，無法返回上一頁或主選單', { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('resultGold'), backgroundColor: colorHex('shadow') + 'cc', padding: { x: 16, y: 8 } }).setOrigin(0.5).setDepth(1000)
+    this.lockedNotice = notice; this.screen?.add(notice)
+    this.time.delayedCall(2000, () => { if (this.lockedNotice === notice) { notice.destroy(); this.lockedNotice = undefined } })
+    return false
+  }
   private confirmPlayers(): void {
     const players = this.p1Model?.result() ?? {}
     if (!players.P1 || this.p1Model?.phase !== 'ALL_READY') return
@@ -381,12 +398,13 @@ export class AppScene extends Phaser.Scene {
     const state = this.appStateMachine.getCurrentState(), idle = now - this.lastActivity, { idleMs } = uiTokens.p1
     if (state === AppState.IDLE) { if (!this.attract && !this.controlsPanel && !this.boardPanel && idle >= idleMs.attract) this.playAttract(); return }
     const phase = this.p1Model?.phase
-    const limit = state === AppState.READY ? phase === 'GRID' || phase === 'OPPONENT' || phase === 'DIFFICULTY' ? idleMs.select : phase === 'CUSTOMIZE' || phase === 'REVIEW' || phase === 'FAILED' ? idleMs.customize : 0 : 0
+    const limit = state === AppState.READY ? phase === 'GRID' || phase === 'OPPONENT' || phase === 'DIFFICULTY' ? idleMs.select : phase === 'NAME' || phase === 'CUSTOMIZE' || phase === 'REVIEW' || phase === 'FAILED' ? idleMs.customize : 0 : 0
     if (!limit) { this.idleLabel?.setText(''); return }
     if (!this.idleLabel) { this.idleLabel = this.add.text(960, 42, '', { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('resultGold') }).setOrigin(0.5); this.screen?.add(this.idleLabel) }
     this.idleLabel.setText(idle >= limit - 10000 ? `閒置倒數 ${Math.max(0, Math.ceil((limit - idle) / 1000))}s · 操作以繼續` : '')
     if (idle < limit) return
     this.noteActivity()
+    if (this.jobs.generating) return
     if (state === AppState.READY && this.p1Model?.owner) { this.p1Model.abortCustomize(); this.syncP1() }
     else this.ui.navigation.dispatch('FINISH')
   }
@@ -399,7 +417,7 @@ export class AppScene extends Phaser.Scene {
   private confirmStage(): void { this.persistence?.context.set({ selectedStageId: this.selectedStageId }); this.appStateMachine.transitionTo(AppState.LOADING) }
 
   /** 流程總步數：選角（含拍照、1P 選對手）＋選場景。 */
-  private stepTotal(): number { return this.hasCustom() ? 4 : 3 }
+  private stepTotal(): number { return this.hasCustom() ? 5 : 3 }
   private hasCustom(): boolean { return Object.values(this.flow.players).some((player) => characterEntry(player?.characterId)?.type === 'BODY_TEMPLATE') }
   private matchup(): Matchup { return { player: this.playerEntry(), playerName: this.playerName(), enemyName: this.enemyName(), playerSprite: sharpSprite(this.playerSpriteId()), enemySprite: sharpSprite(this.enemySpriteId()), twoPlayer: Boolean(this.flow.players.P2), stageId: this.selectedStageId } }
   private playerEntry(): CharacterEntry { return this.rosterEntry(this.flow.players.P1?.characterId) ?? testCharacterManifest.presetA }

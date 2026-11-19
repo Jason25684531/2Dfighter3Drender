@@ -19,7 +19,7 @@ export class StageParallax {
   private paused = false
   constructor(scene: Phaser.Scene, stage: StageId, private readonly reduced: boolean, back: Phaser.GameObjects.Container, front: Phaser.GameObjects.Container) {
     this.staticMode = reduced
-    this.background = scene.add.image(960, 540, stage === 'laboratory' && scene.textures.exists('lab-poster') ? 'lab-poster' : stageTextureKey(stage))
+    this.background = scene.add.image(960, 540 - (STAGE_TUNING.backgroundLift[stage] ?? 0), stage === 'laboratory' && scene.textures.exists('lab-poster') ? 'lab-poster' : stageTextureKey(stage))
     // 等比 cover：寬度至少能涵蓋背景層在鏡頭上限時的位移。
     this.background.setScale(Math.max(coverWidth(parallax.background) / this.background.width, 1080 / this.background.height))
     back.add(this.background)

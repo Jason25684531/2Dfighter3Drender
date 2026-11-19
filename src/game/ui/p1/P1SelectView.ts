@@ -32,12 +32,16 @@ const withKeys = (owner: PlayerSlotId, base: Identity): Identity & { keys: strin
   get confirm() { return keyLabel(menuKeys(loadProfiles()[owner], owner).CONFIRM[0] ?? '') },
   get back() { return keyLabel(menuKeys(loadProfiles()[owner], owner).BACK[0] ?? '') } })
 /** 每次遊玩限生成一次；PLAY AGAIN 仍是同一次遊玩，游標已預設在剛生成的角色。 */
+const NAME_REQUIRED_HINT = 'ENTER A NAME FIRST · 請先輸入名稱'
+const NAME_TAKEN_HINT = 'NAME ALREADY USED · 名稱已被 1P 使用，請改一個'
 const FACE_USED_HINT = '本次已生成角色 · 請改選名冊中的角色，或結算後選 FINISH 重新拍照'
 const identity = {
   P1: withKeys('P1', { main: colors.playerPrimary, glow: colors.playerGlow, text: 'playerGlow', tag: '1P', label: 'PLAYER 1' }),
   P2: withKeys('P2', { main: colors.enemyPrimary, glow: colors.enemyGlow, text: 'enemyGlow', tag: '2P', label: 'PLAYER 2' }),
 }
 const pad = (index: number): string => String(index).padStart(2, '0')
+// 拍照／確認照片共用的取景框（16:9，全幅不裁切）；暱稱頁不佔用。
+const VIEWFINDER = { x: 960, y: 590, width: 800, height: 450 }
 // 第 2 列起下移一段，讓 ROSTER 標題有位置；所有游標／格子都經過 cellCenter，導覽不受影響。
 const SECTION_GAP = 34
 const cellCenter = (index: number): { x: number; y: number } => {
@@ -251,7 +255,7 @@ export class P1SelectView {
   private media?: Phaser.GameObjects.DOMElement
   private cameraVideo?: HTMLVideoElement
   private stream?: MediaStream
-  private takePhoto?: ActionButton
+  private primary?: ActionButton
   private nameHint?: Phaser.GameObjects.Text
   private nameCount?: Phaser.GameObjects.Text
   private nameKeyboard?: NameKeyboard
@@ -313,7 +317,7 @@ export class P1SelectView {
       })
     }
     if (!reducedMotion && model.phase === 'REVIEW') {
-      const shutter = scene.add.rectangle(960, 640, 640, 340, colors.textPrimary); root.add(shutter)
+      const shutter = scene.add.rectangle(VIEWFINDER.x, VIEWFINDER.y, VIEWFINDER.width, VIEWFINDER.height, colors.textPrimary); root.add(shutter)
       this.tweens.push(scene.tweens.add({ targets: shutter, alpha: 0, duration: 80, onComplete: () => shutter.destroy() }))
     }
   }
@@ -351,7 +355,7 @@ export class P1SelectView {
       return !player.joined ? `2P  ${id.confirm} 加入` : player.locked !== undefined ? `${id.tag}  ${id.back} 解除鎖定` : `${id.tag}  ${id.keys} 移動 · ${id.confirm} 確認${owner === 'P2' ? ` · ${id.back} 退出` : ''}`
     }
     this.keysP1?.setText(commands('P1'))
-    this.stepLabel?.setText(customizing ? '02 / 04 · 自訂角色' : `01 / ${model.slots.some(slot => slot.type === 'BODY_TEMPLATE' && (model.player('P1').locked === slot.index || model.player('P2').locked === slot.index)) ? '04' : '03'} · 選擇角色`)
+    this.stepLabel?.setText(model.phase === 'NAME' ? '02 / 05 · 輸入暱稱' : customizing ? '03 / 05 · 拍照' : `01 / ${model.slots.some(slot => slot.type === 'BODY_TEMPLATE' && (model.player('P1').locked === slot.index || model.player('P2').locked === slot.index)) ? '05' : '03'} · 選擇角色`)
     this.modeText?.setText(duo ? '1P VS 2P · 雙人對戰' : '1P VS CPU · 單人挑戰')
     this.keysP2?.setText(commands('P2'))
     if (model.phase === 'ALL_READY' && !this.banner) this.showBanner()
@@ -368,7 +372,8 @@ export class P1SelectView {
       this.hint.setText(rival && slot?.index === this.model.player('P1').locked ? 'YOURSELF · 不可選擇自己' : slot?.type === 'EMPTY' ? 'EMPTY SLOT · 空位不可選取' : slot?.status === 'PROCESSING' ? 'PROCESSING · 處理中' : 'UNAVAILABLE · 暫不可用')
     }
     if (feedback === 'JOIN_HINT' && !reducedMotion) this.tweens.push(this.scene.tweens.add({ targets: this.heroes.P2, alpha: 0.55, duration: 90, yoyo: true }))
-    if (feedback === 'NAME_REQUIRED') { this.nameHint?.setVisible(true); (this.nameInput?.node as HTMLInputElement | undefined)?.focus() }
+    if (feedback === 'NAME_REQUIRED') { this.nameHint?.setText(NAME_REQUIRED_HINT).setColor(colorHex('danger')).setVisible(true); (this.nameInput?.node as HTMLInputElement | undefined)?.focus() }
+    if (feedback === 'NAME_TAKEN') { this.nameHint?.setText(NAME_TAKEN_HINT).setColor(colorHex('danger')).setVisible(true); (this.nameInput?.node as HTMLInputElement | undefined)?.focus() }
   }
 
   cameraUnavailable(): void { this.nameHint?.setText('CAMERA UNAVAILABLE · 請允許相機或跳過拍照').setVisible(true) }
@@ -399,14 +404,24 @@ export class P1SelectView {
     blankPhoto = Math.sqrt(squares / count - (sum / count) ** 2) < 40 ? photo : undefined
   }
 
-  private startCamera(note: Phaser.GameObjects.Text, band: Phaser.GameObjects.Text): void {
+  /** UX v03 UC03-1：四角 L 型對位標記，只框臉；放在 DOM 取景框內才不會被影像蓋住。 */
+  private faceCorners(owner: PlayerSlotId): HTMLElement[] {
+    const color = colorHex(identity[owner].text), box = { width: 300, height: 360 }, arm = 48
+    return [[0, 0], [1, 0], [0, 1], [1, 1]].map(([right, bottom]) => {
+      const corner = document.createElement('div')
+      corner.style.cssText = `position:absolute;width:${arm}px;height:${arm}px;box-sizing:border-box;left:${(VIEWFINDER.width - box.width) / 2 + right * (box.width - arm)}px;top:${(VIEWFINDER.height - box.height) / 2 + bottom * (box.height - arm)}px;border:0 solid ${color};border-${bottom ? 'bottom' : 'top'}-width:6px;border-${right ? 'right' : 'left'}-width:6px`
+      return corner
+    })
+  }
+
+  private startCamera(owner: PlayerSlotId, note: Phaser.GameObjects.Text, band: Phaser.GameObjects.Text): void {
     const wrapper = document.createElement('div')
-    wrapper.style.cssText = 'width:636px;height:336px;overflow:hidden;background:#000;display:none'
+    wrapper.style.cssText = `position:relative;width:${VIEWFINDER.width}px;height:${VIEWFINDER.height}px;overflow:hidden;background:#000;display:none`
     const video = document.createElement('video')
     video.muted = true; video.playsInline = true; video.autoplay = true; video.setAttribute('aria-label', 'Camera preview')
-    video.style.cssText = 'width:636px;height:336px;object-fit:cover;transform:scaleX(-1);background:#000;display:block'
-    wrapper.append(video)
-    const media = this.scene.add.dom(960, 640, wrapper)
+    video.style.cssText = `width:${VIEWFINDER.width}px;height:${VIEWFINDER.height}px;object-fit:cover;transform:scaleX(-1);background:#000;display:block`
+    wrapper.append(video, ...this.faceCorners(owner))
+    const media = this.scene.add.dom(VIEWFINDER.x, VIEWFINDER.y, wrapper)
     this.media = media; this.cameraVideo = video
     const fail = (): void => { if (note.active) note.setText('CAMERA UNAVAILABLE · 相機無法使用，請允許相機或跳過').setColor(colorHex('resultGold')) }
     if (!navigator.mediaDevices?.getUserMedia) { fail(); return }
@@ -485,46 +500,58 @@ export class P1SelectView {
       queue.add(label(scene, -100 + i * 220, 0, `${identity[p].tag} · ${state}`, p === owner ? identity[p].text : state === 'READY' ? 'statusLime' : 'textSecondary', type.body).setOrigin(0, 0.5))
     })
     root.add(queue)
-    const chamber = new AngularPanel(scene, 760, 720, colors.panel, 0.92, { slant: 18 }).setPosition(960, 640)
+    const chamber = new AngularPanel(scene, 860, 720, colors.panel, 0.92, { slant: 18 }).setPosition(960, 640)
     chamber.shape.setStrokeStyle(2, colors.systemBlue, 0.7); root.add(chamber)
     root.add(label(scene, 960, 300, `${id.label} · ${slot.entry?.displayName ?? ''}`, id.text, type.title).setOrigin(0.5))
-    const frame = scene.add.rectangle(960, 640, 640, 340, colors.background0, 0.92).setStrokeStyle(2, colors.systemBlue, 0.9)
-    const lines = scene.add.graphics().lineStyle(1, colors.lineDim, 0.6)
-    for (let i = 1; i < 3; i += 1) { lines.lineBetween(640 + i * 640 / 3, 470, 640 + i * 640 / 3, 810); lines.lineBetween(640, 470 + i * 340 / 3, 1280, 470 + i * 340 / 3) }
-    root.add([frame, lines])
+    const framed = model.phase === 'CUSTOMIZE' || model.phase === 'REVIEW', viewfinder = framed ? VIEWFINDER : { x: 960, y: 640, width: 640, height: 340 }
+    if (model.phase !== 'NAME') {
+      root.add(scene.add.rectangle(viewfinder.x, viewfinder.y, viewfinder.width, viewfinder.height, colors.background0, 0.92).setStrokeStyle(2, colors.systemBlue, 0.9))
+      if (!framed) {
+        const lines = scene.add.graphics().lineStyle(1, colors.lineDim, 0.6)
+        for (let i = 1; i < 3; i += 1) { lines.lineBetween(640 + i * 640 / 3, 470, 640 + i * 640 / 3, 810); lines.lineBetween(640, 470 + i * 340 / 3, 1280, 470 + i * 340 / 3) }
+        root.add(lines)
+      }
+    }
     const button = (text: string, subtitle: string, x: number, color: number, action: OwnedUiAction): ActionButton => {
       const b = new ActionButton(scene, text, 320, 84, color, subtitle).setPosition(x, 940)
       b.on('pointerup', () => this.hooks.onInput(owner, action)); root.add(b); return b
     }
-    if (model.phase === 'CUSTOMIZE') {
-      const band = new AngularPanel(scene, 640, 36, colors.resultGold, 1, { slant: 10 }).setPosition(960, 446)
+    if (model.phase === 'NAME') {
+      // 第 1 頁：只輸入暱稱（UX v03 UC02-4）；鍵盤直接打字，手把用螢幕鍵盤。1P 完成才輪到 2P。
+      root.add(label(scene, 660, 352, 'PLAYER NAME · 玩家名稱', 'textSecondary').setOrigin(0, 0.5))
+      this.nameCount = label(scene, 1260, 352, '', 'textSecondary').setOrigin(1, 0.5); root.add(this.nameCount)
+      this.nameInput = this.createNameInput(owner, player.nickname)
+      this.nameHint = label(scene, 960, 446, NAME_REQUIRED_HINT, 'danger').setOrigin(0.5); root.add(this.nameHint)
+      this.buildNameKeyboard(owner)
+      button('BACK', `${id.back} · 返回選角`, 790, colors.panelRaised, 'BACK')
+      this.primary = button('NEXT', `${id.confirm} / ENTER · 下一步拍照`, 1130, id.main, 'CONFIRM')
+      this.refreshName(owner)
+    } else if (model.phase === 'CUSTOMIZE') {
+      // 第 2 頁：只拍照（UX v03 UC03-1）；無倒數，預設焦點在【拍照】。
+      const band = new AngularPanel(scene, VIEWFINDER.width, 36, colors.resultGold, 1, { slant: 10 }).setPosition(VIEWFINDER.x, VIEWFINDER.y - VIEWFINDER.height / 2 + 18)
       const bandText = label(scene, 0, 0, 'PROTOTYPE / CAMERA NOT CONNECTED · 原型 · 相機未連接', 'background0').setOrigin(0.5)
       band.add(bandText); root.add(band)
-      const cameraNote = label(scene, 960, 640, 'CAMERA CONNECTING · 相機連線中（請允許使用相機）', 'systemBlue', type.body).setOrigin(0.5)
-      root.add(cameraNote); this.startCamera(cameraNote, bandText)
-      root.add(label(scene, 640, 352, 'PLAYER NAME · 玩家名稱', 'textSecondary').setOrigin(0, 0.5))
-      this.nameCount = label(scene, 1280, 352, '', 'textSecondary').setOrigin(1, 0.5); root.add(this.nameCount)
-      this.nameInput = this.createNameInput(owner, player.nickname)
-      button('BACK', `${id.back} · 返回`, 790, colors.panelRaised, 'BACK')
-      this.takePhoto = button('TAKE PHOTO', `${id.confirm} / ENTER / □ · 拍照`, 1130, id.main, 'CONFIRM').setEnabled(!player.faceGenUsed)
+      const cameraNote = label(scene, VIEWFINDER.x, VIEWFINDER.y, 'CAMERA CONNECTING · 相機連線中（請允許使用相機）', 'systemBlue', type.body).setOrigin(0.5)
+      root.add(cameraNote); this.startCamera(owner, cameraNote, bandText)
+      root.add(label(scene, 960, 856, 'ALIGN YOUR FACE · 把臉對準框裡，正面直視鏡頭', 'textPrimary', type.body).setOrigin(0.5))
+      button('BACK', `${id.back} · 返回上一頁`, 790, colors.panelRaised, 'BACK')
+      this.primary = button('TAKE PHOTO', `${id.confirm} / ENTER / □ · 拍照`, 1130, id.main, 'CONFIRM').setEnabled(!player.faceGenUsed)
       const skip = new ActionButton(scene, 'SKIP PHOTO', 300, 72, colors.panelRaised, `${keyLabel(loadProfiles()[owner].LIGHT_KICK)} · 跳過拍照`).setPosition(960, 1024)
       skip.on('pointerup', () => this.hooks.onSkip?.()); root.add(skip)
-      this.nameHint = label(scene, 960, 856, player.faceGenUsed ? FACE_USED_HINT : 'ENTER A NAME FIRST · 請先輸入名稱', player.faceGenUsed ? 'textSecondary' : 'danger').setOrigin(0.5); root.add(this.nameHint)
-      this.buildNameKeyboard(owner)
-      this.refreshName(owner)
+      this.nameHint = label(scene, 960, 896, player.faceGenUsed ? FACE_USED_HINT : '', 'textSecondary').setOrigin(0.5).setVisible(Boolean(player.faceGenUsed)); root.add(this.nameHint)
     } else if (model.phase === 'REVIEW') {
       if (player.photo) {
         const image = document.createElement('img'); image.src = player.photo; image.alt = 'Captured photo'
-        image.style.cssText = 'width:636px;height:336px;object-fit:contain;background:#000'
-        this.media = scene.add.dom(960, 640, image)
-        root.add(player.photo === blankPhoto ? label(scene, 960, 446, 'NO FACE? · 畫面幾乎沒有細節，可能沒拍到人或鏡頭被遮住，建議重拍', 'resultGold').setOrigin(0.5) : label(scene, 960, 446, 'PHOTO · 確認後將上傳生成角色', 'statusLime').setOrigin(0.5))
+        image.style.cssText = `width:${VIEWFINDER.width}px;height:${VIEWFINDER.height}px;object-fit:contain;background:#000`
+        this.media = scene.add.dom(VIEWFINDER.x, VIEWFINDER.y, image)
+        root.add(player.photo === blankPhoto ? label(scene, 960, 350, 'NO FACE? · 畫面幾乎沒有細節，可能沒拍到人或鏡頭被遮住，建議重拍', 'resultGold').setOrigin(0.5) : label(scene, 960, 350, 'PHOTO · 確認後將上傳生成角色', 'statusLime').setOrigin(0.5))
       } else {
         root.add(label(scene, 960, 790, 'MOCK PHOTO · 模擬照片', 'textSecondary').setOrigin(0.5))
       }
-      root.add(label(scene, 960, 400, `${slot.entry?.displayName ?? ''}  ·  ${player.nickname.trim()}`, 'textPrimary', type.body).setOrigin(0.5))
-      root.add(scene.add.text(960, 858, 'USE THIS PHOTO? · 使用這張照片？', typography.secondaryAction).setOrigin(0.5))
+      root.add(label(scene, 960, 330, player.nickname.trim(), 'textPrimary', type.body).setOrigin(0.5))
+      root.add(scene.add.text(960, 868, 'USE THIS PHOTO? · 使用這張照片？', typography.secondaryAction).setOrigin(0.5))
       button('RETAKE', `${id.back} · 重拍`, 790, colors.panelRaised, 'BACK')
-      button('CONFIRM', `${id.confirm} · 確認`, 1130, id.main, 'CONFIRM')
+      button('CONFIRM', `${id.confirm} · 確認送出`, 1130, id.main, 'CONFIRM')
     } else if (model.phase === 'FAILED') {
       root.add(label(scene, 960, 600, 'GENERATION FAILED', 'danger', type.h2).setOrigin(0.5))
       root.add(label(scene, 960, 680, '本次生成已送出，不能重試；請返回選角', 'textPrimary', type.body).setOrigin(0.5))
@@ -562,17 +589,24 @@ export class P1SelectView {
     const input = document.createElement('input')
     input.maxLength = NICKNAME_MAX; input.value = value; input.placeholder = 'PLAYER NAME'; input.autocomplete = 'off'; input.setAttribute('aria-label', 'Player name')
     input.style.cssText = `width:600px;height:56px;padding:0 16px;box-sizing:border-box;border:0;border-bottom:3px solid ${colorHex(identity[owner].text)};background:${colorHex('background1')};color:${colorHex('textPrimary')};font:24px Chivo,'Noto Sans TC',sans-serif;outline:none`
-    // 打字期間不讓按鍵進入遊戲輸入（WASD/J/K/Backspace 都是文字）；Enter／Esc 結束輸入。
-    input.addEventListener('keydown', (event) => { event.stopPropagation(); if (!event.isComposing && (event.key === 'Enter' || event.key === 'Escape')) { event.preventDefault(); input.blur(); this.takePhoto?.setFocused(this.model.nicknameValid(owner)) } })
+    // 打字期間不讓按鍵進入遊戲輸入（WASD/J/K/Backspace 都是文字）；Enter 完成輸入並進拍照頁，Esc 只離開輸入框。
+    input.addEventListener('keydown', (event) => {
+      event.stopPropagation()
+      if (event.isComposing || (event.key !== 'Enter' && event.key !== 'Escape')) return
+      event.preventDefault(); input.blur()
+      if (event.key === 'Enter') this.hooks.onInput(owner, 'CONFIRM')
+    })
     input.addEventListener('input', () => { this.hooks.onNickname(owner, input.value); this.refreshName(owner) })
     const element = this.scene.add.dom(960, 392, input)
+    // 一進頁面就能直接打字；輪到 2P 時同樣重建、同樣取得焦點。
+    this.scene.time.delayedCall(0, () => { if (input.isConnected) input.focus() })
     return element
   }
 
-  /** 手把在拍照頁：方向選字、確認輸入。選到 OK 或不在拍照頁時回傳 false，讓確認照常拍照。 */
+  /** 手把在暱稱頁：方向選字、確認輸入。選到 OK 或不在暱稱頁時回傳 false，讓確認照常進下一頁。 */
   nameKey(owner: PlayerSlotId, action: OwnedUiAction): boolean {
     const keyboard = this.nameKeyboard
-    if (!keyboard || this.model.phase !== 'CUSTOMIZE' || owner !== this.model.owner) return false
+    if (!keyboard || this.model.phase !== 'NAME' || owner !== this.model.owner) return false
     if (keyboard.move(action)) { this.paintKeys(); return true }
     const name = action === 'CONFIRM' ? keyboard.type(this.model.player(owner).nickname, NICKNAME_MAX) : undefined
     if (name === undefined) return false
@@ -584,10 +618,10 @@ export class P1SelectView {
 
   private buildNameKeyboard(owner: PlayerSlotId): void {
     const { scene, root } = this, keyboard = this.nameKeyboard = new NameKeyboard()
-    root.add(label(scene, 1400, 456, 'STICK KEYBOARD · 搖桿選字 ✕ 輸入 · 選 OK 拍照', 'textSecondary').setOrigin(0, 0.5))
+    root.add(label(scene, 960, 486, 'STICK KEYBOARD · 搖桿選字 ✕ 輸入 · 選 OK 下一步', 'textSecondary').setOrigin(0.5))
     this.keyCells = NAME_KEYS.map((keys, r) => keys.map((key, c) => {
-      const width = keys.length === 3 ? 152 : 44, x = 1400 + c * (width + 4) + width / 2, y = 500 + r * 52
-      const cell = scene.add.rectangle(x, y, width, 46, colors.background1).setStrokeStyle(2, colors.lineDim).setInteractive({ useHandCursor: true })
+      const width = keys.length === 3 ? 200 : 56, x = 960 - 310 + c * (width + 6) + width / 2, y = 536 + r * 58
+      const cell = scene.add.rectangle(x, y, width, 50, colors.background1).setStrokeStyle(2, colors.lineDim).setInteractive({ useHandCursor: true })
       cell.on('pointerup', () => { keyboard.row = r; keyboard.col = c; this.paintKeys(); if (!this.nameKey(owner, 'CONFIRM')) this.hooks.onInput(owner, 'CONFIRM') })
       root.add([cell, label(scene, x, y, key, 'textPrimary', type.body).setOrigin(0.5)])
       return cell
@@ -606,6 +640,8 @@ export class P1SelectView {
   private refreshName(owner: PlayerSlotId): void {
     const valid = this.model.nicknameValid(owner)
     this.nameCount?.setText(`${this.model.player(owner).nickname.length}/${NICKNAME_MAX}`)
-    this.takePhoto?.setEnabled(valid && !this.model.player(owner).faceGenUsed); this.nameHint?.setVisible(!valid || Boolean(this.model.player(owner).faceGenUsed))
+    this.primary?.setEnabled(valid)
+    if (valid) this.nameHint?.setVisible(false)
+    else this.nameHint?.setText(NAME_REQUIRED_HINT).setColor(colorHex('danger')).setVisible(true)
   }
 }

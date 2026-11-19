@@ -18,6 +18,11 @@ export const STAGE_TUNING = {
   wallMargin: 150,
   /** 兩人最大距離（world），須小於可視寬度減去角色寬，才能保證兩人同時在畫面內。 */
   maxSeparation: 1800,
+  /**
+   * 各場景背景整體上移多少畫面像素，讓角色腳底（邏輯地面 floorY → 螢幕 y 820）落在該背景的地板上。
+   * 只動畫面；邏輯地面高度各場景一致（UX v03 UC05-1）。上限＝背景超出畫面的一半（見 stageTuning.test.ts），再大下緣會露底。
+   */
+  backgroundLift: { laboratory: 0, 'company-building': 211 } as Readonly<Record<string, number>>,
 } as const
 
 const { worldZoom, backgroundTravel, parallax } = STAGE_TUNING

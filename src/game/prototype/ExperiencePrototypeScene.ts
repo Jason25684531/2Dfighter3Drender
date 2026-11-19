@@ -108,7 +108,7 @@ export class ExperiencePrototypeScene extends BootScene {
   }
   private selectInput(owner: PlayerSlotId, action: OwnedUiAction): void {
     if (this.view?.exitOpen) { this.view.handleExit([action]); return }
-    if (action === 'BACK' && this.model.phase === 'CUSTOMIZE' && owner === this.model.owner) {
+    if (action === 'BACK' && this.model.phase === 'NAME' && owner === this.model.owner) {
       this.view?.confirmExit(() => { this.model.abortCustomize(); this.refreshSelection(true) }); return
     }
     this.view?.captureOnConfirm(owner, action)

@@ -19,6 +19,13 @@ describe('D2 UI framework', () => {
   it('does not re-emit overlay close when already closed', () => { const e = new UIEventBus(), listener = vi.fn(), n = new NavigationManager(new AppStateMachine(), new FocusManager(e), e); e.on('OVERLAY_CHANGED', listener); n.dispatch('CLOSE_MENU'); expect(listener).not.toHaveBeenCalled() })
   it('keeps exit confirmation in the overlay and lets back return to the menu', () => { const e = new UIEventBus(), app = new AppStateMachine(), f = new FocusManager(e), n = new NavigationManager(app, f, e); n.dispatch('OPEN_MENU'); expect(n.openExitConfirmation()).toBe(true); expect(n.isExitConfirmationOpen()).toBe(true); expect(app.getCurrentState()).toBe(AppState.IDLE); n.dispatch('BACK'); expect(n.isExitConfirmationOpen()).toBe(false); expect(n.isOverlayOpen()).toBe(true) })
   it('keeps restart and exit confirmations distinguishable until cancelled', () => { const e = new UIEventBus(), n = new NavigationManager(new AppStateMachine(), new FocusManager(e), e); n.dispatch('OPEN_MENU'); n.openExitConfirmation('RESTART'); expect(n.getConfirmationAction()).toBe('RESTART'); n.dispatch('BACK'); n.openExitConfirmation('EXIT'); expect(n.getConfirmationAction()).toBe('EXIT'); n.dispatch('BACK'); expect(n.getConfirmationAction()).toBeUndefined() })
+  it('refuses BACK to the previous screen or home while the leave guard says no', () => {
+    const app = new AppStateMachine(), e = new UIEventBus(), nav = new NavigationManager(app, new FocusManager(e), e); app.transitionTo(AppState.READY)
+    nav.leaveGuard = () => false
+    expect(nav.dispatch('BACK')).toBe(false); expect(app.getCurrentState()).toBe(AppState.READY)
+    nav.leaveGuard = () => true
+    expect(nav.dispatch('BACK')).toBe(true); expect(app.getCurrentState()).toBe(AppState.IDLE)
+  })
   it('P2 stage selection rejects BACK and has no return route to P1', () => {
     const app = new AppStateMachine(), e = new UIEventBus(), nav = new NavigationManager(app, new FocusManager(e), e); app.transitionTo(AppState.READY); app.transitionTo(AppState.SETUP)
     expect(nav.dispatch('BACK')).toBe(false); expect(app.getCurrentState()).toBe(AppState.SETUP)

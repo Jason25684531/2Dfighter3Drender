@@ -48,6 +48,8 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
 
 // 24Hz：倒地 0.5 秒、起身無敵 1 秒；輕攻擊累計 3 下或重攻擊累計 2 下倒地（分開計，起身歸零）。
 // hitFreeze：造成倒地（含 K.O.）那一擊的頓幀，0.25 秒，須大於任何招式的 hitFreeze。
+// 連擊窗＝本招剩餘的判定＋收招，再加 COMBO_GRACE_TICKS 讓下一招出手；hitStun 比整個出招週期短，單靠它任何連打都會斷。
+const COMBO_GRACE_TICKS = 12
 export const KNOCKDOWN = { downTicks: 12, invulnerableTicks: 24, lightHits: 3, heavyHits: 2, hitFreeze: 6 } as const
 
 export type CombatEvent =
@@ -225,7 +227,7 @@ export class CombatWorld {
         this.emit({ type: 'BLOCK', attacker: attackerId, defender: defenderId, attackId: attacker.attackId }); return
       }
       defender.pushTicks = move.knockbackTicks ?? 0; defender.pushVx = direction * (move.knockback ?? 0); this.freezeTicks = move.hitFreeze ?? 0
-      const previousHP = defender.currentHP; defender.currentHP = Math.max(0, defender.currentHP - move.damage); defender.attackPhase = 'NONE'; defender.attackTicks = 0; this.setCombo(attacker, attacker.comboWindowTicks > 0 ? attacker.combo + 1 : 1); attacker.comboWindowTicks = move.hitStunTicks; this.setCombo(defender, 0)
+      const previousHP = defender.currentHP; defender.currentHP = Math.max(0, defender.currentHP - move.damage); defender.attackPhase = 'NONE'; defender.attackTicks = 0; this.setCombo(attacker, attacker.comboWindowTicks > 0 ? attacker.combo + 1 : 1); attacker.comboWindowTicks = move.activeTicks - 1 + move.recoveryTicks + COMBO_GRACE_TICKS; this.setCombo(defender, 0)
       if (attacker.attack.startsWith('HEAVY')) defender.heavyHits += 1; else defender.lightHits += 1
       if (defender.heavyHits >= KNOCKDOWN.heavyHits || defender.lightHits >= KNOCKDOWN.lightHits || defender.currentHP === 0) { defender.hitStunTicks = 0; defender.knockdownTicks = KNOCKDOWN.downTicks; defender.state = 'KNOCKDOWN'; this.freezeTicks = KNOCKDOWN.hitFreeze; this.emit({ type: 'KNOCKDOWN', fighter: defenderId }) }
       else { defender.hitStunTicks = move.hitStunTicks; defender.state = 'HIT_STUN' }
