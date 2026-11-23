@@ -512,8 +512,8 @@ export class P1SelectView {
         root.add(lines)
       }
     }
-    const button = (text: string, subtitle: string, x: number, color: number, action: OwnedUiAction): ActionButton => {
-      const b = new ActionButton(scene, text, 320, 84, color, subtitle).setPosition(x, 940)
+    const button = (text: string, subtitle: string, x: number, color: number, action: OwnedUiAction, width = 320): ActionButton => {
+      const b = new ActionButton(scene, text, width, 84, color, subtitle).setPosition(x, 940)
       b.on('pointerup', () => this.hooks.onInput(owner, action)); root.add(b); return b
     }
     if (model.phase === 'NAME') {
@@ -533,12 +533,12 @@ export class P1SelectView {
       band.add(bandText); root.add(band)
       const cameraNote = label(scene, VIEWFINDER.x, VIEWFINDER.y, 'CAMERA CONNECTING · 相機連線中（請允許使用相機）', 'systemBlue', type.body).setOrigin(0.5)
       root.add(cameraNote); this.startCamera(owner, cameraNote, bandText)
-      root.add(label(scene, 960, 856, 'ALIGN YOUR FACE · 把臉對準框裡，正面直視鏡頭', 'textPrimary', type.body).setOrigin(0.5))
-      button('BACK', `${id.back} · 返回上一頁`, 790, colors.panelRaised, 'BACK')
-      this.primary = button('TAKE PHOTO', `${id.confirm} / ENTER / □ · 拍照`, 1130, id.main, 'CONFIRM').setEnabled(!player.faceGenUsed)
-      const skip = new ActionButton(scene, 'SKIP PHOTO', 300, 72, colors.panelRaised, `${keyLabel(loadProfiles()[owner].LIGHT_KICK)} · 跳過拍照`).setPosition(960, 1024)
+      root.add(label(scene, 960, 840, 'ALIGN YOUR FACE · 把臉對準框裡，正面直視鏡頭', 'textPrimary', type.body).setOrigin(0.5))
+      button('BACK', `${id.back} · 返回上一頁`, 660, colors.panelRaised, 'BACK', 260)
+      this.primary = button('TAKE PHOTO', `${id.confirm} / ENTER / □ · 拍照`, 1260, id.main, 'CONFIRM', 260).setEnabled(!player.faceGenUsed)
+      const skip = new ActionButton(scene, 'SKIP PHOTO', 260, 84, colors.panelRaised, `${keyLabel(loadProfiles()[owner].LIGHT_KICK)} · 跳過拍照`).setPosition(960, 940)
       skip.on('pointerup', () => this.hooks.onSkip?.()); root.add(skip)
-      this.nameHint = label(scene, 960, 896, player.faceGenUsed ? FACE_USED_HINT : '', 'textSecondary').setOrigin(0.5).setVisible(Boolean(player.faceGenUsed)); root.add(this.nameHint)
+      this.nameHint = label(scene, 960, 876, player.faceGenUsed ? FACE_USED_HINT : '', 'textSecondary').setOrigin(0.5).setVisible(Boolean(player.faceGenUsed)); root.add(this.nameHint)
     } else if (model.phase === 'REVIEW') {
       if (player.photo) {
         const image = document.createElement('img'); image.src = player.photo; image.alt = 'Captured photo'
