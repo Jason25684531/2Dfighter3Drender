@@ -92,7 +92,7 @@ export class LoadingScreen extends ArenaScreen {
     if (!this.face && jobs.has('P1') && scene.textures.exists(faceKey('P1'))) { this.face = scene.add.image(1130, 985, faceKey('P1')).setDisplaySize(80, 80); this.root.add(this.face) }
     const boot = scene.scene.get('BootScene').load
     const generationFailed = jobs.failed, assetFailed = jobs.assets === 'failed', generating = jobs.generating
-    const busy = boot.isLoading() || scene.load.isLoading() || generating || jobs.assets === 'loading'
+    const busy = boot.isLoading() || scene.load.isLoading() || generating || jobs.assets === 'idle' || jobs.assets === 'loading'
     const progress = busy ? (scene.load.isLoading() ? scene.load.progress : boot.progress) : 1
     this.bar.setScale(generating ? 0.5 : progress, 1)
     this.percent.setText(generationFailed ? '生成失敗 · 可重試' : assetFailed ? '載入失敗 · 可重試' : generating ? '角色生成中 · 先練習' : busy ? Math.round(progress * 100) + '%' : 'READY · 可開戰')

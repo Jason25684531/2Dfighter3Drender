@@ -15,6 +15,10 @@ def init_db(db_path: str | Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with connect(path) as connection:
         connection.executescript((Path(__file__).parent / 'schema.sql').read_text(encoding='utf-8'))
+        with transaction(connection):
+            columns = {row['name'] for row in connection.execute('PRAGMA table_info(matches)')}
+            if 'difficulty' not in columns:
+                connection.execute("ALTER TABLE matches ADD COLUMN difficulty TEXT NOT NULL DEFAULT 'NORMAL'")
 
 
 @contextmanager

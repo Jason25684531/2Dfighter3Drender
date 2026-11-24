@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS matches (
   id INTEGER PRIMARY KEY,
   session_id INTEGER NOT NULL REFERENCES sessions(id),
   match_number INTEGER NOT NULL,
+  difficulty TEXT NOT NULL DEFAULT 'NORMAL',
   status TEXT NOT NULL CHECK(status IN ('IN_PROGRESS','FINISHED','ABANDONED')),
   result TEXT CHECK(result IN ('WIN','LOSE','DRAW')),
   finish_reason TEXT,

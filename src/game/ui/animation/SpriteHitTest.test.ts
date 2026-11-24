@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CombatWorld, DEFAULT_COMBAT_CONFIG } from '../../combat/CombatWorld'
 import { spriteFrameFor } from './TemporarySpriteManifest'
-import { contactWidth, HIT_EDGE, dilate, touchContact, silhouetteContact, type Mask, type Placement } from './SpriteHitTest'
+import { contactWidth, dilate, touchContact, silhouetteContact, type Mask, type Placement } from './SpriteHitTest'
 import { HIT_TUNING, reachFor } from '../../config/hitTuning'
 
 // 10×10 實心方塊，錨點在底部中央：world 佔 [x-5, x+5]。
@@ -16,13 +16,21 @@ describe('SpriteHitTest', () => {
     expect(silhouetteContact(at(0), at(16, -1), 8)).not.toBeNull()
   })
   it('adds the per-character reach to the edge, falling back to the default row', () => {
-    // 間隙 = dx - 10；s1aw 輕拳 edge 10 + reach 40 = 50。
-    const edge = HIT_EDGE + reachFor('s1aw', 'LIGHT_PUNCH')
-    expect(edge).toBe(HIT_TUNING.edge + 40)
+    const edge = HIT_TUNING.edge.LIGHT_PUNCH + reachFor('s1aw', 'LIGHT_PUNCH')
+    expect(edge).toBe(50)
     expect(silhouetteContact(at(0), at(59, -1), edge)).not.toBeNull()
     expect(silhouetteContact(at(0), at(61, -1), edge)).toBeNull()
     // 沒列的角色：輕攻擊吃 default，重攻擊 0。
     expect([reachFor('kevin', 'LIGHT_KICK'), reachFor(undefined, 'LIGHT_PUNCH'), reachFor('kevin', 'HEAVY_KICK')]).toEqual([30, 30, 0])
+    expect(reachFor('hd-s1aw', 'HEAVY_PUNCH')).toBe(reachFor('s1aw', 'HEAVY_PUNCH'))
+  })
+  it('keeps the half-pixel reach in both facing directions', () => {
+    expect(Object.values(HIT_TUNING.edge)).toEqual([10, 10, 7.5, 7.5])
+    expect(silhouetteContact(at(0), at(16.9, -1), 7)).toBeNull()
+    expect(silhouetteContact(at(0), at(16.9, -1))).not.toBeNull()
+    expect(silhouetteContact(at(0), at(17.1, -1))).toBeNull()
+    expect(silhouetteContact(at(0, -1), at(-16.9))).not.toBeNull()
+    expect(silhouetteContact(at(0, -1), at(-17.1))).toBeNull()
   })
   it('follows the drawn shape, not a bounding box', () => {
     // 只有右上角一格的「拳頭」：同距離下，拳頭高度不對就打不到。
@@ -66,12 +74,13 @@ describe('SpriteHitTest', () => {
   })
 
   it('lands a short attack when the bodies are already pushed together, but not from range or the air', () => {
-    // 只有左上一格的短拳：輪廓差很遠打不到；貼身（距離 ≤ 推擠 15 + 10）則必中，接觸點在中點、拳頭高度。
+    // 只有左上一格的短拳：輪廓差很遠打不到；貼身（距離 ≤ 推擠 15 + 7）則必中，接觸點在中點、拳頭高度。
     const short = new Uint8Array(100); short[0] = 1
     const punch = at(0, 1, { ...block, solid: short }), body = at(15, -1)
     expect(silhouetteContact(punch, body)).toBeNull()
     expect(touchContact(punch, body, 15)).toEqual({ x: 7.5, y: -9.5 })
-    expect(touchContact(punch, at(26, -1), 15)).toBeNull()
+    expect(touchContact(punch, at(23, -1), 15)).toBeNull()
+    expect(touchContact(punch, at(-15), 15)).toBeNull()
     expect(touchContact({ ...punch, y: -50 }, body, 15)).toBeNull()
   })
 })

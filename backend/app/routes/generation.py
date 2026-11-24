@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from app.errors import ApiError
 
 router = APIRouter()
-WORKFLOW = Path(__file__).resolve().parents[3] / 'ComfyUI_API' / 'CAMCharacter_Swa__1112(API).json'
+WORKFLOW = Path(__file__).resolve().parents[3] / 'ComfyUI_API' / '2026_Taskforce_2028_FTG_Final_CAM_261115.json'
 OUTPUT = Path(os.getenv('COMFYUI_OUTPUT', r'C:\ComfyUI_windows_portable_260701\ComfyUI\output'))
 COMFY = os.getenv('COMFYUI_URL', 'http://127.0.0.1:8188').rstrip('/')
 ASSET_ID = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?')
@@ -45,7 +45,9 @@ def api_prompt(workflow: dict) -> dict:
     for node in workflow['nodes']:
         values, index, inputs = node.get('widgets_values') or [], 0, {}
         for slot in node.get('inputs', []):
-            if 'widget' in slot:
+            # ponytail: missing widget values are trailing; use /object_info to match fields if gaps become possible.
+            # Newer saves also mark socket-only image and wildcard inputs as widgets.
+            if 'widget' in slot and slot['type'] not in ('IMAGE', '*') and index < len(values):
                 inputs[slot['name']] = values[index]
                 index += 1
                 if slot['type'] == 'INT' and index < len(values) and values[index] in ('fixed', 'increment', 'decrement', 'randomize'):

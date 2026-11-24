@@ -25,6 +25,14 @@ export const uiTokens = {
     textPrimary: 0xf5f7fb,
     textSecondary: 0xaeb8c9,
     focus: 0xffffff,
+    selectBody: 0xffb51b,
+    selectSaga: 0xe9edf4,
+    selectGuest: 0xa6b7ce,
+    selectRoster: 0x646672,
+    selectBodyBackground: 0x211a11,
+    selectSagaBackground: 0x1b1d24,
+    selectGuestBackground: 0x142031,
+    selectRosterBackground: 0x15151d,
     danger: 0xff2e44,
     shadow: 0x000000,
   },
@@ -37,10 +45,8 @@ export const uiTokens = {
   hud: { combo: 76 },
   // P1 雙玩家選角（design/shared-ia.md §2–§3、concept-a.md）
   p1: {
-    bodyHazard: { color: 0xffc247, spacing: 16, alpha: 0.12 },
-    grid: { x: 459, y: 500, cellWidth: 93, cellHeight: 104, gap: 8 },
     hero: { height: 720, footY: 1000, x: { P1: 330, P2: 1590 } },
-    cursor: { width: 4, outset: 3, slideMs: reducedMotion ? 0 : 80, breatheMs: 600 },
+    cursor: { slideMs: reducedMotion ? 0 : 80 },
     processingMs: 2500,
     allReadyMs: 800,
     // ponytail: D-11 暫定值，待營運確認

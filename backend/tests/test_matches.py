@@ -58,6 +58,39 @@ def test_replay_keeps_old_match_and_only_best_session_entry(client):
     assert client.get(f"/api/v1/matches/{first['id']}").json()['status'] == 'FINISHED'
 
 
+@pytest.mark.parametrize(('difficulty', 'score'), [('EXTRA_HARD', 2256), ('HELL', 2632)])
+def test_difficulty_is_fixed_at_creation_and_scores_on_the_leaderboard(client, difficulty, score):
+    session_id = active_session(client)
+    body = {'session_id': session_id, 'client_request_id': 'difficulty:create', 'difficulty': difficulty}
+    created = client.post('/api/v1/matches', json=body)
+    assert created.status_code == 201 and created.json()['difficulty'] == difficulty
+    assert client.post('/api/v1/matches', json=body).status_code == 200
+    assert client.post('/api/v1/matches', json={**body, 'difficulty': 'NORMAL'}).status_code == 409
+    match_id = created.json()['id']
+    path = f'/api/v1/matches/{match_id}/finish'
+    assert client.post(path, json=finish_payload()).status_code == 422
+    assert client.post(path, json=finish_payload(score=score)).json()['score'] == score
+    assert client.post(path, json=finish_payload(score=score)).status_code == 200
+    assert client.get('/api/v1/leaderboard').json()[0]['score'] == score
+
+
+def test_existing_database_keeps_scores_on_upgrade(tmp_path):
+    from pathlib import Path
+    from app import db
+
+    path = tmp_path / 'legacy.sqlite'
+    schema = Path(db.__file__).with_name('schema.sql').read_text(encoding='utf-8')
+    with db.connect(path) as connection:
+        connection.executescript(schema.replace("  difficulty TEXT NOT NULL DEFAULT 'NORMAL',\n", ''))
+        connection.execute("INSERT INTO players VALUES (1, 'A', 'zh-TW', 'player', 'before', 'before')")
+        connection.execute("INSERT INTO sessions(id,player_id,status,client_request_id,created_at) VALUES (1,1,'FINISHED','session','before')")
+        connection.execute("INSERT INTO matches(session_id, match_number, status, score, client_request_id, created_at) VALUES (1,1,'FINISHED',1880,'match','before')")
+    db.init_db(path)
+    db.init_db(path)
+    with db.connect(path) as connection:
+        assert tuple(connection.execute('SELECT score,difficulty FROM matches').fetchone()) == (1880, 'NORMAL')
+
+
 def test_finish_rolls_back_when_rank_refresh_fails(client, monkeypatch):
     session_id = active_session(client, 'rollback-player')
     match = client.post('/api/v1/matches', json={'session_id': session_id, 'client_request_id': 'rollback:create'}).json()

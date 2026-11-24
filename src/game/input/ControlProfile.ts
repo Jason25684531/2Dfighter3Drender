@@ -14,6 +14,7 @@ export const DEFAULT_KEYBOARD_BINDINGS: ControlProfiles = {
   P2: { MOVE_LEFT: 'ArrowLeft', MOVE_RIGHT: 'ArrowRight', JUMP: 'ArrowUp', CROUCH: 'ArrowDown', LIGHT_PUNCH: 'Numpad1', HEAVY_PUNCH: 'Numpad2', LIGHT_KICK: 'Numpad4', HEAVY_KICK: 'Numpad5', PAUSE: 'Escape' },
 }
 export const CONTROLS_STORAGE_KEY = 'exp2.controls.v3'
+export const SYSTEM_BACK_KEY = 'Escape'
 
 const MENU_BACK: Record<PlayerSlotId, string> = { P1: 'KeyK', P2: 'Backspace' }
 /** 選單鍵跟著該玩家戰鬥鍵：跳／蹲／左右＝上下左右；確認＝輕拳；返回固定（1P K、2P Backspace），已被佔用時改用重拳鍵。 */

@@ -1,5 +1,6 @@
 import base64
 import json
+from copy import deepcopy
 
 from app.routes import generation
 
@@ -87,6 +88,27 @@ def test_generation_submits_ui_workflow_and_reads_game_manifest(client, monkeypa
     assert client.get('/api/v1/generation/assets/..%2F..%2Fsecret/sheets/02_Idle.png').status_code == 404
     assert client.get('/api/v1/generation/assets/.hidden').status_code == 404
     assert client.post('/api/v1/generation', json={'name': 'Alice', 'template': 2, 'photo': 'bad'}).status_code == 400
+
+
+def test_ui_workflow_omits_missing_widget_values(client, monkeypatch, tmp_path):
+    workflow = deepcopy(UI_WORKFLOW)
+    workflow['nodes'][0].pop('inputs')
+    workflow['nodes'][0]['widgets_values'] = [1]
+    workflow['nodes'].append({
+        'id': 12, 'type': 'TaskforceReassembleAlignedSheets',
+        'inputs': [{'name': 'images', 'widget': {'name': 'images'}, 'type': 'IMAGE', 'link': 3}] + [
+            {'name': name, 'widget': {'name': name}, 'type': 'STRING', 'link': None}
+            for name in ('pipeline_name', 'stabilize_scale', 'scale_match_strength', 'max_scale_adjust_percent')
+        ] + [{'name': 'wait_for', 'widget': {'name': 'wait_for'}, 'type': '*', 'link': None}],
+        'widgets_values': ['pipeline'],
+    })
+    calls = fake_comfy(monkeypatch, tmp_path, workflow)
+    result = client.post('/api/v1/generation', json={'name': 'HL', 'template': 3, 'photo': PHOTO})
+    assert result.status_code == 200
+    submitted = calls[1][1]['json']['prompt']
+    assert submitted['1']['inputs'] == {'value': 3}
+    assert submitted['12']['inputs'] == {'pipeline_name': 'pipeline', 'images': ['3', 0]}
+    assert generation.jobs[result.json()['job']][1] == 'HL_S1AM'
 
 
 def test_api_format_workflow_is_submitted_as_is(client, monkeypatch, tmp_path):

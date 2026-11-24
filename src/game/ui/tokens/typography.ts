@@ -2,6 +2,8 @@ import { colorHex, uiTokens } from './uiTokens'
 
 const { type, fonts } = uiTokens
 const display = { fontFamily: fonts.display, color: colorHex('textPrimary'), fontStyle: 'bold' }
+export const hudDisplay = { ...display, fontFamily: `"ROG Fonts", ${fonts.display}` }
+export const hudLabel = { ...display, fontFamily: `"Trade Gothic BdCn", ${fonts.display}` }
 export const typography = {
   family: fonts.body,
   heading: { ...display, fontSize: type.h1, letterSpacing: 2 },

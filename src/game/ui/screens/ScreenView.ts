@@ -9,6 +9,9 @@ import { typography } from '../tokens/typography'
 import { BattleStage } from '../stage/BattleStage'
 import type { CharacterEntry, StageId } from '../assets/TestAssetManifest'
 import type { SpriteId } from '../animation/TemporarySpriteManifest'
+import type { ActionButton } from '../VisualComponents'
+
+export const RESULT_REVIEW_MS = 2000
 
 /** P3–P5 共用的對戰雙方呈現資料；由 AppScene 依玩家選擇、CPU 對手與生成結果算出。 */
 export type Matchup = { player: CharacterEntry; playerName: string; enemyName: string; playerSprite?: SpriteId; enemySprite: SpriteId; twoPlayer: boolean; stageId: StageId }
@@ -28,6 +31,7 @@ export type ScreenContext = {
 export abstract class ScreenView {
   private readonly tweens: Phaser.Tweens.Tween[] = []
   private readonly focusGroups = new Set<string>()
+  private reviewLocked = false
 
   constructor(protected readonly ctx: ScreenContext, readonly root: Phaser.GameObjects.Container) {
     if (root.alpha < 1) this.tween({ targets: root, alpha: 1, duration: uiTokens.motionMs.enter, ease: 'Cubic.Out' })
@@ -36,7 +40,7 @@ export abstract class ScreenView {
   protected get scene(): Phaser.Scene { return this.ctx.scene }
 
   /** 回傳 true 表示畫面已處理，AppScene 不再交給預設導覽。 */
-  handleAction(_action: UIAction): boolean { return false }
+  handleAction(action: UIAction): boolean { return this.reviewLocked && (action === 'CONFIRM' || action === 'BACK') }
   /** 每個固定步長（GameClock tick）。 */
   tick(): void {}
   /** 每個 Phaser 影格。 */
@@ -59,6 +63,22 @@ export abstract class ScreenView {
   protected focusable(group: string, id: string, object: Focusable, activate: () => void, enabled = true): void {
     this.focusGroups.add(group)
     this.ctx.register(group, id, object, activate, enabled)
+  }
+
+  protected holdConfirm(group: string, id: string, button: ActionButton, activate: () => void, readyAt: number): void {
+    this.reviewLocked = this.scene.time.now < readyAt
+    const proceed = (): void => { if (!this.reviewLocked) activate() }
+    button.setEnabled(!this.reviewLocked).on('pointerup', proceed)
+    this.focusable(group, id, button, proceed, !this.reviewLocked)
+    this.ctx.ui.focus.activate(group)
+    if (!this.reviewLocked) return
+    const timer = this.scene.time.delayedCall(readyAt - this.scene.time.now, () => {
+      this.reviewLocked = false
+      button.setEnabled(true)
+      this.ctx.ui.focus.setEnabled(group, id, true)
+      this.ctx.ui.focus.activate(group, id)
+    })
+    this.root.once('destroy', () => timer.remove())
   }
 
   protected heading(text: string, x = 110, y = 112): Phaser.GameObjects.Text { return this.scene.add.text(x, y, text, typography.heading).setOrigin(0, 0.5) }

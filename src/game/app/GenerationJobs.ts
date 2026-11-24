@@ -16,6 +16,9 @@ export class GenerationJobs {
   assets: 'idle' | 'loading' | 'ready' | 'failed' = 'idle'
   private jobs: Partial<Record<PlayerSlotId, Job>> = {}
   private readonly loads = new Map<string, Promise<void>>()
+  private assetController = new AbortController()
+  private releaseAssets = () => {}
+  private assetGate = new Promise<void>(resolve => { this.releaseAssets = resolve })
 
   /** onReady：生成完成、名冊已加入新角色後呼叫，generatedId 為 `generated-<assetId>`。 */
   constructor(private readonly scene: Phaser.Scene, private readonly onReady: (owner: PlayerSlotId, generatedId: string, template: number) => void) {}
@@ -37,7 +40,7 @@ export class GenerationJobs {
     this.jobs[owner]?.controller.abort()
     const job: Job = { name, template, photo, state: 'processing', controller: new AbortController() }
     this.jobs[owner] = job
-    void generateCharacter(this.scene, name, template, photo, job.controller.signal).then((assetId) => {
+    void generateCharacter(this.scene, name, template, photo, job.controller.signal, this.assetGate).then((assetId) => {
       if (this.jobs[owner] !== job) return
       job.assetId = assetId; job.state = 'ready'
       const id = `generated-${assetId}` as const
@@ -51,19 +54,27 @@ export class GenerationJobs {
   load(assetId: string, idleOnly = false): Promise<void> {
     const key = `${assetId}:${idleOnly}`, current = this.loads.get(key)
     if (current) return current
-    const loading = loadGeneratedCharacter(this.scene, assetId, new AbortController().signal, idleOnly)
+    const loading = loadGeneratedCharacter(this.scene, assetId, this.assetController.signal, idleOnly)
     this.loads.set(key, loading)
-    void loading.finally(() => this.loads.delete(key)).catch(() => undefined)
+    void loading.finally(() => { if (this.loads.get(key) === loading) this.loads.delete(key) }).catch(() => undefined)
     return loading
   }
 
-  /** 進 P2 前載入雙方的完整圖集：已生成角色（characterIds 中 `generated-`）與名冊角色的原圖（sprites 中屬於名冊的）。 */
-  loadSelected(characterIds: Array<string | undefined>, sprites: Array<string | undefined> = []): Promise<void> {
-    const ids = characterIds.filter((id): id is string => Boolean(id?.startsWith('generated-'))).map((id) => id.slice('generated-'.length))
-    const roster = sprites.filter((id): id is AlignedSpriteId => Boolean(id && id in alignedSprites))
-    if (!ids.length && !roster.length) { this.assets = 'ready'; return Promise.resolve() }
+  /** P3 顯示後載入雙方完整圖集，也讓已生成的工作開始下載。 */
+  async loadSelected(characterIds: Array<string | undefined>, sprites: Array<string | undefined> = []): Promise<boolean> {
+    this.releaseAssets()
+    const ids = new Set(characterIds.filter((id): id is string => Boolean(id?.startsWith('generated-'))).map((id) => id.slice('generated-'.length)))
+    const roster = new Set(sprites.filter((id): id is AlignedSpriteId => Boolean(id && id in alignedSprites)))
+    const { signal } = this.assetController
     this.assets = 'loading'
-    return Promise.all([...ids.map((id) => this.load(id)), ...roster.map((id) => loadHdSprite(this.scene, id))]).then(() => { this.assets = 'ready' }, () => { this.assets = 'failed' })
+    try {
+      for (const id of ids) { if (signal.aborted) return false; await this.load(id) }
+      for (const id of roster) { if (signal.aborted) return false; await loadHdSprite(this.scene, id) }
+      if (!signal.aborted) this.assets = 'ready'
+    } catch {
+      if (!signal.aborted) this.assets = 'failed'
+    }
+    return !signal.aborted
   }
 
   /** P3 重試：重新送出失敗的生成；素材載入失敗則重新載入。回傳 true 表示有東西正在重試。 */
@@ -77,6 +88,10 @@ export class GenerationJobs {
   clear(): void {
     Object.values(this.jobs).forEach((job) => job.controller.abort())
     this.jobs = {}
+    this.assetController.abort()
+    this.assetController = new AbortController()
+    this.releaseAssets()
+    this.assetGate = new Promise<void>(resolve => { this.releaseAssets = resolve })
     dropGeneratedTextures(this.scene); dropHdActions(this.scene)
     this.loads.clear(); this.assets = 'idle'
   }

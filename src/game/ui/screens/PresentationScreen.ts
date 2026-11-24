@@ -7,7 +7,7 @@ import { typography } from '../tokens/typography'
 import { finishAnnouncements } from '../ViewModels'
 import { TemporarySpriteRenderer } from '../animation/TemporarySpriteRenderer'
 import { outcomeFor } from '../animation/TemporarySpriteManifest'
-import { ArenaScreen, type Matchup, type ScreenContext } from './ScreenView'
+import { ArenaScreen, RESULT_REVIEW_MS, type Matchup, type ScreenContext } from './ScreenView'
 
 /** P5 停在最後的戰鬥畫面：贏家播勝利動作（播完停最後一格），KO 的輸家倒地；由遊戲時鐘每 tick 推進。 */
 export class PresentationScreen extends ArenaScreen {
@@ -45,8 +45,8 @@ export class PresentationScreen extends ArenaScreen {
     })
     const next = new ActionButton(scene, 'VIEW RESULTS', 420, 96, colors.playerPrimary, '查看結算').setPosition(960, 990)
     const proceed = (): void => ctx.go(AppState.RESULT)
-    next.on('pointerup', proceed)
-    root.add(next); this.focusable('presentation', 'presentation-next', next, proceed); ctx.ui.focus.activate('presentation')
+    root.add(next)
+    this.holdConfirm('presentation', 'presentation-next', next, proceed, scene.time.now + RESULT_REVIEW_MS)
   }
 
   tick(): void {

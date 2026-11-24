@@ -3,12 +3,16 @@ from typing import Literal
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, Field
 
+from app.scoring import Difficulty
 from app.services import matches
 
 router = APIRouter(prefix='/matches')
 
 
-class MatchCreate(BaseModel): session_id: int; client_request_id: str = Field(min_length=1)
+class MatchCreate(BaseModel):
+    session_id: int
+    client_request_id: str = Field(min_length=1)
+    difficulty: Difficulty = 'NORMAL'
 class RoundCreate(BaseModel):
     round_index: int; round_number: int; winner: Literal['PLAYER', 'ENEMY'] | None = None; finish_reason: str; player_hp: int; enemy_hp: int; max_combo: int; duration_ticks: int; client_request_id: str = Field(min_length=1)
 class Finish(BaseModel):
@@ -16,7 +20,7 @@ class Finish(BaseModel):
 
 @router.post('')
 def create(payload: MatchCreate, request: Request, response: Response):
-    with request.app.state.connect() as connection: result, created = matches.create(connection, payload.session_id, payload.client_request_id)
+    with request.app.state.connect() as connection: result, created = matches.create(connection, payload.session_id, payload.client_request_id, payload.difficulty)
     response.status_code = 201 if created else 200; return result
 
 @router.get('/{match_id}')

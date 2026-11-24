@@ -9,8 +9,13 @@ type Reach = Partial<Record<AttackAction, number>>
  * 命中 = 攻擊者拳腳的不透明像素，落在「防守者輪廓往外 edge + reach」以內。
  */
 export const HIT_TUNING = {
-  /** 所有角色、所有招式共用的基礎外推距離。 */
-  edge: 10,
+  /** 每招的基礎 Alpha 外推距離。站、蹲、跳共用對應招式的設定。 */
+  edge: {
+    LIGHT_PUNCH: 10,
+    HEAVY_PUNCH: 10,
+    LIGHT_KICK: 7.5,
+    HEAVY_KICK: 7.5,
+  } satisfies Record<AttackAction, number>,
   /** 推擠：兩人輪廓最近停在相距多少；須 ≤ edge，貼身時出招才必中。 */
   pushEdge: 5,
   /**
@@ -26,4 +31,7 @@ export const HIT_TUNING = {
   } as Partial<Record<SpriteId | 'default', Reach>>,
 }
 
-export const reachFor = (sprite: SpriteId | undefined, attack: AttackAction): number => (sprite && HIT_TUNING.reach[sprite]?.[attack]) ?? HIT_TUNING.reach.default?.[attack] ?? 0
+export const reachFor = (sprite: SpriteId | undefined, attack: AttackAction): number => {
+  const id = sprite?.replace(/^hd-/, '') as SpriteId | undefined
+  return (id && HIT_TUNING.reach[id]?.[attack]) ?? HIT_TUNING.reach.default?.[attack] ?? 0
+}

@@ -49,7 +49,11 @@ async function open() {
   })
   const attacks = async () => { await page.waitForTimeout(250); return page.evaluate(() => ({ ...window.__attacks })) }
   const loadingReady = () => page.waitForFunction(() => window.__game.scene.getScene('AppScene').current?.ready === true, null, { timeout: 15000 })
-  return { page, s, frames, boot, plug, unplug, hold, tap, stick, key, state, waitState, owners, fighting, countAttacks, attacks, loadingReady }
+  const confirmReview = async id => {
+    await page.waitForFunction(id => window.__game.scene.getScene('AppScene').ui.focus.current() === id, id)
+    await tap(0, CROSS)
+  }
+  return { page, s, frames, boot, plug, unplug, hold, tap, stick, key, state, waitState, owners, fighting, countAttacks, attacks, loadingReady, confirmReview }
 }
 
 try {
@@ -85,7 +89,7 @@ try {
     await t.tap(0, CROSS); await t.waitState('P4'); await t.fighting()
     await t.countAttacks(); await t.tap(0, SQUARE); assert.equal((await t.attacks()).PLAYER, 1)
     await t.s((s) => { for (let i = 0; i < 1600 && s.appStateMachine.getCurrentState() === 'P4_BATTLE'; i += 1) s.clock.advance(250) }); await t.waitState('P5')
-    await t.tap(0, CROSS); await t.waitState('P6'); await t.tap(0, CROSS); await t.waitState('P7'); await t.tap(0, CROSS); await t.waitState('P1')
+    await t.confirmReview('presentation-next'); await t.waitState('P6'); await t.confirmReview('result-next'); await t.waitState('P7'); await t.tap(0, CROSS); await t.waitState('P1')
     visited.push(...await t.page.evaluate(() => window.__visited))
     assert.deepEqual(visited, ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P1'])
     await t.page.screenshot({ path: `${out}/01-single-replay.png` })

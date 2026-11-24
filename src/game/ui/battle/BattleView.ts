@@ -7,10 +7,11 @@ import type { InputManager } from '../../input/InputManager'
 import { keyLabel } from '../../input/ControlProfile'
 import { TemporarySpriteRenderer } from '../animation/TemporarySpriteRenderer'
 import { createSpriteHitTest, stancePushWidth } from '../animation/SpriteHitTest'
-import { outcomeFor, presentationSheetFor, resolvePresentation, spriteActionFor, spriteTextureFrame, spriteTextureKey, type PresentationContext, type SpriteId } from '../animation/TemporarySpriteManifest'
+import { outcomeFor, presentationSheetFor, resolvePresentation, spriteActionFor, type PresentationContext, type SpriteId } from '../animation/TemporarySpriteManifest'
 import { isSheetSprite, sheetAnimations, sheetUrl } from '../animation/SheetSpriteManifest'
-import { impactFlip, impactScale, playImpactFx } from '../vfx/ImpactFx'
-import { AngularPanel, Announcer, HealthBar, HexTimer, RoundDiamonds } from '../VisualComponents'
+import { impactFlip, playImpactFx } from '../vfx/ImpactFx'
+import { Announcer } from '../VisualComponents'
+import { BattleHud } from './BattleHud'
 import { battleAnnouncement, battleViewModel } from '../ViewModels'
 import { ComboTag } from './ComboTag'
 import type { StageId } from '../assets/TestAssetManifest'
@@ -19,14 +20,14 @@ import { typography } from '../tokens/typography'
 
 export type BattleViewOptions = { stage: StageId; playerSprite?: SpriteId; enemySprite: SpriteId; playerName: string; enemyName: string; twoPlayer: boolean; floorY: number; maxHp: number; input: InputManager; audio?: GameAudio; combat?: CombatWorld }
 
+export const shakeOnKnockdown = (scene: Phaser.Scene, events: CombatEvent[]): void => {
+  if (!reducedMotion && events.some(event => event.type === 'KNOCKDOWN')) scene.cameras.main.shake(170, 0.005, true)
+}
+
 export class BattleView {
   readonly player: TemporarySpriteRenderer
   readonly enemy: TemporarySpriteRenderer
-  private readonly playerBar: HealthBar
-  private readonly enemyBar: HealthBar
-  private readonly playerRounds: RoundDiamonds
-  private readonly enemyRounds: RoundDiamonds
-  private readonly timer: HexTimer
+  private readonly hud: BattleHud
   private readonly combos: Record<FighterId, ComboTag>
   /** 頓幀期間抖動的受擊者與幅度（world）。 */
   private jitter?: { id: FighterId; amplitude: number }
@@ -47,38 +48,25 @@ export class BattleView {
     this.player = new TemporarySpriteRenderer(scene, playerSprite, floorY)
     this.enemy = new TemporarySpriteRenderer(scene, enemySprite, floorY)
     world.add([this.enemy, this.player])
-    // 命中改以畫面角色輪廓（外推 HIT_EDGE，貼身必中）判定，推擠改用站姿輪廓（間隙 PUSH_EDGE）；destroy() 解除。
+    // 命中依出招輪廓及招式外推距離，推擠依站姿輪廓；destroy() 解除。
     options.combat?.setHitTest(createSpriteHitTest(scene, { PLAYER: this.player, ENEMY: this.enemy }, (id) => this.contexts[id], () => options.combat?.contactWidth))
     options.combat?.setPushWidth(stancePushWidth(scene, { PLAYER: this.player, ENEMY: this.enemy }, options.combat.getSnapshot().fighters))
-    this.playerBar = new HealthBar(scene, 560, uiTokens.colors.playerPrimary).setPosition(230, 112)
-    this.enemyBar = new HealthBar(scene, 560, uiTokens.colors.enemyPrimary, true).setPosition(1130, 112)
-    this.playerRounds = new RoundDiamonds(scene).setPosition(250, 156)
-    this.enemyRounds = new RoundDiamonds(scene, true).setPosition(1670, 156)
-    root.add([this.playerBar, this.enemyBar, this.playerRounds, this.enemyRounds])
-    ;[[150, playerSprite, uiTokens.colors.playerPrimary], [1770, enemySprite, uiTokens.colors.enemyPrimary]].forEach(([x, sprite, color]) => {
-      const portrait = new AngularPanel(scene, 100, 100, Number(color)).setPosition(Number(x), 108)
-      const key = sprite && spriteTextureKey(sprite as SpriteId, 'idle')
-      if (key && scene.textures.exists(key)) portrait.add(scene.add.image(0, 0, key, spriteTextureFrame(sprite as SpriteId | undefined)).setDisplaySize(96, 96))
-      root.add(portrait)
-    })
-    root.add(scene.add.text(230, 62, options.playerName, typography.secondaryAction))
-    root.add(scene.add.text(1690, 62, options.enemyName, typography.secondaryAction).setOrigin(1, 0))
-    root.add(scene.add.text(1690, 36, options.twoPlayer ? '2P' : 'CPU', { ...typography.note, color: colorHex('enemyGlow') }).setOrigin(1, 0))
-    this.timer = new HexTimer(scene).setPosition(960, 110)
+    this.hud = new BattleHud(scene, { sprite: playerSprite, name: options.playerName }, { sprite: enemySprite, name: options.enemyName })
+    root.add(this.hud)
     // 連擊標語顯示在連擊者所在的那一側（站在對手左邊 → 左側），色塊用陣營色。
     this.combos = { PLAYER: new ComboTag(scene, uiTokens.colors.playerPrimary), ENEMY: new ComboTag(scene, uiTokens.colors.enemyPrimary) }
-    this.danger = scene.add.text(1550, 166, '', typography.danger).setOrigin(1, 0.5)
-    this.lastTen = scene.add.text(1130, 166, '', { ...typography.note, color: colorHex('danger') }).setOrigin(0, 0.5)
-    this.firstAttack = scene.add.text(710, 166, 'FIRST ATTACK!', { ...typography.note, color: colorHex('statusLime') }).setOrigin(0.5).setVisible(false)
+    this.danger = scene.add.text(1550, 240, '', typography.danger).setOrigin(1, 0.5)
+    this.lastTen = scene.add.text(1130, 240, '', { ...typography.note, color: colorHex('danger') }).setOrigin(0, 0.5)
+    this.firstAttack = scene.add.text(710, 240, 'FIRST ATTACK!', { ...typography.note, color: colorHex('statusLime') }).setOrigin(0.5).setVisible(false)
     this.announcer = new Announcer(scene)
     if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('inputDebug') === '1') { this.inputDebug = scene.add.text(40, 820, '', { ...typography.note, color: colorHex('statusLime'), backgroundColor: colorHex('shadow') + 'cc', padding: { x: 12, y: 8 } }); root.add(this.inputDebug) }
     // DEV ?hitbox：畫 hurtbox（藍）與 active hitbox（紅），對照動畫調招式表。
     if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('hitbox')) { this.boxes = scene.add.graphics(); world.add(this.boxes) }
-    root.add([this.timer, this.combos.PLAYER, this.combos.ENEMY, this.danger, this.lastTen, this.firstAttack, this.announcer])
+    root.add([this.combos.PLAYER, this.combos.ENEMY, this.danger, this.lastTen, this.firstAttack, this.announcer])
   }
 
   update(snapshot: MatchSnapshot, events: CombatEvent[], context: PresentationContext, round?: RoundSummary, enemyContext: PresentationContext = {}): void {
-    const vm = battleViewModel(snapshot, this.options.stage, this.options.playerName, this.options.enemyName), tick = snapshot.world.tick
+    const vm = battleViewModel(snapshot, this.options.stage, this.options.playerName, this.options.enemyName, this.options.maxHp), tick = snapshot.world.tick
     this.contexts = { PLAYER: context, ENEMY: enemyContext }
     this.options.audio?.playSequence(combatCues(events))
     const cues = announceCue(this.previousAnnounce, snapshot, round, this.options.twoPlayer, this.options.maxHp)
@@ -86,8 +74,6 @@ export class BattleView {
     if (cues.some(cue => cue.id === 'ann-ko' || cue.id === 'ann-times-up' || cue.id === 'ann-double-kill')) this.options.audio?.play({ id: 'amb-claps' })
     this.previousAnnounce = snapshot.announce
     events.forEach(event => {
-      // 同 tick 先有 HIT 的重擊震動，倒地震動用 force 蓋過。
-      if (event.type === 'KNOCKDOWN' && !reducedMotion) this.scene.cameras.main.shake(220, 0.005, true)
       if (event.type !== 'HIT') return
       if (this.firstHit?.round !== vm.round) this.firstHit = { round: vm.round, tick, byPlayer: event.attacker === 'PLAYER' }
       const blocked = events.some(other => other.type === 'BLOCK' && other.attackId === event.attackId && other.attacker === event.attacker)
@@ -97,9 +83,10 @@ export class BattleView {
       const falling = events.some(other => other.type === 'KNOCKDOWN' && other.fighter === event.defender)
       if (!reducedMotion) this.jitter = falling ? undefined : { id: event.defender, amplitude: blocked ? 4 : 8 }
       if (!blocked && event.attack.startsWith('HEAVY') && !reducedMotion) this.scene.cameras.main.shake(120, 0.003)
-      const kind = blocked ? 'guard' : 'hit', facing = snapshot.world.fighters[blocked ? event.defender : event.attacker].facing
-      playImpactFx(this.scene, this.world, kind, event.at.x, event.at.y, impactFlip(facing), impactScale(kind, event.attack))
+      const kind = blocked ? 'guard' : event.attack, facing = snapshot.world.fighters[blocked ? event.defender : event.attacker].facing
+      playImpactFx(this.scene, this.world, kind, event.at.x, event.at.y, impactFlip(facing))
     })
+    shakeOnKnockdown(this.scene, events)
     const outcome = (id: FighterId) => outcomeFor(id, snapshot.matchState, round?.winner)
     const animationTick = this.animationTick++
     this.player.update(vm.player, animationTick, { ...context, outcome: outcome('PLAYER') }); this.enemy.update(vm.enemy, animationTick, { ...enemyContext, outcome: outcome('ENEMY') })
@@ -116,8 +103,7 @@ export class BattleView {
       const animation = isSheetSprite(sprite) ? sheetUrl(sprite, sheet, file).split('/').at(-1)?.replace('.png', '') : `${sprite}-${spriteActionFor(vm.player)}`
       this.inputDebug.setText(['PLAYER 1', `Physical Key: ${last ? keyLabel(last.code) : '-'}`, `Semantic Action: ${last?.action ?? '-'}`, `Fighter Context: ${/AIR$|^JUMP$/.test(presentation) ? 'AIRBORNE' : presentation.includes('CROUCH') ? 'CROUCHING' : 'STANDING'}`, `Resolved Presentation: ${presentation}`, `Animation: ${animation}`].join('\n'))
     }
-    this.playerBar.setRatio(vm.playerHp / vm.maxHp, vm.playerHp); this.enemyBar.setRatio(vm.enemyHp / vm.maxHp, vm.enemyHp)
-    this.playerRounds.setWins(vm.playerWins); this.enemyRounds.setWins(vm.enemyWins); this.timer.updateTime(vm.timerSeconds, vm.round)
+    this.hud.update(vm)
     ;(['PLAYER', 'ENEMY'] as const).forEach((id) => {
       const { [id]: self, [id === 'PLAYER' ? 'ENEMY' : 'PLAYER']: other } = snapshot.world.fighters
       this.combos[id].set(self.combo, self.x <= other.x ? 'left' : 'right')

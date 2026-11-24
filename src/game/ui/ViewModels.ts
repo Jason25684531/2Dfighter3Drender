@@ -28,8 +28,8 @@ export type EndViewModel = { nextPlayerName?: string; nextPlayerLabel?: string }
 export const stageSelectViewModel = (selectedStageId: StageId = 'laboratory'): P2StageSelectViewModel => ({ heading: 'SELECT STAGE', stages: Object.values(testStageManifest), selectedStageId })
 
 
-export const battleViewModel = (snapshot: MatchSnapshot, stageId: StageId, playerName = 'ROG_Player', enemyName = 'ROG_SAGA'): BattleViewModel => {
-  const player = snapshot.world.fighters.PLAYER; const enemy = snapshot.world.fighters.ENEMY; const maxHp = 100
+export const battleViewModel = (snapshot: MatchSnapshot, stageId: StageId, playerName = 'ROG_Player', enemyName = 'ROG_SAGA', maxHp = 100): BattleViewModel => {
+  const { PLAYER: player, ENEMY: enemy } = snapshot.world.fighters
   return { stageId, playerName, enemyName, playerHp: player.currentHP, enemyHp: enemy.currentHP, maxHp, timerSeconds: Math.max(0, Math.ceil(snapshot.remainingTicks / 24)), round: snapshot.roundNumber, playerWins: snapshot.playerRoundWins, enemyWins: snapshot.enemyRoundWins, combo: player.combo, danger: player.currentHP <= maxHp * 0.25, lastTenSeconds: snapshot.remainingTicks <= 240, player, enemy }
 }
 

@@ -2,6 +2,7 @@
 import base64
 import io
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -11,7 +12,7 @@ from PIL import Image
 
 OUT = Path('outputs/aligned-character-verification')
 OUT.mkdir(parents=True, exist_ok=True)
-API = 'http://127.0.0.1:19881/api/v1'
+API = os.getenv('COMFY_SMOKE_API', 'http://127.0.0.1:19881/api/v1')
 COMFY = 'http://127.0.0.1:8188'
 COMFY_OUTPUT = Path(r'C:\ComfyUI_windows_portable_260701\ComfyUI\output\taskforce_2028_ftg')
 
@@ -28,7 +29,7 @@ try:
     report['service'] = True
     report['version'] = stats['system'].get('comfyui_version')
     nodes = request(COMFY + '/object_info')
-    workflow = json.loads(Path('ComfyUI_API/CAMCharacter_Swa__1112(API).json').read_text(encoding='utf-8'))
+    workflow = json.loads(Path('ComfyUI_API/2026_Taskforce_2028_FTG_Final_CAM_261115.json').read_text(encoding='utf-8'))
     types = {node['type'] for node in workflow['nodes']} if 'nodes' in workflow else {node['class_type'] for node in workflow.values()}
     report['missingNodes'] = sorted(types - nodes.keys())
     report['workflowNodesAvailable'] = not report['missingNodes']
@@ -36,7 +37,7 @@ try:
     image = Image.new('RGB', (512, 512), (130, 130, 130))
     buffer = io.BytesIO()
     image.save(buffer, format='JPEG')
-    job = request(API + '/generation', {'name': 'AlignedSmoke', 'template': 1, 'photo': 'data:image/jpeg;base64,' + base64.b64encode(buffer.getvalue()).decode()})['job']
+    job = request(API + '/generation', {'name': os.getenv('COMFY_SMOKE_NAME', 'AlignedSmoke'), 'template': 1, 'photo': 'data:image/jpeg;base64,' + base64.b64encode(buffer.getvalue()).decode()})['job']
     report.update(submitted=True, job=job)
     print('Submitted live generation', job, flush=True)
     for _ in range(200):
@@ -71,3 +72,6 @@ except Exception as error:
 finally:
     (OUT / 'comfy-live-report.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(report, indent=2), flush=True)
+
+if report['status'] != 'ready' or report.get('downloadedSheets') != len(report.get('actions', {})):
+    raise SystemExit(1)

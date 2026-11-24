@@ -9,6 +9,7 @@ const base = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1
 type Sheet = { filename: string; frames: number; cellSize: number }
 type Asset = { id: string; displayName: string; fps: number; actions: Record<string, Sheet> }
 type Status = { status: 'processing' | 'failed' } | ({ status: 'ready' } & Asset)
+const idleSheet = (asset: Asset): Sheet | undefined => Object.entries(asset.actions ?? {}).find(([id]) => id.startsWith('02_'))?.[1]
 
 async function request<T>(url: string, signal: AbortSignal, body?: unknown): Promise<T> {
   const response = await fetch(url, { signal, method: body ? 'POST' : 'GET', headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
@@ -34,20 +35,34 @@ export function dropGeneratedTextures(scene: Phaser.Scene, sprite = 'generated')
 }
 
 const hdLoads = new Map<string, Promise<void>>(), fullHd = new Set<string>()
+const nextFrame = (): Promise<void> => new Promise(resolve => requestAnimationFrame(() => resolve()))
 /** 大尺寸畫面（選角兩側全身、P3–P5）改用原始每格 1024 圖集，避免 256 精簡圖放大 4–5 倍變糊；開機仍只預載精簡版。idleOnly＝只載待機（選角預覽）。 */
 export function loadHdSprite(scene: Phaser.Scene, id: AlignedSpriteId, idleOnly = false): Promise<void> {
   const hd = `hd-${id}`, cacheKey = `${id}:${idleOnly}`, sprite = alignedSprites[id], cell = sprite.sourceCellSize
   registerGeneratedSprite(hd, { ...sprite, size: cell } as AlignedSprite)
-  if (!hdLoads.has(cacheKey)) hdLoads.set(cacheKey, Promise.all(alignedAnimations.filter(({ key }) => !idleOnly || key === 'idle').map(async ({ key }) => {
-    const name = `${hd}-${key}`, action = alignedAction(id, key)!
-    if (scene.textures.exists(name)) return
-    const image = new Image(); image.src = `/test-assets/1113_characters/runtime/${sprite.folder}/full/${action.filename}`
-    await image.decode()
-    if (scene.textures.exists(name)) return
-    scene.textures.addSpriteSheet(name, image, { frameWidth: cell, frameHeight: cell, endFrame: action.frames - 1 })
-    if (key === 'idle' && !scene.anims.exists(name)) scene.anims.create({ key: name, frames: scene.anims.generateFrameNumbers(name, { start: 0, end: action.frames - 1 }), frameRate: sprite.fps, repeat: -1 })
-  })).then(() => { if (!idleOnly) fullHd.add(id) }, (error: unknown) => { hdLoads.delete(cacheKey); throw error }))
-  return hdLoads.get(cacheKey)!
+  const existing = hdLoads.get(cacheKey)
+  if (existing) return existing
+  const load = async () => {
+    for (const { key } of alignedAnimations) {
+      if (idleOnly && key !== 'idle') continue
+      const name = `${hd}-${key}`, action = alignedAction(id, key)!
+      if (scene.textures.exists(name)) continue
+      const image = new Image(); image.src = `/test-assets/1113_characters/runtime/${sprite.folder}/full/${action.filename}`
+      await image.decode()
+      if (!idleOnly) await nextFrame()
+      if (hdLoads.get(cacheKey) !== pending) return
+      if (scene.textures.exists(name)) continue
+      scene.textures.addSpriteSheet(name, image, { frameWidth: cell, frameHeight: cell, endFrame: action.frames - 1 })
+      if (key === 'idle' && !scene.anims.exists(name)) scene.anims.create({ key: name, frames: scene.anims.generateFrameNumbers(name, { start: 0, end: action.frames - 1 }), frameRate: sprite.fps, repeat: -1 })
+    }
+    if (!idleOnly) fullHd.add(id)
+  }
+  const pending = load().catch((error: unknown) => {
+    if (hdLoads.get(cacheKey) === pending) hdLoads.delete(cacheKey)
+    throw error
+  })
+  hdLoads.set(cacheKey, pending)
+  return pending
 }
 /** 已載入原圖全套時回傳 hd 版 id，否則沿用精簡版。 */
 export const sharpSprite = <T extends string | undefined>(id: T): T => (id && fullHd.has(id) ? `hd-${id}` : id) as T
@@ -60,22 +75,33 @@ export function dropHdActions(scene: Phaser.Scene): void {
 
 const headsFromOriginals = new Set<string>()
 /** 名冊每個角色（含已生成的）的 512×512 頭像：同步先用開機的精簡圖畫一版，再逐一解碼原圖待機重畫（逐一而非同時，避免暫存 4096 寬圖佔滿記憶體）。onHead 在每次更新後呼叫。 */
-export async function loadHeads(scene: Phaser.Scene, entries: CharacterEntry[], onHead: () => void): Promise<void> {
+export async function loadHeads(scene: Phaser.Scene, entries: CharacterEntry[], onHead: () => void, signal?: AbortSignal): Promise<void> {
   const people = entries.filter(({ type, spriteId }) => type !== 'BODY_TEMPLATE' && spriteId)
   for (const { spriteId } of people) {
     const compact = scene.textures.exists(`${spriteId}-idle`) && !scene.textures.exists(headKey(spriteId!)) ? scene.textures.get(`${spriteId}-idle`) : undefined
     if (compact) paintHead(scene, spriteId!, compact.getSourceImage() as CanvasImageSource, compact.get(0).cutWidth)
   }
   onHead()
-  for (const { spriteId, generationId } of people) {
-    if (headsFromOriginals.has(spriteId!)) continue
-    const url = spriteId! in alignedSprites ? `/test-assets/1113_characters/runtime/${alignedSprites[spriteId as AlignedSpriteId].folder}/full/02_Idle.png` : generationId ? `${base}/generation/assets/${encodeURIComponent(generationId)}/sheets/02_Idle.png` : undefined
+  for (const { spriteId, generationId, idleSheet } of people) {
+    if (signal?.aborted) return
+    if (generationId ? scene.textures.exists(headKey(spriteId!)) : headsFromOriginals.has(spriteId!)) continue
+    const url = generationId && idleSheet
+      ? `${base}/generation/assets/${encodeURIComponent(generationId)}/sheets/${encodeURIComponent(idleSheet.filename)}`
+      : spriteId! in alignedSprites ? `/test-assets/1113_characters/runtime/${alignedSprites[spriteId as AlignedSpriteId].folder}/full/02_Idle.png` : undefined
     if (!url) continue
     try {
       // 跨網域圖片直接放進 canvas 會被瀏覽器標成污染而不能讀像素，所以先 fetch 成 blob 再解碼。
-      const response = await fetch(url); if (!response.ok) continue
+      const response = await fetch(url, { signal }); if (!response.ok) continue
       const objectUrl = URL.createObjectURL(await response.blob()), image = new Image()
-      try { image.src = objectUrl; await image.decode(); paintHead(scene, spriteId!, image, image.width / 4); headsFromOriginals.add(spriteId!); onHead() } finally { URL.revokeObjectURL(objectUrl) }
+      try {
+        image.src = objectUrl
+        await image.decode()
+        if (signal?.aborted) return
+        if (generationId && scene.textures.exists(headKey(spriteId!))) continue
+        paintHead(scene, spriteId!, image, idleSheet?.cellSize ?? image.width / 4)
+        headsFromOriginals.add(spriteId!)
+        onHead()
+      } finally { URL.revokeObjectURL(objectUrl) }
     } catch { /* 沒有原圖就保留精簡版頭像。 */ }
   }
 }
@@ -91,12 +117,12 @@ export async function deleteGeneratedCharacter(generationId: string): Promise<vo
 export async function listGeneratedCharacters(): Promise<CharacterEntry[]> {
   try {
     const assets = await request<Asset[]>(`${base}/generation/assets`, new AbortController().signal)
-    return assets.map(({ id, displayName }) => ({ id: `generated-${id}`, generationId: id, displayName, type: 'CUSTOM', status: 'READY', spriteId: `generated-${id}` as const }))
+    return assets.map(asset => ({ id: `generated-${asset.id}`, generationId: asset.id, displayName: asset.displayName, type: 'CUSTOM', status: 'READY', spriteId: `generated-${asset.id}` as const, idleSheet: idleSheet(asset) }))
   } catch { return [] }
 }
 
 /** 提交並輪詢到完成，載入本次輸出的全部圖集後回傳角色 ID（＝輸出資料夾名 `<名稱>_<模板>`）。 */
-export async function generateCharacter(scene: Phaser.Scene, name: string, template: number, photo: string, signal: AbortSignal): Promise<string> {
+export async function generateCharacter(scene: Phaser.Scene, name: string, template: number, photo: string, signal: AbortSignal, assetGate?: Promise<void>): Promise<string> {
   const { job } = await request<{ job: string }>(`${base}/generation`, signal, { name, template, photo })
   const deadline = Date.now() + GENERATION_TIMEOUT_MS
   let status: Status | undefined
@@ -116,6 +142,8 @@ export async function generateCharacter(scene: Phaser.Scene, name: string, templ
     void fetch(`${base}/generation/${job}`, { method: 'DELETE', keepalive: true }).catch(() => undefined)
     throw error
   }
+  await assetGate
+  signal.throwIfAborted()
   // 同名同模板會覆寫同一資料夾：丟掉先前預覽載入的舊圖集再重載。
   dropGeneratedTextures(scene, `generated-${status.id}`); dropHead(scene, `generated-${status.id}`)
   await loadSheets(scene, status, signal)
@@ -151,6 +179,12 @@ async function loadSheets(scene: Phaser.Scene, asset: Asset, signal: AbortSignal
   clearGeneratedHitMasks(sprite)
   for (const { sheet, image } of images) {
     const key = `${sprite}-${sheet.key}`
+    if (!idleOnly) await nextFrame()
+    signal.throwIfAborted()
     if (!scene.textures.exists(key)) scene.textures.addSpriteSheet(key, image, { frameWidth: sheet.cellSize, frameHeight: sheet.cellSize, endFrame: sheet.frames - 1 })
+  }
+  if (scene.textures.exists(`${sprite}-idle`) && (sheets.some(sheet => sheet.key === 'idle') || !scene.textures.exists(headKey(sprite)))) {
+    const idle = scene.textures.get(`${sprite}-idle`)
+    paintHead(scene, sprite, idle.getSourceImage() as CanvasImageSource, idle.get(0).cutWidth)
   }
 }

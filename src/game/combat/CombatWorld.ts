@@ -167,11 +167,19 @@ export class CombatWorld {
     if (fighter.blockStunTicks > 0) { fighter.vx = 0; fighter.state = 'GUARD'; return }
     if (fighter.attackPhase !== 'NONE') return
     if (fighter.x < opponent.x) fighter.facing = 'RIGHT'; else if (fighter.x > opponent.x) fighter.facing = 'LEFT'
+    const move = clamp(intent.moveX, -1, 1) * this.config.walkSpeed
+    if (fighter.jumpBuffer > 0 && fighter.grounded && !intent.guard) {
+      fighter.jumpBuffer = 0
+      fighter.vy = this.config.jumpVelocity
+      fighter.vx = move
+      fighter.grounded = false
+      fighter.state = 'JUMP'
+      this.emit({ type: 'JUMP', fighter: fighter.id })
+    }
     if (fighter.attackBuffer > 0) { fighter.attackBuffer = 0; this.startAttack(fighter, fighter.bufferedAttack); return }
     // 地面按住防禦鍵：站定擺防禦姿勢（不走、不跳）；出招優先。
     if (intent.guard && fighter.grounded) { fighter.vx = 0; fighter.jumpBuffer = 0; fighter.state = 'GUARD'; return }
-    if (fighter.jumpBuffer > 0 && fighter.grounded) { fighter.jumpBuffer = 0; fighter.vy = this.config.jumpVelocity; fighter.grounded = false; fighter.state = 'JUMP'; this.emit({ type: 'JUMP', fighter: fighter.id }) }
-    fighter.vx = clamp(intent.moveX, -1, 1) * this.config.walkSpeed
+    fighter.vx = move
     if (fighter.vx !== 0) fighter.state = 'WALK'; else if (fighter.grounded) fighter.state = 'IDLE'
   }
 
@@ -179,8 +187,16 @@ export class CombatWorld {
     fighter.attack = attack; fighter.attackPhase = 'STARTUP'; fighter.attackTicks = 0; fighter.attackId = this.nextAttackId++; fighter.hitTargets.clear(); fighter.state = 'ATTACK'; this.emit({ type: 'ATTACK_STARTED', attacker: fighter.id, attackId: fighter.attackId, attack })
   }
 
-  private advancePhysics(fighter: Fighter): void {
+  private advanceVertical(fighter: Fighter): void {
     if (!fighter.grounded || fighter.vy !== 0) { fighter.vy += this.config.gravity; fighter.y += fighter.vy; if (fighter.y >= this.config.floorY) { fighter.y = this.config.floorY; fighter.vy = 0; fighter.grounded = true; if (fighter.state === 'JUMP') fighter.state = 'IDLE' } else fighter.grounded = false }
+  }
+
+  settleAirborne(): void {
+    for (const fighter of Object.values(this.fighters)) this.advanceVertical(fighter)
+  }
+
+  private advancePhysics(fighter: Fighter): void {
+    this.advanceVertical(fighter)
     if (fighter.pushTicks > 0) { fighter.vx = fighter.pushVx; fighter.pushTicks -= 1 }
     fighter.x += fighter.vx; const edge = this.config.wallMargin ?? this.config.fighterWidth / 2; fighter.x = clamp(fighter.x, edge, this.config.arenaWidth - edge)
     if (fighter.grounded) fighter.vx = 0

@@ -11,6 +11,19 @@ const closeConfig = (positions = { PLAYER: 560, ENEMY: 640 }): CombatConfig => (
 const tick = (world: CombatWorld, player = neutral, enemy = neutral): void => world.tick(player, enemy)
 
 describe('CombatWorld', () => {
+  it('takes off and starts a heavy punch when both inputs arrive on the same tick', () => {
+    const world = new CombatWorld(), events: CombatEvent[] = []
+    world.subscribe(event => events.push(event))
+    const jumpPunch = { ...neutral, jumpPressed: true, attackPressed: true, attack: 'HEAVY_PUNCH' } as const
+    tick(world, { ...jumpPunch, moveX: 1 }, jumpPunch)
+    for (const id of ['PLAYER', 'ENEMY'] as const) {
+      const fighter = world.getFighter(id)
+      expect(fighter).toMatchObject({ grounded: false, attack: 'HEAVY_PUNCH', attackPhase: 'STARTUP' })
+      expect(fighter.y).toBeLessThan(world.getConfig().floorY)
+    }
+    expect(world.getFighter('PLAYER').vx).toBeGreaterThan(0)
+    expect(events.map(event => event.type)).toEqual(['JUMP', 'ATTACK_STARTED', 'JUMP', 'ATTACK_STARTED'])
+  })
   it('freezes deterministically, pushes the defender, and allows a buffered combo', () => {
     // 固定單一招式資料，只驗 freeze／knockback／buffer 機制。
     const config: CombatConfig = { ...DEFAULT_COMBAT_CONFIG, attack: { ...DEFAULT_COMBAT_CONFIG.attack, startupTicks: 3, recoveryTicks: 12, hitStunTicks: 20, knockback: 12, knockbackTicks: 5, hitFreeze: 3 }, moves: undefined, initialPositions: { PLAYER: 1300, ENEMY: 1520 } }

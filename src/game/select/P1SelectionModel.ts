@@ -31,6 +31,16 @@ export const sectionOf = (index: number): SectionId => (SECTIONS.find((section) 
 export const sectionCounts = (slots: readonly Slot[]): Record<SectionId, { used: number; total: number }> =>
   Object.fromEntries(SECTIONS.map(({ id, from, to }) => [id, { used: slots.slice(from - 1, to).filter((slot) => slot.entry).length, total: to - from + 1 }])) as Record<SectionId, { used: number; total: number }>
 
+export const selectSectionTitles = (slots: readonly Slot[]) => {
+  const { ROSTER } = sectionCounts(slots)
+  return {
+    body: '化身鬥士 ×4 ｜ 拍照換臉',
+    saga: 'ROG SAGA 英雄 ×2',
+    guest: '特邀鬥士 ×4 ｜ 直接參戰',
+    roster: `參戰者名錄 ｜ FIGHTER ROSTER ｜ ${ROSTER.used} / ${ROSTER.total}`,
+  }
+}
+
 // 01–04 永遠是 Body Template；FEATURED 依序填 05–10，超過的溢出到 ROSTER 起始；其餘（已生成）從 11 起。其餘為 EMPTY（不得補假角色）。
 export const buildSlots = (entries: readonly CharacterEntry[] = characterEntries()): Slot[] => {
   const bodies = bodyTemplates.map((template) => entries.find((entry) => entry.type === 'BODY_TEMPLATE' && entry.bodyTemplateId === template.bodyTemplateId) ?? template)

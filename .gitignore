@@ -91,6 +91,15 @@ Char_Aassest/*
 public/*
 !public/fonts/
 !public/favicon.svg
+!public/test-assets/
+public/test-assets/*
+!public/test-assets/ui/
+public/test-assets/ui/*
+!public/test-assets/ui/hud/
+!public/test-assets/ui/select/
+!public/test-assets/vfx/
+public/test-assets/vfx/*
+!public/test-assets/vfx/attack/
 sample_UIUX/*
 openspec/*
 prototypes/*
@@ -98,3 +107,4 @@ assest/*
 docs/*
 Audio/*
 ComfyUI_API/*
+public/*

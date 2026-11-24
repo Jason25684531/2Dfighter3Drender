@@ -1,0 +1,527 @@
+{
+  "attack": {
+    "LIGHT_PUNCH": {
+      "key": "fx-light-punch",
+      "url": "/test-assets/vfx/attack/light-punch.png",
+      "width": 294,
+      "height": 291,
+      "frames": 6,
+      "peak": 2,
+      "scale": 1
+    },
+    "HEAVY_PUNCH": {
+      "key": "fx-heavy-punch",
+      "url": "/test-assets/vfx/attack/heavy-punch.png",
+      "width": 340,
+      "height": 335,
+      "frames": 5,
+      "peak": 2,
+      "scale": 1
+    },
+    "LIGHT_KICK": {
+      "key": "fx-light-kick",
+      "url": "/test-assets/vfx/attack/light-kick.png",
+      "width": 333,
+      "height": 463,
+      "frames": 5,
+      "peak": 2,
+      "scale": 1
+    },
+    "HEAVY_KICK": {
+      "key": "fx-heavy-kick",
+      "url": "/test-assets/vfx/attack/heavy-kick.png",
+      "width": 430,
+      "height": 344,
+      "frames": 5,
+      "peak": 2,
+      "scale": 1
+    }
+  },
+  "hud": {
+    "portrait-p1": {
+      "x": 77,
+      "y": 47,
+      "w": 223,
+      "h": 77,
+      "url": "/test-assets/ui/hud/portrait-p1.png"
+    },
+    "portrait-p2": {
+      "x": 1619,
+      "y": 47,
+      "w": 224,
+      "h": 77,
+      "url": "/test-assets/ui/hud/portrait-p2.png"
+    },
+    "health-p1": {
+      "x": 276,
+      "y": 90,
+      "w": 532,
+      "h": 34,
+      "url": "/test-assets/ui/hud/health-p1.png"
+    },
+    "health-p2": {
+      "x": 1111,
+      "y": 90,
+      "w": 533,
+      "h": 34,
+      "url": "/test-assets/ui/hud/health-p2.png"
+    },
+    "life-p1-1": {
+      "x": 801,
+      "y": 148,
+      "w": 17,
+      "h": 16,
+      "url": "/test-assets/ui/hud/life-p1-1.png"
+    },
+    "life-p1-2": {
+      "x": 773,
+      "y": 148,
+      "w": 17,
+      "h": 16,
+      "url": "/test-assets/ui/hud/life-p1-2.png"
+    },
+    "life-p2-1": {
+      "x": 1102,
+      "y": 148,
+      "w": 17,
+      "h": 16,
+      "url": "/test-assets/ui/hud/life-p2-1.png"
+    },
+    "life-p2-2": {
+      "x": 1130,
+      "y": 148,
+      "w": 16,
+      "h": 16,
+      "url": "/test-assets/ui/hud/life-p2-2.png"
+    },
+    "hud-under": {
+      "x": 47,
+      "y": 21,
+      "w": 1824,
+      "h": 187,
+      "url": "/test-assets/ui/hud/hud-under.png"
+    },
+    "hud-over": {
+      "x": 58,
+      "y": 28,
+      "w": 1804,
+      "h": 182,
+      "url": "/test-assets/ui/hud/hud-over.png"
+    }
+  },
+  "hudText": {
+    "timer": {
+      "text": "99",
+      "x": 889.76,
+      "y": 127.66,
+      "size": 80,
+      "font": "ROGFonts-Regular",
+      "color": "#ffffff",
+      "layer": "UI(中) 拷貝"
+    },
+    "percent-p1": {
+      "text": "100%",
+      "x": 739.29,
+      "y": 84.64,
+      "size": 26.67,
+      "font": "TradeGothicLTPro-BdCn20",
+      "color": "#ff0000",
+      "layer": "UI(左)"
+    },
+    "label-p1": {
+      "text": "HP _ CORE // P1",
+      "x": 626.5,
+      "y": 84.64,
+      "size": 16,
+      "font": "TradeGothicLTPro-BdCn20",
+      "color": "#ff0000",
+      "layer": "UI(左)"
+    },
+    "tag-p1": {
+      "text": "P1",
+      "x": 67.96,
+      "y": 182.46,
+      "size": 26.67,
+      "font": "TradeGothicLTPro-BdCn20",
+      "color": "#040000",
+      "layer": "UI(左)"
+    },
+    "name-p1": {
+      "text": " NEO GAMER",
+      "x": 99.58,
+      "y": 183.98,
+      "size": 26.67,
+      "font": "ROGFonts-Regular",
+      "color": "#ffffff",
+      "layer": "UI(左)"
+    },
+    "percent-p2": {
+      "text": "100%",
+      "x": 1124.35,
+      "y": 84.64,
+      "size": 26.67,
+      "font": "TradeGothicLTPro-BdCn20",
+      "color": "#352dc5",
+      "layer": "UI(右)"
+    },
+    "label-p2": {
+      "text": "P2 // HP _ CORE",
+      "x": 1199.78,
+      "y": 84.64,
+      "size": 16,
+      "font": "TradeGothicLTPro-BdCn20",
+      "color": "#352dc5",
+      "layer": "UI(右)"
+    },
+    "tag-p2": {
+      "text": "P2",
+      "x": 1826.78,
+      "y": 182.46,
+      "size": 26.67,
+      "font": "TradeGothicLTPro-BdCn20",
+      "color": "#040000",
+      "layer": "UI(右)"
+    },
+    "name-p2": {
+      "text": "PLAYER 2",
+      "x": 1646.8,
+      "y": 184,
+      "size": 26.67,
+      "font": "ROGFonts-Regular",
+      "color": "#ffffff",
+      "layer": "UI(右)"
+    }
+  },
+  "select": {
+    "silhouette-p2": {
+      "x": 1433,
+      "y": 352,
+      "w": 407,
+      "h": 666,
+      "url": "/test-assets/ui/select/silhouette-p2.png"
+    },
+    "ring-p1": {
+      "x": 8,
+      "y": 945,
+      "w": 504,
+      "h": 100,
+      "url": "/test-assets/ui/select/ring-p1.png"
+    },
+    "ring-p2": {
+      "x": 1408,
+      "y": 945,
+      "w": 504,
+      "h": 100,
+      "url": "/test-assets/ui/select/ring-p2.png"
+    },
+    "spotlight-p1": {
+      "x": 0,
+      "y": 0,
+      "w": 552,
+      "h": 1080,
+      "url": "/test-assets/ui/select/spotlight-p1.png"
+    },
+    "spotlight-p2": {
+      "x": 1368,
+      "y": 0,
+      "w": 552,
+      "h": 1080,
+      "url": "/test-assets/ui/select/spotlight-p2.png"
+    },
+    "cursor-p1": {
+      "x": 455,
+      "y": 490,
+      "w": 126,
+      "h": 136,
+      "url": "/test-assets/ui/select/cursor-p1.png"
+    },
+    "cursor-p2": {
+      "x": 945,
+      "y": 490,
+      "w": 126,
+      "h": 136,
+      "url": "/test-assets/ui/select/cursor-p2.png"
+    },
+    "body-card-1": {
+      "x": 473,
+      "y": 508,
+      "w": 90,
+      "h": 100,
+      "url": "/test-assets/ui/select/body-card-1.png"
+    },
+    "body-card-2": {
+      "x": 569,
+      "y": 508,
+      "w": 90,
+      "h": 100,
+      "url": "/test-assets/ui/select/body-card-2.png"
+    },
+    "body-card-3": {
+      "x": 665,
+      "y": 508,
+      "w": 90,
+      "h": 100,
+      "url": "/test-assets/ui/select/body-card-3.png"
+    },
+    "body-card-4": {
+      "x": 761,
+      "y": 508,
+      "w": 90,
+      "h": 100,
+      "url": "/test-assets/ui/select/body-card-4.png"
+    },
+    "decoration-48": {
+      "x": 70,
+      "y": 112,
+      "w": 289,
+      "h": 8,
+      "url": "/test-assets/ui/select/decoration-48.png"
+    },
+    "decoration-49": {
+      "x": 1550,
+      "y": 112,
+      "w": 289,
+      "h": 8,
+      "url": "/test-assets/ui/select/decoration-49.png"
+    },
+    "decoration-50": {
+      "x": 844,
+      "y": 150,
+      "w": 234,
+      "h": 6,
+      "url": "/test-assets/ui/select/decoration-50.png"
+    }
+  },
+  "selectCells": [
+    {
+      "w": 90,
+      "h": 100,
+      "x": 473,
+      "y": 508
+    },
+    {
+      "w": 90,
+      "h": 100,
+      "x": 569,
+      "y": 508
+    },
+    {
+      "w": 90,
+      "h": 100,
+      "x": 665,
+      "y": 508
+    },
+    {
+      "w": 90,
+      "h": 100,
+      "x": 761,
+      "y": 508
+    },
+    {
+      "w": 90,
+      "h": 100,
+      "x": 867,
+      "y": 508
+    },
+    {
+      "w": 90,
+      "h": 100,
+      "x": 963,
+      "y": 508
+    },
+    {
+      "w": 90,
+      "h": 100,
+      "x": 1069,
+      "y": 508
+    },
+    {
+      "w": 90,
+      "h": 100,
+      "x": 1165,
+      "y": 508
+    },
+    {
+      "w": 90,
+      "h": 100,
+      "x": 1261,
+      "y": 508
+    },
+    {
+      "w": 90,
+      "h": 100,
+      "x": 1357,
+      "y": 508
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 473,
+      "y": 658
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 571,
+      "y": 658
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 669,
+      "y": 658
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 767,
+      "y": 658
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 865,
+      "y": 658
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 963,
+      "y": 658
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 1061,
+      "y": 658
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 1159,
+      "y": 658
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 1257,
+      "y": 658
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 1355,
+      "y": 658
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 473,
+      "y": 756
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 571,
+      "y": 756
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 669,
+      "y": 756
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 767,
+      "y": 756
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 865,
+      "y": 756
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 963,
+      "y": 756
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 1061,
+      "y": 756
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 1159,
+      "y": 756
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 1257,
+      "y": 756
+    },
+    {
+      "w": 92,
+      "h": 92,
+      "x": 1355,
+      "y": 756
+    }
+  ],
+  "selectPanels": {
+    "panel-p1": {
+      "x": 56,
+      "y": 150,
+      "w": 560,
+      "h": 96
+    },
+    "panel-p2": {
+      "x": 1304,
+      "y": 150,
+      "w": 560,
+      "h": 96
+    },
+    "body": {
+      "x": 473,
+      "y": 478,
+      "w": 378,
+      "h": 26
+    },
+    "saga": {
+      "x": 867,
+      "y": 478,
+      "w": 186,
+      "h": 26
+    },
+    "guest": {
+      "x": 1069,
+      "y": 478,
+      "w": 378,
+      "h": 26
+    },
+    "roster": {
+      "x": 473,
+      "y": 628,
+      "w": 974,
+      "h": 26
+    },
+    "nickname": {
+      "x": 48,
+      "y": 933,
+      "w": 346,
+      "h": 79
+    },
+    "rival": {
+      "x": 1526,
+      "y": 933,
+      "w": 346,
+      "h": 79
+    }
+  }
+}

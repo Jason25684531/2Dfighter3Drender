@@ -54,7 +54,14 @@ export class MatchController {
   resetMatch(): void { this.world.reset(); this.ai.reset(); this.matchState = 'READY'; this.roundNumber = 1; this.playerRoundWins = 0; this.enemyRoundWins = 0; this.remainingTicks = ROUND_TICKS; this.winner = undefined; this.finishReason = undefined; this.drawRetries = 0; this.maxPlayerCombo = 0; this.roundMaxCombo = 0; this.roundWinner = undefined; this.roundSummaries.length = 0; this.roundStartTick = 0; this.introRemaining = 0; this.introReadyTicks = 0; this.fightFlash = 0; this.callRemaining = 0 }
   /** enemyIntent 有傳＝2P 真人操作 ENEMY，不呼叫 AI；省略＝CPU。 */
   tick(playerIntent: FighterIntent = NEUTRAL_INTENT, enemyIntent?: FighterIntent): void {
-    if (this.matchState === 'ROUND_END') { if (this.callRemaining > 0) this.callRemaining -= 1; else this.startPendingRound(); return }
+    if (this.matchState === 'ROUND_END' || this.matchState === 'MATCH_END') {
+      this.world.settleAirborne()
+      if (this.matchState === 'ROUND_END') {
+        if (this.callRemaining > 0) this.callRemaining -= 1
+        else this.startPendingRound()
+      }
+      return
+    }
     if (this.matchState === 'READY' && this.introRemaining > 0) { this.introRemaining -= 1; if (this.introRemaining === 0) { this.matchState = 'FIGHTING'; this.fightFlash = INTRO_FIGHT_TICKS } return }
     if (this.matchState !== 'FIGHTING') return
     if (this.fightFlash > 0) this.fightFlash -= 1

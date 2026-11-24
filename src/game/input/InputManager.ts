@@ -1,4 +1,4 @@
-import { ATTACK_ACTIONS, COMBAT_ACTIONS, DEFAULT_KEYBOARD_BINDINGS, menuKeys, type AttackAction, type Bindings, type CombatAction, type ControlProfiles } from './ControlProfile'
+import { ATTACK_ACTIONS, COMBAT_ACTIONS, DEFAULT_KEYBOARD_BINDINGS, SYSTEM_BACK_KEY, menuKeys, type AttackAction, type Bindings, type CombatAction, type ControlProfiles } from './ControlProfile'
 import { ANALOG_DIRECTIONS, DEFAULT_PAD_BINDINGS, PAD_SYSTEM, rememberPads, samplePads, updateSlots, type PadCode, type PadDown, type PadProfiles, type PadSlots } from './GamepadProfile'
 
 export const UI_ACTIONS = ['NAV_UP', 'NAV_DOWN', 'NAV_LEFT', 'NAV_RIGHT', 'CONFIRM', 'BACK', 'OPEN_MENU'] as const
@@ -38,7 +38,7 @@ function combatKeys(bindings: Bindings): Record<CombatAction, readonly string[]>
 
 const defaults: Record<InputAction, readonly string[]> = {
   NAV_UP: ['ArrowUp'], NAV_DOWN: ['ArrowDown'], NAV_LEFT: ['ArrowLeft'], NAV_RIGHT: ['ArrowRight'],
-  CONFIRM: ['Enter'], BACK: ['Escape'], OPEN_MENU: ['KeyM'],
+  CONFIRM: ['Enter'], BACK: [SYSTEM_BACK_KEY], OPEN_MENU: ['KeyM'],
   ...combatKeys(DEFAULT_KEYBOARD_BINDINGS.P1),
 }
 // P1 選角的雙玩家鍵位（各自跟著自己的戰鬥鍵，見 menuKeys）；與上方未標記鍵位並存。

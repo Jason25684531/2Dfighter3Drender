@@ -24,7 +24,8 @@ import { ControlsPanel } from '../ui/controls/ControlsPanel'
 import { loadPadProfiles, PAD_SYSTEM, padLabel, savePadProfiles, type PadProfiles } from '../input/GamepadProfile'
 import { GameAudio } from '../audio/GameAudio'
 import { combatCues, finishCues } from '../audio/AudioCues'
-import { addAtmosphere, ArenaScreen, type Focusable, type Matchup, type ScreenContext, type ScreenView } from '../ui/screens/ScreenView'
+import { addAtmosphere, ArenaScreen, RESULT_REVIEW_MS, type Focusable, type Matchup, type ScreenContext, type ScreenView } from '../ui/screens/ScreenView'
+import { shakeOnKnockdown } from '../ui/battle/BattleView'
 import { HomeScreen } from '../ui/screens/HomeScreen'
 import { SelectScreen } from '../ui/screens/SelectScreen'
 import { StageSelectScreen } from '../ui/screens/StageSelectScreen'
@@ -52,9 +53,12 @@ export class AppScene extends Phaser.Scene {
   private tickEvents: CombatEvent[] = []
   private selectedStageId: StageId = 'laboratory'
   private p1Model?: P1SelectionModel
+  private headLoad?: AbortController
+  private photos: Partial<Record<PlayerSlotId, string>> = {}
   private jobs!: GenerationJobs
   private p1Offline = false
   private lastActivity = 0
+  private resultReadyAt = 0
   private idleLabel?: Phaser.GameObjects.Text
   private lockedNotice?: Phaser.GameObjects.Text
   private stageBackdrop?: Phaser.GameObjects.Image
@@ -100,12 +104,17 @@ export class AppScene extends Phaser.Scene {
     this.clock.start()
     void this.flow.refreshLeaderboard()
     this.flow.onOffline = () => { this.p1Offline = true; this.p1View?.setOffline() }
-    this.flow.onResultStored = () => this.render(this.appStateMachine.getCurrentState())
+    this.flow.onResultStored = () => {
+      const state = this.appStateMachine.getCurrentState()
+      if (state === AppState.RESULT || state === AppState.END) this.render(state)
+    }
     // 轉移副作用（session／match／persistence）由 ExperienceFlow 先處理；這裡只管呈現。
     this.unsubscribe = this.appStateMachine.subscribe(({ previousState, nextState }) => {
       if (nextState === AppState.BATTLE) this.audio?.loop('amb-cheer')
       if (previousState === AppState.BATTLE && nextState === AppState.PRESENTATION && this.flow.result) {
-        this.audio?.playSequence(combatCues(this.tickEvents.splice(0)))
+        const events = this.tickEvents.splice(0)
+        shakeOnKnockdown(this, events)
+        this.audio?.playSequence(combatCues(events))
         this.audio?.playSequence(finishCues(this.flow.result, Boolean(this.flow.players.P2), this.flow.match.world.getConfig().maxHp, this.flow.match.getRoundSummaries().at(-1)))
         this.audio?.play({ id: 'amb-claps' })
       }
@@ -113,15 +122,17 @@ export class AppScene extends Phaser.Scene {
       if (previousState === AppState.PRESENTATION) this.audio?.stopLoop()
       if (nextState === AppState.READY) { this.p1Offline = false; this.p1Model = undefined; this.clearGeneration(); void this.refreshGeneratedEntries() }
       if (nextState === AppState.IDLE) this.clearGeneration()
-      if (previousState === AppState.READY) this.p1Model = undefined
+      if (previousState === AppState.READY) { this.headLoad?.abort(); this.p1Model = undefined }
       this.lastActivity = this.time.now
+      if (nextState === AppState.RESULT) this.resultReadyAt = this.time.now + RESULT_REVIEW_MS
       if (nextState !== AppState.IDLE) { this.stopAttract(); this.closeControls(); this.closeBoard() }
       if (nextState === AppState.BATTLE) { this.tickEvents = []; this.combatUnsubscribe?.(); this.combatUnsubscribe = this.flow.match.world.subscribe((event) => { this.tickEvents.push(event) }) }
       this.render(nextState)
     })
     this.clockUnsubscribe = this.clock.subscribe(() => {
       const state = this.appStateMachine.getCurrentState()
-      if (state === AppState.PRESENTATION || state === AppState.LOADING) { this.current?.tick(); return }
+      if (state === AppState.PRESENTATION) { this.flow.match.tick(); this.current?.tick(); return }
+      if (state === AppState.LOADING) { this.current?.tick(); return }
       if (state !== AppState.BATTLE) return
       const input = this.inputManager.consumeGameplaySnapshot(), p2 = this.inputManager.consumeGameplaySnapshot('P2')
       // 蹲是純呈現：只在可操作時顯示（起手序列與回合結束停留不蹲）；ENEMY 只有 2P 真人時才看 2P 的蹲鍵。
@@ -208,7 +219,11 @@ export class AppScene extends Phaser.Scene {
       // 暫停選單只屬於 P4；其他畫面的 Escape／M 不開啟選單。
       // 1P 選單鍵（鍵盤跟自訂鍵位，或 1P 的手把）在後續選單同樣有效；2P 的鍵盤與手把都不併入（2P 鍵與未標記鍵重複，會重複觸發）。
       actions.push(...p1Owned)
-      actions.filter((action) => !this.current?.handleAction(action)).filter((action) => this.ui.navigation.isOverlayOpen() || battling || (action === 'BACK' && backScreen) || (action !== 'OPEN_MENU' && action !== 'BACK')).forEach((action) => { if (!this.overlay?.inputLocked) this.ui.navigation.dispatch(action) })
+      for (const action of actions) {
+        if (this.appStateMachine.getCurrentState() !== visualState) break
+        if (this.current?.handleAction(action) || this.overlay?.inputLocked) continue
+        if (this.ui.navigation.isOverlayOpen() || battling || (action === 'BACK' && backScreen) || (action !== 'OPEN_MENU' && action !== 'BACK')) this.ui.navigation.dispatch(action)
+      }
     }
     this.attractInputConsumed = false
     this.checkIdle(time)
@@ -231,10 +246,10 @@ export class AppScene extends Phaser.Scene {
       [AppState.IDLE]: () => new HomeScreen(ctx, root, `${keyLabel(this.controls.P1.LIGHT_PUNCH)} / ENTER / ${this.padConfirm()} 確認 · ← → 切換 · P 播放開頭動畫 · C / ${padLabel(PAD_SYSTEM.CONTROLS)} 操作設定`, () => this.openBoard()),
       [AppState.READY]: () => new SelectScreen(ctx, root, this.jobs.entriesReady ? (parent) => this.createP1View(parent) : undefined),
       [AppState.SETUP]: () => new StageSelectScreen(ctx, root, this.selectedStageId, this.stepTotal(), (id) => this.selectStage(id), () => this.confirmStage()),
-      [AppState.LOADING]: () => new LoadingScreen(ctx, root, { matchup: this.matchup(), controls: this.controls, pads: this.padProfiles, input: this.inputManager, clock: this.clock, jobs: this.jobs, retry: () => this.jobs.retry(this.selectedCharacterIds(), [this.playerSpriteId(), this.enemySpriteId()]) }),
+      [AppState.LOADING]: () => new LoadingScreen(ctx, root, { matchup: this.matchup(), controls: this.controls, pads: this.padProfiles, input: this.inputManager, clock: this.clock, jobs: this.jobs, retry: () => this.jobs.retry(this.selectedCharacterIds(), this.selectedRosterSprites()) }),
       [AppState.BATTLE]: () => new BattleScreen(ctx, root, this.matchup(), this.flow, { input: this.inputManager, clock: this.clock, takeEvents: () => this.tickEvents.splice(0), playerContext: this.playerContext, enemyContext: this.enemyContext }),
       [AppState.PRESENTATION]: () => new PresentationScreen(ctx, root, this.matchup(), this.flow),
-      [AppState.RESULT]: () => new ResultScreen(ctx, root, this.flow.result && resultViewModel(this.flow.result, this.persistence?.context.snapshot.backendRank ?? null, p6SubStateForRank(this.persistence?.context.snapshot.backendRank), this.flow.leaderboard, this.persistence?.context.snapshot.sessionId)),
+      [AppState.RESULT]: () => new ResultScreen(ctx, root, this.flow.result && resultViewModel(this.flow.result, this.persistence?.context.snapshot.backendRank ?? null, p6SubStateForRank(this.persistence?.context.snapshot.backendRank), this.flow.leaderboard, this.persistence?.context.snapshot.sessionId), this.resultReadyAt),
       [AppState.END]: () => new EndScreen(ctx, root, endViewModel(this.flow.nextPlayerName)),
     }
     this.current = screens[state]()
@@ -275,9 +290,13 @@ export class AppScene extends Phaser.Scene {
   }
 
   private createP1View(root: Phaser.GameObjects.Container): P1SelectView {
-    this.p1Model ??= new P1SelectionModel([...characterEntries(), ...this.jobs.entries], { players: this.flow.players, faceGenUsed: this.persistence?.context.snapshot.faceGenUsed })
+    if (!this.p1Model) {
+      this.p1Model = new P1SelectionModel([...characterEntries(), ...this.jobs.entries], { players: this.flow.players, faceGenUsed: this.persistence?.context.snapshot.faceGenUsed })
+      this.headLoad?.abort()
+      this.headLoad = new AbortController()
+      void loadHeads(this, this.p1Model.slots.flatMap(slot => slot.entry ? [slot.entry] : []), () => this.p1View?.refreshHeads(), this.headLoad.signal)
+    }
     ;(['P1', 'P2'] as const).forEach((owner) => { const index = this.p1Model?.heroSlot(owner)?.index; if (index) void this.loadRosterPreview(index) })
-    void loadHeads(this, this.p1Model.slots.flatMap((slot) => slot.entry ? [slot.entry] : []), () => this.p1View?.refreshHeads())
     return new P1SelectView(this, root, this.p1Model, {
       offline: this.p1Offline || this.persistence?.lastLeaderboardOk === false,
       onInput: (owner, action) => this.p1Input(owner, action),
@@ -343,6 +362,8 @@ export class AppScene extends Phaser.Scene {
     try { await this.jobs.load(entry.generationId, true); this.p1View?.sync() } catch { /* The battle loading screen reports missing assets. */ }
   }
   private clearGeneration(): void {
+    this.headLoad?.abort()
+    this.photos = {}
     this.jobs.clear()
     ;(['P1', 'P2'] as const).forEach((id) => { const key = faceKey(id); if (this.textures.exists(key)) this.textures.remove(key) })
   }
@@ -370,21 +391,22 @@ export class AppScene extends Phaser.Scene {
     if (!players.P1 || this.p1Model?.phase !== 'ALL_READY') return
     ;(['P1', 'P2'] as const).forEach((id) => { const assetId = this.jobs.assetId(id); if (assetId && players[id]) players[id] = { ...players[id], characterId: `generated-${assetId}` } })
     this.flow.setPlayers(players); this.flow.opponent = this.p1Model.opponent()
-    this.applyFaces()
-    // 原圖若在進 P3 之後才載完，重畫一次練習場讓角色換成清楚版。
-    void this.jobs.loadSelected(this.selectedCharacterIds(), [this.playerSpriteId(), this.enemySpriteId()]).then(() => { if (this.appStateMachine.getCurrentState() === AppState.LOADING) this.render(AppState.LOADING) })
+    this.photos = { P1: this.p1Model.player('P1').photo, P2: this.p1Model.player('P2').photo }
     this.appStateMachine.transitionTo(AppState.SETUP)
   }
-  private selectedCharacterIds(): Array<string | undefined> { return Object.values(this.flow.players).map((player) => player?.characterId) }
+  private selectedCharacterIds(): Array<string | undefined> { return [this.flow.players.P1?.characterId, this.flow.players.P2?.characterId ?? this.opponentEntry()?.id] }
+  private selectedRosterSprites(): Array<SpriteId | undefined> {
+    return [this.jobs.has('P1') ? undefined : this.playerSpriteId(), this.jobs.has('P2') ? undefined : this.enemySpriteId()]
+  }
   private applyFaces(): void {
     (['P1', 'P2'] as const).forEach((id) => {
-      const key = faceKey(id), photo = this.p1Model?.player(id).photo
+      const key = faceKey(id), photo = this.photos[id]
       if (this.textures.exists(key)) this.textures.remove(key)
       if (!photo) return
       const image = new Image()
       image.onload = () => {
         const size = Math.min(image.width, image.height), canvas = Object.assign(document.createElement('canvas'), { width: 256, height: 256 }), context = canvas.getContext('2d')
-        if (!context || this.textures.exists(key)) return
+        if (!context || this.photos[id] !== photo || this.textures.exists(key)) return
         context.beginPath(); context.arc(128, 128, 124, 0, Math.PI * 2); context.clip()
         context.drawImage(image, (image.width - size) / 2, (image.height - size) / 2, size, size, 0, 0, 256, 256)
         context.lineWidth = 12; context.strokeStyle = colorHex('focus'); context.stroke()
@@ -414,7 +436,18 @@ export class AppScene extends Phaser.Scene {
     this.stageBackdrop?.setTexture(stageTextureKey(id))
     document.body.style.setProperty('--backdrop', `url("${resolveStageAsset(id).url}")`)
   }
-  private confirmStage(): void { this.persistence?.context.set({ selectedStageId: this.selectedStageId }); this.appStateMachine.transitionTo(AppState.LOADING) }
+  private confirmStage(): void {
+    this.persistence?.context.set({ selectedStageId: this.selectedStageId })
+    if (!this.appStateMachine.transitionTo(AppState.LOADING)) return
+    const screen = this.current
+    this.time.delayedCall(uiTokens.motionMs.enter, () => {
+      if (this.current !== screen) return
+      this.applyFaces()
+      void this.jobs.loadSelected(this.selectedCharacterIds(), this.selectedRosterSprites()).then(active => {
+        if (active && this.appStateMachine.getCurrentState() === AppState.LOADING) this.render(AppState.LOADING)
+      })
+    })
+  }
 
   /** 流程總步數：選角（含拍照、1P 選對手）＋選場景。 */
   private stepTotal(): number { return this.hasCustom() ? 5 : 3 }
@@ -427,7 +460,7 @@ export class AppScene extends Phaser.Scene {
   private opponentEntry(): CharacterEntry | undefined { return this.flow.players.P2 ? undefined : this.rosterEntry(this.flow.opponent?.characterId) }
   private enemyName(): string { const p2 = this.flow.players.P2; if (!p2 && this.opponentEntry()) return this.opponentEntry()?.displayName ?? 'ROG_SAGA'; return p2 ? p2.nickname || this.rosterEntry(p2.characterId)?.displayName || 'ROG_SAGA' : 'ROG_SAGA' }
   private playerSpriteId(): SpriteId | undefined { const assetId = this.jobs.assetId('P1'); return assetId ? `generated-${assetId}` : this.playerEntry().spriteId }
-  private enemySpriteId(): SpriteId { const assetId = this.jobs.assetId('P2'); return assetId ? `generated-${assetId}` : this.opponentEntry()?.spriteId ?? characterEntry(this.flow.players.P2?.characterId)?.spriteId ?? (this.playerSpriteId() === 'go' ? 'chris' : 'go') }
+  private enemySpriteId(): SpriteId { const assetId = this.jobs.assetId('P2'); return assetId ? `generated-${assetId}` : this.opponentEntry()?.spriteId ?? this.rosterEntry(this.flow.players.P2?.characterId)?.spriteId ?? (this.playerSpriteId() === 'go' ? 'chris' : 'go') }
 
   private readonly attractKey = (event: KeyboardEvent): void => {
     if (this.appStateMachine.getCurrentState() !== AppState.IDLE || event.repeat) return

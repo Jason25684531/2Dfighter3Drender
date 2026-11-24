@@ -3,7 +3,18 @@ import sceneSource from '../scenes/AppScene.ts?raw'
 import { AppState } from '../state/AppState'
 import { AppStateMachine } from '../state/AppStateMachine'
 import { UIFramework } from './UIFramework'
-import { healthRatio, panelPoints } from './presentationMath'
+import { healthCrop, healthPercent, healthRatio, panelPoints, remainingLives } from './presentationMath'
+
+it('crops toward the center and rounds the displayed health percentage', () => {
+  expect(healthCrop(0.7, 532, false)).toEqual({ x: 160, width: 372 })
+  expect(healthCrop(0.4, 533, true)).toEqual({ x: 0, width: 213 })
+  expect(healthCrop(0, 532, false)).toEqual({ x: 532, width: 0 })
+  expect([1, 0.696, 0.4, -0.1].map(healthPercent)).toEqual(['100%', '70%', '40%', '0%'])
+})
+
+it('turns off one life for each round the opponent wins', () => {
+  expect([0, 1, 2, 3].map(remainingLives)).toEqual([2, 1, 0, 0])
+})
 import { uiTokens } from './tokens/uiTokens'
 
 describe('Cyber Arena navigation and presentation', () => {

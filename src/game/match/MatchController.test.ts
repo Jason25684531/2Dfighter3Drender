@@ -60,6 +60,29 @@ describe('EnemyAI and MatchController', () => {
     for (let i = 0; i < 4; i += 1) match.tick({ ...neutral, attackPressed: true }); expect(match.getSnapshot().playerRoundWins).toBe(1); match.tick(); expect(match.getSnapshot().roundNumber).toBe(3); expect(match.getSnapshot().matchState).toBe('FIGHTING')
   })
 
+  it('lets an airborne winner land after the final KO without advancing combat', () => {
+    const match = new MatchController(closeConfig(100))
+    match.world.setHitTest(() => ({ x: 600, y: 640 }))
+    const winRound = () => {
+      match.tick({ ...neutral, jumpPressed: true }, neutral)
+      match.tick({ ...neutral, attackPressed: true }, neutral)
+      for (let i = 0; i < 8 && match.getSnapshot().matchState === 'FIGHTING'; i++) match.tick(neutral, neutral)
+    }
+    match.start()
+    winRound()
+    match.tick()
+    winRound()
+    const before = match.getSnapshot()
+    expect(before.matchState).toBe('MATCH_END')
+    expect(before.world.fighters.PLAYER.grounded).toBe(false)
+    for (let i = 0; i < 30; i++) match.tick()
+    const after = match.getSnapshot()
+    expect(after.world.fighters.PLAYER).toMatchObject({ grounded: true, y: 820, x: before.world.fighters.PLAYER.x })
+    expect(after.world.tick).toBe(before.world.tick)
+    expect(after.remainingTicks).toBe(before.remainingTicks)
+    expect(match.getRoundSummaries()).toHaveLength(2)
+  })
+
   it('replays two draws and ends the third draw as a finite match draw', () => {
     const match = new MatchController(); match.ai.getIntent = () => neutral; match.start()
     for (let draw = 0; draw < 3; draw += 1) { for (let tick = 0; tick < ROUND_TICKS; tick += 1) match.tick(); if (draw < 2) { expect(match.getSnapshot().matchState).toBe('ROUND_END'); match.tick() } }

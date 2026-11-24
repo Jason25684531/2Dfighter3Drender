@@ -8,6 +8,28 @@ import { crouchFrame, peakFrame } from './SpriteHitTest'
 
 /** 起身無敵：固定半透明，不閃爍。 */
 const INVULNERABLE_ALPHA = 0.6
+const groundOrigins = new WeakMap<Phaser.Textures.Frame, number>()
+
+function groundOrigin(frame: Phaser.Textures.Frame, fallback: number): number {
+  if (!frame.source?.image) return fallback
+  const cached = groundOrigins.get(frame)
+  if (cached !== undefined) return cached
+  const width = 128, height = 256
+  const probe = Object.assign(document.createElement('canvas'), { width, height }).getContext('2d', { willReadFrequently: true })
+  if (!probe) return fallback
+  probe.drawImage(frame.source.image as CanvasImageSource, frame.cutX, frame.cutY, frame.cutWidth, frame.cutHeight, 0, 0, width, height)
+  const pixels = probe.getImageData(0, 0, width, height).data
+  for (let y = height - 1; y >= 0; y--) {
+    let solid = 0
+    for (let x = 0; x < width; x++) if (pixels[(y * width + x) * 4 + 3] > 32) solid++
+    if (solid < 2) continue
+    const origin = (y + 1) / height
+    groundOrigins.set(frame, origin)
+    return origin
+  }
+  groundOrigins.set(frame, fallback)
+  return fallback
+}
 
 export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private readonly shadow: Phaser.GameObjects.Ellipse
@@ -57,6 +79,14 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     const key = sheet ? `${this.spriteId}-${sheet}` : spriteTextureKey(this.spriteId, action, frame)
     const textureFrame = spriteTextureFrame(this.spriteId, frame)
     if (this.scene.textures.exists(key) && (this.image.texture.key !== key || (textureFrame !== undefined && String(this.image.frame.name) !== String(textureFrame)))) this.image.setTexture(key, textureFrame).setScale(spriteDisplayHeight(this.spriteId) / this.image.height)
+    this.image.setOrigin(0.5, this.originFor(this.image.frame, fighter.grounded))
+  }
+
+  private originFor(frame: Phaser.Textures.Frame, grounded: boolean): number {
+    const fallback = spriteOriginY(this.spriteId!)
+    if (grounded) return groundOrigin(frame, fallback)
+    const idle = this.scene.textures.getFrame(spriteTextureKey(this.spriteId!, 'idle'), spriteTextureFrame(this.spriteId))
+    return idle ? groundOrigin(idle, fallback) : fallback
   }
 
   private peak(action: SpriteAction, sheet?: string): number | undefined {
@@ -69,11 +99,12 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   pose(fighter: FighterSnapshot, context?: PresentationContext): { key: string; frame: string | number; scale: number; originY: number } | undefined {
     const { image, spriteId: id } = this
     if (!image || !id) return undefined
-    const scale = spriteDisplayHeight(id) / image.height, originY = spriteOriginY(id)
-    if (spriteActionFor(fighter, context) !== 'attack') return { key: image.texture.key, frame: image.frame.name, scale, originY }
+    if (spriteActionFor(fighter, context) !== 'attack') return { key: image.texture.key, frame: image.frame.name, scale: spriteDisplayHeight(id) / image.height, originY: this.originFor(image.frame, fighter.grounded) }
     const presentation = !isSheetSprite(id) ? undefined : fighter.attackId === this.attackId && this.action === 'attack' ? this.presentation : resolvePresentation(fighter, context)
     const sheet = presentation && presentationSheetFor(this.spriteId, presentation), frame = spriteFrameFor(fighter, 'attack', 0, id, this.peak('attack', sheet), sheet)
-    return { key: sheet ? `${id}-${sheet}` : spriteTextureKey(id, 'attack', frame), frame: spriteTextureFrame(id, frame) ?? image.frame.name, scale, originY }
+    const key = sheet ? `${id}-${sheet}` : spriteTextureKey(id, 'attack', frame), name = spriteTextureFrame(id, frame) ?? image.frame.name
+    const textureFrame = this.scene.textures.getFrame(key, name)
+    return { key, frame: name, scale: spriteDisplayHeight(id) / (textureFrame?.height ?? image.height), originY: this.originFor(textureFrame ?? image.frame, fighter.grounded) }
   }
 
   renderAt(alpha: number): void {

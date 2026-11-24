@@ -1,6 +1,6 @@
 import { ApiClient } from '../api/ApiClient'
 import { ApiError } from '../api/ApiError'
-import type { LeaderboardEntry, Match, RoundCreate } from '../api/ApiTypes'
+import type { LeaderboardEntry, Match, MatchCreate, RoundCreate } from '../api/ApiTypes'
 import type { MatchResult } from '../match/ResultResolver'
 import type { RoundSummary } from '../match/MatchController'
 import type { PlayerSlotId } from '../input/InputManager'
@@ -58,7 +58,7 @@ export class ExperiencePersistence {
     this.clear()
   }
 
-  beginMatch(): Promise<void> {
+  beginMatch(difficulty?: MatchCreate['difficulty']): Promise<void> {
     if (this.matchPromise) return this.matchPromise
     const attemptId = this.attemptId = id('attempt').split(':')[0]
     this.finishRequestId = undefined; this.queuedRounds.clear()
@@ -71,7 +71,7 @@ export class ExperiencePersistence {
       const sessionId = this.context.snapshot.sessionId
       if (!sessionId) throw new Error('Session has not been persisted')
       this.context.set({ persistence: 'SAVING' })
-      const match = await this.api.createMatch({ session_id: sessionId, client_request_id: requestId })
+      const match = await this.api.createMatch({ session_id: sessionId, client_request_id: requestId, ...(difficulty ? { difficulty } : {}) })
       if (this.attemptId !== attemptId) return
       this.context.set({ matchId: match.id, persistence: 'SAVED' }); this.persist()
     }})

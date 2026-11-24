@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSlots, moveSlot, P1SelectionModel, sectionCounts, sectionOf } from './P1SelectionModel'
+import { buildSlots, moveSlot, P1SelectionModel, sectionCounts, sectionOf, selectSectionTitles } from './P1SelectionModel'
 import { bodyTemplates, testCharacterManifest, type CharacterEntry } from '../ui/assets/TestAssetManifest'
 import type { OwnedUiAction, PlayerSlotId } from '../input/InputManager'
 
@@ -68,6 +68,15 @@ describe('P1 selection model', () => {
     expect([1, 4, 5, 10, 11, 40].map(sectionOf)).toEqual(['CUSTOMIZE', 'CUSTOMIZE', 'OFFICERS', 'OFFICERS', 'ROSTER', 'ROSTER'])
     expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 6, total: 6 }, ROSTER: { used: 0, total: 30 } })
   })
+  it('displays four sections and counts the occupied roster slots', () => {
+    const guests: CharacterEntry[] = Array.from({ length: 11 }, (_, i) => ({ id: `guest-${i}`, displayName: `Guest ${i}`, type: 'CUSTOM', status: 'READY' }))
+    expect(selectSectionTitles(buildSlots(guests))).toEqual({
+      body: '化身鬥士 ×4 ｜ 拍照換臉',
+      saga: 'ROG SAGA 英雄 ×2',
+      guest: '特邀鬥士 ×4 ｜ 直接參戰',
+      roster: '參戰者名錄 ｜ FIGHTER ROSTER ｜ 11 / 30',
+    })
+  })
   it('puts generated characters in ROSTER and overflows extra featured characters after OFFICERS', () => {
     const entry = (id: string, type: CharacterEntry['type']): CharacterEntry => ({ id, displayName: id, type, status: 'AVAILABLE' })
     const featured = Array.from({ length: 8 }, (_, i) => entry(`f${i}`, 'FEATURED')), generated = [entry('c0', 'CUSTOM'), entry('c1', 'CUSTOM')]
@@ -114,8 +123,11 @@ describe('P1 selection model', () => {
     expect(model.heroSlot('P2')?.entry?.displayName).toBe('SE7EN'); expect(model.opponent()).toBeUndefined()
     press(model, 'P1', 'NAV_RIGHT'); expect([model.rival?.cursor, model.player('P1').cursor]).toEqual([7, 5]) // 1P 方向鍵只移動對手游標
     expect(model.input('P1', 'CONFIRM')).toBe('CONFIRMED'); expect(model.phase).toBe('DIFFICULTY')
-    press(model, 'P1', 'NAV_RIGHT'); expect(model.rival?.difficulty).toBe('HARD'); press(model, 'P1', 'NAV_RIGHT'); expect(model.rival?.difficulty).toBe('EASY')
-    press(model, 'P1', 'NAV_LEFT', 'CONFIRM')
+    for (const difficulty of ['HARD', 'EXTRA_HARD', 'HELL', 'EASY']) {
+      press(model, 'P1', 'NAV_RIGHT')
+      expect(model.rival?.difficulty).toBe(difficulty)
+    }
+    press(model, 'P1', 'NAV_LEFT', 'NAV_LEFT', 'NAV_LEFT', 'CONFIRM')
     expect(model.phase).toBe('ALL_READY'); expect(model.status('P2')).toBe('CPU_READY')
     expect(model.result()).toEqual({ P1: { characterId: 'preset-c' } }); expect(model.opponent()).toEqual({ characterId: 'preset-g', difficulty: 'HARD' })
   })

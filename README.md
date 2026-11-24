@@ -2,7 +2,7 @@
 
 ## ComfyUI 角色生成
 
-本機需啟動 FastAPI、Vite 和 `127.0.0.1:8188` 的 ComfyUI，並保留 `ComfyUI_API/CAMCharacter_Swa__1112(API).json` 及其自訂節點、模型與模板素材。工作流檔可直接放 ComfyUI 存出的 UI 格式，後端送單前自動轉成 API 格式；節點對應見 `docs/Taskforce 2028 FTG_README_交接說明.md`（#1 模板、#2 名稱、#3 照片）。後端可用 `COMFYUI_URL` 和 `COMFYUI_OUTPUT` 環境變數調整服務位址及 ComfyUI output 目錄。前端 API 位址使用 `VITE_API_BASE_URL`；不同來源須設置後端 `EXP2_CORS_ORIGINS`。
+本機需啟動 FastAPI、Vite 和 `127.0.0.1:8188` 的 ComfyUI，並保留 `ComfyUI_API/2026_Taskforce_2028_FTG_Final_CAM_261115.json` 及其自訂節點、模型與模板素材。工作流檔可直接放 ComfyUI 存出的 UI 格式，後端送單前自動轉成 API 格式；節點對應見 `docs/Taskforce 2028 FTG_README_交接說明.md`（#1 模板、#2 名稱、#3 照片）。後端可用 `COMFYUI_URL` 和 `COMFYUI_OUTPUT` 環境變數調整服務位址及 ComfyUI output 目錄。前端 API 位址使用 `VITE_API_BASE_URL`；不同來源須設置後端 `EXP2_CORS_ORIGINS`。
 
 選擇身體後，可拍照並確認生成；鍵盤輕踢或手把輕拳可跳過拍照。拍攝照片會上傳至 ComfyUI，並交由工作流使用的外部生成服務處理。照片以相機原生解析度、與預覽相同的鏡像方向上傳。載入畫面等待所有已提交的角色；失敗時可重試或返回。輸出位於 ComfyUI 原生資料夾 `taskforce_2028_ftg/<玩家名稱>_<模板代號>/`（1=S1AW、2=S2AM、3=S1AM、4=S3WW），遊戲讀 `manifest/game_manifest.json` 與 `Sprite_Sheet_reference_aligned/`；同名同模板會覆寫。任務狀態保存在後端程序記憶體，後端重啟後需重新提交；ComfyUI 輸入照片和輸出檔不會自動刪除。
 
@@ -35,12 +35,14 @@ ComfyUI 的 cmd 視窗被滑鼠點到時，Windows 會進入「選取」模式�
 已上線的玩法細節：
 
 - P0 有【排行榜】按鈕，開啟 Top 10 覆蓋面板，離線時顯示提示。
-- P1 角色格分成三區：CUSTOMIZE（01–04 = S1AW／S2AM／S2LW／S3WW，拍照用 ComfyUI 產出、跳過用原始圖集）、OFFICERS（05–09 = Chris／GO／Joneey／Tony／SE7EN，10 空格）、ROSTER（11–40，已生成角色）。
-- 1P 模式在 P1 選角頁一次完成：鎖定角色 → 紫色 CPU 游標選對手 → ← → 選難度（EASY／NORMAL／HARD）→ 確認。P2 一律只選場景。選對手時 2P 按自己的確認鍵（預設 NUM 1）加入，會捨棄 CPU 選擇改為雙人選角；雙人時 2P 在戰鬥中真人操作 ENEMY，不使用 AI，結果照常以 1P 計入排行榜。
+- P1 選角顯示化身鬥士（01–04）、ROG SAGA 英雄（05–06）、特邀鬥士（07–10）及參戰者名錄（11–40）。安裝 Pillow 後可執行 `python scripts/prepare-ui-vfx-assets.py` 重建遊戲用切片和特效。正式字型可放在 `public/fonts/rog-fonts.woff2` 和 `public/fonts/trade-gothic-bdcn.woff2`。
+- 1P 模式在 P1 選角頁一次完成：鎖定角色 → 紫色 CPU 游標選對手 → 選難度（EASY／NORMAL／HARD／EXTRA HARD／地獄模式）→ 確認。P2 一律只選場景。選對手時 2P 按自己的確認鍵（預設 NUM 1）加入，會改為雙人選角。雙人對戰以 1P 的結果計入排行榜。
 - 戰鬥是單一水平軸（已移除 2.5D 縱深）：W 跳、S 蹲。四種攻擊（F／U／G／I）傷害相同，輕重只影響動畫與特效大小。
 - 命中時在接觸點播放爆炸特效（重拳重腳較大），防禦成功播放藍色波紋，弧面朝向攻擊者。
 - 播報統一由 Announcer 顯示：ROUND n → READY?（只第 1 回合）→ FIGHT!；回合結束先停約 1.5 秒顯示 K.O.／TIME UP，再顯示上一回合 YOU WIN／YOU LOSE／DRAW；最後一回合直接進 P5，用同一元件顯示結束方式與勝負。
 - AI 難度參數集中在 `src/game/config/aiProfiles.ts`，敵方會輪替四種攻擊。
+- EASY、NORMAL、HARD 和雙人對戰採用原計分公式。EXTRA HARD 和地獄模式分別乘以 1.2 和 1.4，再無條件捨去小數。
+- 在 `src/game/config/hitTuning.ts` 的 `HIT_TUNING.edge` 可調整每招的 Alpha 輪廓外推距離（遊戲座標 px）。輕拳、重拳預設 10，輕踢、重踢預設 7.5。站姿、蹲姿和空中版本共用對應招式設定。
 
 ## 系統架構
 

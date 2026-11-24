@@ -1,16 +1,18 @@
 import Phaser from 'phaser'
 import type { OwnedUiAction, PlayerSlotId, UIAction } from '../../input/InputManager'
-import { keyLabel, loadProfiles, menuKeys } from '../../input/ControlProfile'
-import { GRID_COLUMNS, NICKNAME_MAX, sectionCounts, sectionOf, type P1SelectionModel, type SelectFeedback, type Slot } from '../../select/P1SelectionModel'
+import { keyLabel, loadProfiles, menuKeys, SYSTEM_BACK_KEY } from '../../input/ControlProfile'
+import { GRID_COLUMNS, NICKNAME_MAX, sectionOf, selectSectionTitles, type P1SelectionModel, type SelectFeedback, type Slot } from '../../select/P1SelectionModel'
 import { ActionButton, AngularPanel, hintBar } from '../VisualComponents'
 import { spriteDisplayHeight, spriteOriginY, spriteTextureFrame, spriteTextureKey, type SpriteId } from '../animation/TemporarySpriteManifest'
 import { headKey } from './headCrop'
 import { PAD_SYSTEM, padLabel } from '../../input/GamepadProfile'
 import { isSheetSprite } from '../animation/SheetSpriteManifest'
 import { colorHex, reducedMotion, uiTokens, type UiColorToken } from '../tokens/uiTokens'
-import { typography } from '../tokens/typography'
+import { hudDisplay, hudLabel, typography } from '../tokens/typography'
 import { stopOwnedTweens } from '../tweens'
 import { NAME_KEYS, NameKeyboard } from './NameKeyboard'
+import layout from '../assets/hudLayout.json'
+import { AI_DIFFICULTY_LABELS } from '../../config/aiProfiles'
 
 export type P1ViewHooks = {
   offline: boolean
@@ -31,6 +33,10 @@ const withKeys = (owner: PlayerSlotId, base: Identity): Identity & { keys: strin
   get keys() { const k = menuKeys(loadProfiles()[owner], owner); return [k.NAV_UP, k.NAV_LEFT, k.NAV_DOWN, k.NAV_RIGHT].map((codes) => keyLabel(codes[0] ?? '')).join(' ') },
   get confirm() { return keyLabel(menuKeys(loadProfiles()[owner], owner).CONFIRM[0] ?? '') },
   get back() { return keyLabel(menuKeys(loadProfiles()[owner], owner).BACK[0] ?? '') } })
+const difficultyKeys = () => {
+  const { NAV_LEFT, NAV_RIGHT } = menuKeys(loadProfiles().P1, 'P1')
+  return [NAV_LEFT[0], NAV_RIGHT[0]].map(keyLabel).join(' ')
+}
 /** 每次遊玩限生成一次；PLAY AGAIN 仍是同一次遊玩，游標已預設在剛生成的角色。 */
 const NAME_REQUIRED_HINT = 'ENTER A NAME FIRST · 請先輸入名稱'
 const NAME_TAKEN_HINT = 'NAME ALREADY USED · 名稱已被 1P 使用，請改一個'
@@ -42,20 +48,61 @@ const identity = {
 const pad = (index: number): string => String(index).padStart(2, '0')
 // 拍照／確認照片共用的取景框（16:9，全幅不裁切）；暱稱頁不佔用。
 const VIEWFINDER = { x: 960, y: 590, width: 800, height: 450 }
-// 第 2 列起下移一段，讓 ROSTER 標題有位置；所有游標／格子都經過 cellCenter，導覽不受影響。
-const SECTION_GAP = 34
-const cellCenter = (index: number): { x: number; y: number } => {
-  const column = (index - 1) % GRID_COLUMNS, row = Math.floor((index - 1) / GRID_COLUMNS)
-  return { x: p1.grid.x + p1.grid.cellWidth / 2 + column * (p1.grid.cellWidth + p1.grid.gap), y: p1.grid.y + p1.grid.cellHeight / 2 + row * (p1.grid.cellHeight + p1.grid.gap) + (row > 0 ? SECTION_GAP : 0) }
+// 第三排名錄沿用設計稿的格距，保留完整 30 格容量。
+const cellRect = (index: number) => {
+  const cell = layout.selectCells[index - 1] ?? layout.selectCells[index - 1 - GRID_COLUMNS]
+  return { ...cell, y: cell.y + (index > layout.selectCells.length ? 98 : 0) }
 }
-const slotKind = (slot: Slot): string => slot.type === 'EMPTY' ? 'EMPTY SLOT' : sectionOf(slot.index)
+const cellCenter = (index: number): { x: number; y: number } => {
+  const { x, y, w, h } = cellRect(index)
+  return { x: x + w / 2, y: y + h / 2 }
+}
+const slotGroup = (index: number) => index <= 4 ? 'body' : index <= 6 ? 'saga' : index <= 10 ? 'guest' : 'roster'
+const groupNames = { body: '化身鬥士', saga: 'ROG SAGA 英雄', guest: '特邀鬥士', roster: '參戰者名錄' }
+const groupColors = { body: colors.selectBody, saga: colors.selectSaga, guest: colors.selectGuest, roster: colors.selectRoster }
+const groupBackground = { body: colors.selectBodyBackground, saga: colors.selectSagaBackground, guest: colors.selectGuestBackground, roster: colors.selectRosterBackground }
+const slotKind = (slot: Slot): string => slot.type === 'EMPTY' ? '空位' : groupNames[slotGroup(slot.index)]
+const selectImage = (scene: Phaser.Scene, key: keyof typeof layout.select) => {
+  const { x, y } = layout.select[key]
+  return scene.add.image(x, y, key).setOrigin(0)
+}
 const label = (scene: Phaser.Scene, x: number, y: number, text: string, color: UiColorToken = 'textSecondary', size: number = type.label): Phaser.GameObjects.Text => scene.add.text(x, y, text, { ...typography.note, fontSize: size, color: colorHex(color) })
 const glowOn = (object: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics, color: number, strength = 4): void => { if (object.scene.game.renderer.type === Phaser.WEBGL) object.postFX?.addGlow(color, strength, 0, false, 0.1, 12) }
 
+const previewFloor = Math.min(layout.selectPanels.nickname.y, layout.selectPanels.rival.y) - 30
+
+/** Fit the visible idle pose, including its animation, inside the space beside the grid. */
+function fitPreview(image: Phaser.GameObjects.Sprite, left: boolean, parentX: number, parentY: number): void {
+  const n = 96
+  const probe = Object.assign(document.createElement('canvas'), { width: n, height: n }).getContext('2d', { willReadFrequently: true })
+  if (!probe) return
+  const frames = image.anims.currentAnim?.frames.map(({ frame }) => frame) ?? [image.frame]
+  for (const frame of frames) {
+    probe.drawImage(frame.source.image as CanvasImageSource, frame.cutX, frame.cutY, frame.cutWidth, frame.cutHeight, 0, 0, n, n)
+  }
+  const pixels = probe.getImageData(0, 0, n, n).data
+  let minX = n, minY = n, maxX = 0, maxY = 0
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    if (pixels[(y * n + x) * 4 + 3] < 16) continue
+    minX = Math.min(minX, x); minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x + 1); maxY = Math.max(maxY, y + 1)
+  }
+  if (maxX <= minX) return
+  const { body, guest, 'panel-p1': panel } = layout.selectPanels
+  const edge = left ? 0 : guest.x + guest.w, width = left ? body.x : uiTokens.logicalWidth - edge
+  const scale = Math.min(image.scaleX, (width - 20) * n / ((maxX - minX) * image.width),
+    (previewFloor - panel.y - panel.h - 25) * n / ((maxY - minY) * image.height))
+  image.setScale(scale)
+  const center = ((minX + maxX) / (2 * n) - image.originX) * image.displayWidth
+  const bottom = (maxY / n - image.originY) * image.displayHeight
+  image.setPosition(edge + width / 2 - parentX - (left ? center : -center), previewFloor - parentY - bottom)
+}
+
 /** DEPTH 2：大型角色主體。內容只在格子/鎖定變化時替換，不重建畫面。 */
 class HeroPreview extends Phaser.GameObjects.Container {
-  private readonly stage: Phaser.GameObjects.Container
-  private readonly beam: Phaser.GameObjects.Graphics
+  private readonly beam: Phaser.GameObjects.Graphics | Phaser.GameObjects.Image
+  private readonly ring?: Phaser.GameObjects.Image
+  private readonly silhouette?: Phaser.GameObjects.Image
   private readonly title: Phaser.GameObjects.Text
   private readonly kind: Phaser.GameObjects.Text
   private figure?: Phaser.GameObjects.Sprite
@@ -65,20 +112,32 @@ class HeroPreview extends Phaser.GameObjects.Container {
   private flash?: Phaser.Time.TimerEvent
   private readonly tweens: Phaser.Tweens.Tween[] = []
 
-  constructor(scene: Phaser.Scene, private readonly owner: PlayerSlotId) {
-    super(scene, p1.hero.x[owner], p1.hero.footY)
+  constructor(scene: Phaser.Scene, private readonly owner: PlayerSlotId, private readonly mainGrid: boolean) {
+    super(scene, mainGrid ? (owner === 'P1' ? 326 : 1608) : p1.hero.x[owner], p1.hero.footY)
     const id = identity[owner], left = owner === 'P1'
-    // 光柱與速度線畫成朝右（朝中央），P2 整組鏡像。
-    this.stage = scene.add.container(0, 0).setScale(left ? 1 : -1, 1)
-    this.beam = scene.add.graphics()
-    this.beam.fillStyle(id.main, 1).fillPoints([new Phaser.Math.Vector2(-230, 60), new Phaser.Math.Vector2(110, 60), new Phaser.Math.Vector2(330, -780), new Phaser.Math.Vector2(-10, -780)], true)
-    const lines = scene.add.graphics().lineStyle(2, id.glow, 0.5)
-    for (let i = 0; i < 7; i += 1) lines.lineBetween(-160 + i * 50, 40, -20 + i * 50, -500)
-    this.stage.add([this.beam, lines, scene.add.ellipse(0, 4, 300, 44, colors.shadow, 0.5)])
-    if (!reducedMotion) this.tweens.push(scene.tweens.add({ targets: lines, y: -60, duration: 2000, repeat: -1 }))
-    this.title = scene.add.text(left ? 96 - this.x : 1824 - this.x, 330 - this.y, '', { ...typography.title, fontSize: type.h1, color: colorHex(id.text), stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.standard }).setOrigin(left ? 0 : 1, 0.5)
+    const stage = scene.add.container(0, 0)
+    if (mainGrid) {
+      stage.setPosition(-this.x, -this.y)
+      this.beam = selectImage(scene, left ? 'spotlight-p1' : 'spotlight-p2')
+      this.ring = selectImage(scene, left ? 'ring-p1' : 'ring-p2')
+      stage.add([this.beam, this.ring])
+      if (!left) {
+        this.silhouette = selectImage(scene, 'silhouette-p2')
+        stage.add(this.silhouette)
+      }
+    } else {
+      stage.setScale(left ? 1 : -1, 1)
+      this.beam = scene.add.graphics().fillStyle(id.main, 1).fillPoints([new Phaser.Math.Vector2(-230, 60), new Phaser.Math.Vector2(110, 60), new Phaser.Math.Vector2(330, -780), new Phaser.Math.Vector2(-10, -780)], true)
+      const lines = scene.add.graphics().lineStyle(2, id.glow, 0.5)
+      for (let i = 0; i < 7; i += 1) lines.lineBetween(-160 + i * 50, 40, -20 + i * 50, -500)
+      stage.add([this.beam, lines, scene.add.ellipse(0, 4, 300, 44, colors.shadow, 0.5)])
+      if (!reducedMotion) this.tweens.push(scene.tweens.add({ targets: lines, y: -60, duration: 2000, repeat: -1 }))
+    }
+    const titleStyle = mainGrid ? hudDisplay : typography.title
+    this.title = scene.add.text(left ? 96 - this.x : 1824 - this.x, 330 - this.y, '', { ...titleStyle, fontSize: type.h1, color: colorHex(id.text), stroke: colorHex('background0'), strokeThickness: uiTokens.textStroke.standard }).setOrigin(left ? 0 : 1, 0.5)
     this.kind = label(scene, this.title.x, 384 - this.y, '').setOrigin(left ? 0 : 1, 0.5).setStroke(colorHex('background0'), 5)
-    this.add([this.stage, this.title, this.kind])
+    if (mainGrid && left) { this.title.setVisible(false); this.kind.setVisible(false) }
+    this.add([stage, this.title, this.kind])
   }
 
   /** stamp：READY＝已就緒；LOCKED＝已鎖定 Body、尚待拍照；CPU＝單人模式的對手。 */
@@ -93,12 +152,15 @@ class HeroPreview extends Phaser.GameObjects.Container {
     const id = identity[this.owner]
     this.flash?.remove(); this.figure?.destroy(); this.stamp?.destroy(); this.stamp = undefined
     this.beam.setAlpha(slot ? (stamp ? 0.55 : 0.3) : 0.12)
+    this.silhouette?.setVisible(!slot)
+    this.ring?.setY(slot ? previewFloor - this.ring.height / 2 : layout.select['ring-p2'].y)
     this.setAlpha(dim ? 0.4 : 1)
     const body = slot?.type === 'BODY_TEMPLATE'
     if (texture && this.scene.textures.exists(texture)) {
       const image = this.scene.add.sprite(0, 0, texture, slot?.entry?.heroTextureKey ? undefined : spriteTextureFrame(sprite)).setOrigin(0.5, slot?.entry?.heroTextureKey ? 1 : sprite ? spriteOriginY(sprite) : 1).setFlipX(this.owner === 'P2')
       if (isSheetSprite(sprite) && !body && !slot?.entry?.heroTextureKey && !reducedMotion && this.scene.anims.exists(`${sprite}-idle`)) image.play(`${sprite}-idle`)
-      image.setScale(p1.hero.height / image.height * (slot?.entry?.heroTextureKey ? 1 : sprite ? spriteDisplayHeight(sprite) / 520 : 1))
+      image.setScale(p1.hero.height * (this.mainGrid ? 0.9 : 1) / image.height * (slot?.entry?.heroTextureKey ? 1 : sprite ? spriteDisplayHeight(sprite) / 520 : 1))
+      if (this.mainGrid) fitPreview(image, this.owner === 'P1', this.x, this.y)
       // Body 只顯示身形剪影（暫用替身 sprite 的輪廓），不冒充已生成角色。
       if (body && !slot?.entry?.heroTextureKey) { image.setTintFill(colors.textPrimary).setAlpha(0.5); glowOn(image, colors.resultGold, 3) }
       else glowOn(image, id.main)
@@ -107,7 +169,9 @@ class HeroPreview extends Phaser.GameObjects.Container {
       this.addAt(image, 1)
     } else this.figure = undefined
     this.title.setText(slot ? (nickname || slot.entry?.displayName || 'EMPTY') : `PRESS ${identity.P2.confirm}`)
-    this.kind.setText(slot ? `${pad(slot.index)} · ${slot.type === 'BODY_TEMPLATE' ? 'CUSTOM BODY · CREATE YOUR FIGHTER' : slotKind(slot)}${nickname ? ' · ' + (slot.entry?.displayName ?? '') : ''}` : `TO JOIN · 按 ${identity.P2.confirm} 加入`)
+    const kind = slot && (slot.type === 'BODY_TEMPLATE' ? 'CUSTOM BODY · CREATE YOUR FIGHTER' : this.mainGrid ? slotKind(slot) : slot.type === 'EMPTY' ? 'EMPTY SLOT' : sectionOf(slot.index))
+    this.kind.setText(slot ? `${pad(slot.index)} · ${kind}${nickname ? ' · ' + (slot.entry?.displayName ?? '') : ''}` : `TO JOIN · 按 ${identity.P2.confirm} 加入`)
+    if (this.silhouette) { this.title.setVisible(!slot); this.kind.setVisible(!slot) }
     this.pulse?.stop(); this.title.setAlpha(1)
     if (!slot && !reducedMotion) this.pulse = this.scene.tweens.add({ targets: this.title, alpha: 0.45, duration: 600, yoyo: true, repeat: -1 })
     if (stamp) {
@@ -130,29 +194,32 @@ class GridSlotView extends AngularPanel {
   private scanTween?: Phaser.Tweens.Tween
   private status?: string
   constructor(scene: Phaser.Scene, readonly slot: Slot) {
-    super(scene, p1.grid.cellWidth, p1.grid.cellHeight, slot.entry ? colors.panelRaised : colors.background0, 0.9, { slant: 10 })
+    const { w, h } = cellRect(slot.index), group = slotGroup(slot.index)
+    super(scene, w, h, groupBackground[group], slot.entry ? 0.92 : 0.5, { slant: 0 })
     const body = slot.type === 'BODY_TEMPLATE', empty = !slot.entry
     const { x, y } = cellCenter(slot.index); this.setPosition(x, y)
-    this.shape.setStrokeStyle(body ? 2 : 1, body ? colors.resultGold : colors.lineDim, empty ? 0.5 : 0.9)
-    if (body) {
-      const stripes = scene.add.graphics().lineStyle(5, p1.bodyHazard.color, p1.bodyHazard.alpha)
-      for (let x = -40; x < 30; x += p1.bodyHazard.spacing) stripes.lineBetween(x, 48, x + 20, -48)
-      this.add(stripes)
-    }
     if (empty) {
       this.shape.setStrokeStyle(0)
-      const dash = scene.add.graphics().lineStyle(1, colors.lineDim, 0.35)
-      for (let x = -36; x < 36; x += 10) { dash.lineBetween(x, -51, x + 5, -51); dash.lineBetween(x, 51, x + 5, 51) }
-      for (let y = -48; y < 48; y += 10) { dash.lineBetween(-44, y, -44, y + 5); dash.lineBetween(44, y, 44, y + 5) }
-      this.add(dash)
+      const dash = scene.add.graphics().lineStyle(1, groupColors[group], 0.7), left = -w / 2, top = -h / 2
+      for (let x = left; x < -left; x += 6) { dash.lineBetween(x, top, x + 2, top); dash.lineBetween(x, -top, x + 2, -top) }
+      for (let y = top; y < -top; y += 6) { dash.lineBetween(left, y, left, y + 2); dash.lineBetween(-left, y, -left, y + 2) }
+      this.add([dash, label(scene, 0, 5, '等待\n挑戰者', 'textSecondary', 14).setOrigin(0.5).setAlpha(0.65)])
     }
-    this.setHead()
-    if (body) this.add(label(scene, 0, -14, '+', 'resultGold', type.h2).setOrigin(0.5))
-    this.add(label(scene, -40, -48, pad(slot.index), body ? 'resultGold' : 'textSecondary', type.micro).setAlpha(empty ? 0.4 : 1))
-    if (!empty) this.add(label(scene, 0, 38, (slot.entry?.displayName ?? '').slice(0, 8), 'textPrimary', type.micro).setOrigin(0.5))
+    const bodyCard = `body-card-${slot.index}`
+    const hasBodyCard = body && scene.textures.exists(bodyCard)
+    if (hasBodyCard) this.add(scene.add.image(0, 0, bodyCard).setDisplaySize(w, h))
+    else {
+      this.setHead()
+      if (body) this.add(label(scene, 0, -8, '+', 'resultGold', type.h2).setOrigin(0.5))
+      this.add(label(scene, -w / 2 + 4, -h / 2, pad(slot.index), 'textPrimary', 15).setStroke(colorHex('background0'), 3))
+    }
+    if (!empty && !hasBodyCard) {
+      const name = label(scene, 0, h / 2 - 11, slot.entry?.displayName ?? '', 'textPrimary', 14).setOrigin(0.5).setStroke(colorHex('background0'), 4)
+      this.add(name.setScale(Math.min(1, (w - 6) / Math.max(1, name.width)), 1))
+    }
     const tag = (owner: PlayerSlotId, offset: number): Phaser.GameObjects.Container => {
       const id = identity[owner]
-      return scene.add.container(0, offset, [scene.add.rectangle(0, 0, p1.grid.cellWidth, 22, id.main, 0.95), label(scene, 0, 0, `${id.tag} READY`, 'textPrimary', type.micro).setOrigin(0.5)]).setVisible(false)
+      return scene.add.container(0, offset, [scene.add.rectangle(0, 0, w, 20, id.main, 0.95), label(scene, 0, 0, `${id.tag} READY`, 'textPrimary', 14).setOrigin(0.5)]).setVisible(false)
     }
     this.readyTags = { P1: tag('P1', 18), P2: tag('P2', 40) }
     this.add(Object.values(this.readyTags))
@@ -173,7 +240,7 @@ class GridSlotView extends AngularPanel {
     const status = this.slot.status
     if (this.status === status) return
     this.status = status; this.scanTween?.stop(); this.scan.setVisible(status === 'PROCESSING')
-    if (this.slot.entry) this.shape.setStrokeStyle(this.slot.type === 'BODY_TEMPLATE' ? 2 : 1, this.slot.type === 'BODY_TEMPLATE' ? colors.resultGold : colors.lineDim, 0.9)
+    if (this.slot.entry) this.shape.setStrokeStyle(1.5, groupColors[slotGroup(this.slot.index)], 0.9)
     this.statusLabel.setText(status === 'READY' ? 'NEW' : status === 'FAILED' ? '!' : status === 'PROCESSING' ? '…' : '').setColor(colorHex(status === 'FAILED' ? 'danger' : status === 'PROCESSING' ? 'systemBlue' : 'statusLime'))
     this.setAlpha(status === 'FAILED' ? 0.6 : 1)
     if (status === 'FAILED' || status === 'PROCESSING') this.shape.setStrokeStyle(2, status === 'FAILED' ? colors.danger : colors.systemBlue)
@@ -184,29 +251,22 @@ class GridSlotView extends AngularPanel {
 
 /** DEPTH 4：玩家游標。 */
 class PlayerCursor extends Phaser.GameObjects.Container {
-  private readonly frame: Phaser.GameObjects.Graphics
-  private readonly glow: Phaser.GameObjects.Graphics
-  private readonly tweens: Phaser.Tweens.Tween[] = []
+  private readonly frame: Phaser.GameObjects.Image
   private index = 0
-  private outset = -1
-  private locked?: boolean
-  private shared?: boolean
   private slide?: Phaser.Tweens.Tween
   private shakeTween?: Phaser.Tweens.Tween
-  /** 2P 游標在單人模式代表 CPU 對手，標籤改為 CPU。 */
   readonly tag: Phaser.GameObjects.Text
-  constructor(scene: Phaser.Scene, private readonly owner: PlayerSlotId) {
+
+  constructor(scene: Phaser.Scene, owner: PlayerSlotId) {
     super(scene, 0, 0)
-    const id = identity[owner], left = owner === 'P1'
-    this.glow = scene.add.graphics(); this.frame = scene.add.graphics()
-    // 標籤放在格子上緣內側（1P 左、2P／CPU 右），不壓到區段標題或相鄰列；同格時左右並排。
-    this.tag = label(scene, 0, 0, id.tag, 'textPrimary', type.micro).setOrigin(0.5)
-    const tag = scene.add.container(left ? -23 : 23, -p1.grid.cellHeight / 2 + 13, [scene.add.rectangle(0, 0, 42, 24, id.main), this.tag])
-    this.add([this.glow, this.frame, tag])
-    if (!reducedMotion) this.tweens.push(scene.tweens.add({ targets: this.glow, alpha: 0.35, duration: p1.cursor.breatheMs, yoyo: true, repeat: -1 }))
+    const id = identity[owner]
+    const key = owner === 'P1' ? 'cursor-p1' : 'cursor-p2'
+    this.frame = scene.add.image(0, 0, key)
+    this.tag = label(scene, 0, 53, id.tag, 'textPrimary', 14).setOrigin(0.5).setBackgroundColor(colorHex('background0'))
+    this.add([this.frame, this.tag])
   }
+
   place(index: number, locked: boolean, shared: boolean): void {
-    const outset = p1.cursor.outset
     if (index !== this.index) {
       const { x, y } = cellCenter(index)
       this.slide?.stop(); this.shakeTween?.stop()
@@ -214,26 +274,20 @@ class PlayerCursor extends Phaser.GameObjects.Container {
       else this.setPosition(x, y)
       this.index = index
     }
-    if (outset === this.outset && locked === this.locked && shared === this.shared) return
-    this.outset = outset; this.locked = locked; this.shared = shared
-    this.tweens.forEach((tween) => locked ? tween.pause() : tween.resume()); this.glow.setAlpha(1)
-    const id = identity[this.owner], w = p1.grid.cellWidth + outset * 2, h = p1.grid.cellHeight + outset * 2
-    const outline = (g: Phaser.GameObjects.Graphics, inset = 0): void => {
-      const x = w / 2 - inset, y = h / 2 - inset
-      if (!shared) { g.strokeRect(-x, -y, x * 2, y * 2); return }
-      g.beginPath().moveTo(-x, y).lineTo(this.owner === 'P1' ? -x : x, this.owner === 'P1' ? -y : y).lineTo(x, -y).strokePath()
-    }
-    this.frame.clear().lineStyle(p1.cursor.width, id.main, 1); outline(this.frame)
-    if (locked) { this.frame.lineStyle(2, colors.textPrimary, 0.9); outline(this.frame, 6) }
-    this.glow.clear().lineStyle(12, id.glow, locked ? 0.15 : 0.35); outline(this.glow)
+    const { w, h } = cellRect(index), left = this.frame.texture.key === 'cursor-p1'
+    this.frame.setDisplaySize(w + 36, h + 36).setAlpha(locked ? 0.8 : 1)
+    if (shared) this.frame.setCrop(left ? 0 : this.frame.width / 2, 0, this.frame.width / 2, this.frame.height - 20)
+    else this.frame.setCrop()
+    this.tag.setPosition(shared ? (left ? -23 : 23) : 0, h / 2 + 3).setVisible(shared || this.tag.text === 'CPU')
   }
+
   shake(): void {
     if (reducedMotion) return
     this.slide?.stop(); this.shakeTween?.stop()
     const { x, y } = cellCenter(this.index); this.setPosition(x, y)
     this.shakeTween = this.scene.tweens.add({ targets: this, x: x + 6, duration: 30, yoyo: true, repeat: 2, onComplete: () => { this.x = x } })
   }
-  destroy(fromScene?: boolean): void { this.slide?.stop(); this.shakeTween?.stop(); stopOwnedTweens(this.tweens); super.destroy(fromScene) }
+  destroy(fromScene?: boolean): void { this.slide?.stop(); this.shakeTween?.stop(); super.destroy(fromScene) }
 }
 
 export class P1SelectView {
@@ -241,6 +295,8 @@ export class P1SelectView {
   private readonly cursors = {} as Partial<Record<PlayerSlotId, PlayerCursor>>
   private readonly slotViews: GridSlotView[] = []
   private readonly plates = {} as Partial<Record<PlayerSlotId, { status: Phaser.GameObjects.Text; detail: Phaser.GameObjects.Text }>>
+  private nickname?: Phaser.GameObjects.Text
+  private opponent?: Phaser.GameObjects.Text
   private readonly tweens: Phaser.Tweens.Tween[] = []
   private readonly timers: Phaser.Time.TimerEvent[] = []
   private modeText?: Phaser.GameObjects.Text
@@ -307,7 +363,7 @@ export class P1SelectView {
   constructor(private readonly scene: Phaser.Scene, private readonly root: Phaser.GameObjects.Container, private readonly model: P1SelectionModel, private readonly hooks: P1ViewHooks) {
     const customizing = Boolean(model.owner)
     this.header(customizing)
-    ;(['P1', 'P2'] as const).forEach((owner) => { this.heroes[owner] = new HeroPreview(scene, owner); root.add(this.heroes[owner]) })
+    ;(['P1', 'P2'] as const).forEach((owner) => { this.heroes[owner] = new HeroPreview(scene, owner, !customizing); root.add(this.heroes[owner]) })
     if (customizing) this.buildChamber(); else this.buildGrid()
     this.sync()
     if (!reducedMotion && model.phase === 'GRID') {
@@ -333,7 +389,8 @@ export class P1SelectView {
       const plate = this.plates[owner]
       if (plate) {
         const status = model.status(owner)
-        const statusText = status === 'JOIN' ? `PRESS ${identity.P2.confirm} TO JOIN` : status === 'WAITING' ? 'READY · WAITING' : status === 'OPPONENT' ? 'SELECT OPPONENT · 1P 選擇' : status === 'DIFFICULTY' ? `◀ ${rival?.difficulty} ▶ · 1P ← → 難度` : status === 'CPU_READY' ? `CPU READY · ${rival?.difficulty}` : status
+        const difficulty = rival ? AI_DIFFICULTY_LABELS[rival.difficulty] : ''
+        const statusText = status === 'JOIN' ? `${identity.P2.confirm} 加入` : status === 'WAITING' ? 'READY · WAITING' : status === 'OPPONENT' ? 'SELECT OPPONENT' : status === 'DIFFICULTY' ? `${difficulty} · ${difficultyKeys()} 難度` : status === 'CPU_READY' ? `CPU READY · ${difficulty}` : status
         plate.status.setText(statusText).setColor(colorHex(status === 'READY' || status === 'WAITING' || status === 'CPU_READY' ? 'statusLime' : status === 'CUSTOMIZE' || status === 'DIFFICULTY' ? 'resultGold' : status === 'OPPONENT' ? 'enemyGlow' : 'textSecondary'))
         plate.detail.setText(hero ? `${pad(hero.index)} · ${hero.entry?.displayName ?? 'EMPTY'} · ${slotKind(hero)}` : `${identity.P2.confirm} 加入 · 2P 真人對戰`)
       }
@@ -348,10 +405,12 @@ export class P1SelectView {
     })
     if (model.phase !== 'GRID' && model.phase !== 'OPPONENT') this.hint?.setText('') // 拒絕提示只屬於選格階段
     const duo = model.player('P2').joined
+    this.nickname?.setText(model.player('P1').nickname.trim() || model.heroSlot('P1')?.entry?.displayName || '—')
+    this.opponent?.setText(duo ? model.player('P2').nickname.trim() || model.heroSlot('P2')?.entry?.displayName || '—' : model.heroSlot('P2')?.entry?.displayName || 'CPU')
     const commands = (owner: PlayerSlotId): string => {
       const player = model.player(owner), id = identity[owner]
       if (owner === 'P1' && model.phase === 'OPPONENT') return `1P  ${id.keys} 選對手 · ${id.confirm} 確認 · ${id.back} 返回`
-      if (owner === 'P1' && (model.phase === 'DIFFICULTY' || (model.rival && model.phase === 'ALL_READY'))) return `1P  A D 難度 · ${id.confirm} 確認 · ${id.back} 返回`
+      if (owner === 'P1' && (model.phase === 'DIFFICULTY' || (model.rival && model.phase === 'ALL_READY'))) return `1P  ${difficultyKeys()} 難度 · ${id.confirm} 確認 · ${id.back} 返回`
       return !player.joined ? `2P  ${id.confirm} 加入` : player.locked !== undefined ? `${id.tag}  ${id.back} 解除鎖定` : `${id.tag}  ${id.keys} 移動 · ${id.confirm} 確認${owner === 'P2' ? ` · ${id.back} 退出` : ''}`
     }
     this.keysP1?.setText(commands('P1'))
@@ -434,6 +493,19 @@ export class P1SelectView {
 
   private header(customizing: boolean): void {
     const { scene, root } = this
+    if (!customizing) {
+      root.add(scene.add.text(70, 44, 'CHARACTER SELECT', { ...hudDisplay, fontSize: 28 }))
+      const headline = { ...hudDisplay, fontSize: 64 }
+      const choose = scene.add.text(0, 27, 'CHOOSE YOUR ', headline)
+      const fighter = scene.add.text(0, 27, 'FIGHTER', { ...headline, color: colorHex('playerGlow') })
+      choose.setX(960 - (choose.width + fighter.width) / 2)
+      root.add([choose, fighter.setX(choose.x + choose.width)])
+      root.add(label(scene, 960, 98, '選擇你的角色', 'textPrimary', 24).setOrigin(0.5, 0))
+      this.stepLabel = label(scene, 70, 76, '', 'textSecondary', 17); root.add(this.stepLabel)
+      this.offlineLabel = label(scene, 1849, 82, this.hooks.offline ? '● OFFLINE · 成績不會被記錄' : '● ONLINE', this.hooks.offline ? 'danger' : 'statusLime', 16).setOrigin(1, 0)
+      root.add(this.offlineLabel)
+      return
+    }
     root.add(scene.add.text(96, 96, customizing ? 'CUSTOMIZE YOUR FIGHTER' : 'CHARACTER SELECT', typography.heading).setOrigin(0, 0.5))
     this.stepLabel = label(scene, customizing ? 940 : 740, 110, '', 'textPrimary', type.body).setOrigin(0, 0.5); root.add(this.stepLabel)
     this.offlineLabel = label(scene, 1824, 90, this.hooks.offline ? '● OFFLINE · 成績不會被記錄' : '● ONLINE', this.hooks.offline ? 'danger' : 'statusLime').setOrigin(1, 0.5)
@@ -442,18 +514,17 @@ export class P1SelectView {
 
   private buildGrid(): void {
     const { scene, root, model } = this
-    // 三區：CUSTOMIZE 01–04、OFFICERS 05–10 在第 1 列；ROSTER 11–40 在其下。各區有標題條、計數與括框。
-    const counts = sectionCounts(model.slots), cellW = p1.grid.cellWidth, gap = p1.grid.gap, step = cellW + gap
-    const section = (text: string, firstColumn: number, columns: number, top: number, height: number, color: number, textColor: UiColorToken): void => {
-      const width = columns * cellW + (columns - 1) * gap, x = p1.grid.x + firstColumn * step + width / 2
-      root.add(scene.add.rectangle(x, top + height / 2, width + 10, height + 10).setStrokeStyle(2, color, 0.8))
-      const tag = new AngularPanel(scene, width, 28, color, 1, { slant: 10 }).setPosition(x, top - 22)
-      tag.add(label(scene, 0, 0, text, textColor).setOrigin(0.5)); root.add(tag)
+    const titles = selectSectionTitles(model.slots)
+    for (const group of ['body', 'saga', 'guest', 'roster'] as const) {
+      const { x, y, w, h } = layout.selectPanels[group]
+      const tag = new AngularPanel(scene, w, h, groupColors[group], 0.96, { slant: 9 }).setPosition(x + w / 2, y + h / 2)
+      tag.shape.setStrokeStyle(0)
+      tag.add(scene.add.text(0, 0, titles[group], { ...hudLabel, fontSize: 16, color: colorHex(group === 'roster' ? 'textPrimary' : 'background0') }).setOrigin(0.5))
+      root.add(tag)
     }
-    const rowH = p1.grid.cellHeight, rosterTop = p1.grid.y + rowH + gap + SECTION_GAP, rosterHeight = 3 * rowH + 2 * gap
-    section(`CUSTOMIZE · ${counts.CUSTOMIZE.used}/${counts.CUSTOMIZE.total}`, 0, 4, p1.grid.y, rowH, colors.resultGold, 'background0')
-    section(`OFFICERS · ${counts.OFFICERS.used}/${counts.OFFICERS.total}`, 4, 6, p1.grid.y, rowH, colors.playerPrimary, 'textPrimary')
-    section(`ROSTER · ${counts.ROSTER.used}/${counts.ROSTER.total}`, 0, GRID_COLUMNS, rosterTop, rosterHeight, colors.lineDim, 'textPrimary')
+    for (const key of Object.keys(layout.select) as (keyof typeof layout.select)[]) {
+      if (key.startsWith('decoration-')) root.add(selectImage(scene, key))
+    }
     model.slots.forEach((slot) => {
       const view = new GridSlotView(scene, slot)
       view.on('pointerover', () => this.hooks.onFocus('P1', slot.index)).on('pointerup', (pointer: Phaser.Input.Pointer) => { this.hooks.onFocus('P1', slot.index); if (pointer.button === 2) this.hooks.onDelete?.(slot.index); else this.hooks.onInput('P1', 'CONFIRM') })
@@ -461,21 +532,36 @@ export class P1SelectView {
     })
     ;(['P1', 'P2'] as const).forEach((owner) => { const cursor = new PlayerCursor(scene, owner); this.cursors[owner] = cursor; root.add(cursor) })
     ;(['P1', 'P2'] as const).forEach((owner) => this.plate(owner))
-    this.modeText = label(scene, 960, 215, '', 'textPrimary', type.body).setOrigin(0.5); root.add(this.modeText)
-    root.add([hintBar(scene, 1010), label(scene, 960, 1010, `ESC 返回標題 · 右鍵／${padLabel(PAD_SYSTEM.DELETE)} 刪除生成角色`, 'textSecondary').setOrigin(0.5)])
-    this.keysP1 = label(scene, 96, 1010, '', 'playerGlow').setOrigin(0, 0.5); root.add(this.keysP1)
-    this.keysP2 = label(scene, 1824, 1010, '', 'enemyGlow').setOrigin(1, 0.5); root.add(this.keysP2)
+    this.nickname = this.smallPlate('nickname', '1P NICKNAME', 'playerGlow')
+    this.opponent = this.smallPlate('rival', 'OPPONENT', 'enemyGlow')
+    this.modeText = label(scene, 1849, 47, '', 'textPrimary', 23).setOrigin(1, 0); root.add(this.modeText)
+    root.add([hintBar(scene, 1048, 35), label(scene, 960, 1048, `${keyLabel(SYSTEM_BACK_KEY)} 返回標題 · 右鍵／${padLabel(PAD_SYSTEM.DELETE)} 刪除生成角色`, 'textSecondary', 17).setOrigin(0.5)])
+    this.keysP1 = label(scene, 65, 1048, '', 'playerGlow', 17).setOrigin(0, 0.5); root.add(this.keysP1)
+    this.keysP2 = label(scene, 1854, 1048, '', 'enemyGlow', 17).setOrigin(1, 0.5); root.add(this.keysP2)
   }
 
   private plate(owner: PlayerSlotId): void {
     const { scene, root } = this, id = identity[owner], left = owner === 'P1'
-    const plate = new AngularPanel(scene, 544, 104, colors.panelRaised, 0.9).setPosition(left ? 368 : 1552, 216)
-    plate.add(scene.add.rectangle(left ? -262 : 262, 0, 8, 96, id.main))
-    plate.add(label(scene, left ? -240 : 240, -26, id.label, id.text, type.title).setOrigin(left ? 0 : 1, 0.5))
-    const status = label(scene, left ? 240 : -240, -26, '', 'textSecondary').setOrigin(left ? 1 : 0, 0.5)
-    const detail = label(scene, left ? -240 : 240, 22, '', 'textPrimary').setOrigin(left ? 0 : 1, 0.5)
+    const { x, y, w, h } = layout.selectPanels[left ? 'panel-p1' : 'panel-p2']
+    const plate = scene.add.container(x + w / 2, y + h / 2)
+    const cut = 33, edge = w / 2, top = -h / 2
+    const points = [-edge, top, edge, top, edge - cut, -top, -edge, -top]
+    const shape = scene.add.polygon(0, 0, left ? points : points.map((v, i) => i % 2 ? v : -v), colors.background0, 0.85).setOrigin(0).setStrokeStyle(1, colors.lineDim)
+    plate.add([shape, scene.add.rectangle(left ? -edge + 3 : edge - 3, 0, 6, h, id.main)])
+    plate.add(scene.add.text(left ? -248 : 248, -18, id.label, { ...hudDisplay, fontSize: 31, color: colorHex(id.text) }).setOrigin(left ? 0 : 1, 0.5))
+    const status = label(scene, left ? 222 : -222, -20, '', 'textSecondary', 17).setOrigin(left ? 1 : 0, 0.5)
+    const detail = label(scene, left ? -248 : 248, 21, '', 'textPrimary', 19).setOrigin(left ? 0 : 1, 0.5)
     plate.add([status, detail]); root.add(plate)
     this.plates[owner] = { status, detail }
+  }
+
+  private smallPlate(key: 'nickname' | 'rival', title: string, color: UiColorToken): Phaser.GameObjects.Text {
+    const { scene, root } = this, { x, y, w, h } = layout.selectPanels[key]
+    root.add(scene.add.rectangle(x, y + 25, w, h - 25, colors.background0, 0.77).setOrigin(0).setStrokeStyle(1, colors[color], 0.6))
+    root.add(label(scene, key === 'nickname' ? x : x + w, y - 4, title, color, 16).setOrigin(key === 'nickname' ? 0 : 1))
+    const value = label(scene, x + 16, y + 37, '', 'textPrimary', 21)
+    root.add(value)
+    return value
   }
 
   private showBanner(): void {

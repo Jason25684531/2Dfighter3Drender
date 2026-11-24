@@ -5,7 +5,7 @@ import type { TemporarySpriteRenderer } from './TemporarySpriteRenderer'
 import { HIT_TUNING, reachFor } from '../../config/hitTuning'
 
 /** 角色輪廓往外推多少 world 單位仍算命中；推擠間隙。數值在 config/hitTuning.ts 調。 */
-export const HIT_EDGE = HIT_TUNING.edge
+const DEFAULT_EDGE = HIT_TUNING.edge.LIGHT_KICK
 export const PUSH_EDGE = HIT_TUNING.pushEdge
 const ALPHA_THRESHOLD = 32
 
@@ -37,16 +37,26 @@ const dilated = (mask: Mask, radius: number): Mask => {
   return byRadius.get(radius) ?? byRadius.set(radius, dilate(mask, radius)).get(radius) as Mask
 }
 
+function overlapsPixel(target: Mask, x: number, y: number, fraction: number): boolean {
+  const left = Math.max(0, Math.floor(x - fraction)), right = Math.min(target.width - 1, Math.floor(x + fraction))
+  const top = Math.max(0, Math.floor(y - fraction)), bottom = Math.min(target.height - 1, Math.floor(y + fraction))
+  for (let row = top; row <= bottom; row++) {
+    for (let col = left; col <= right; col++) if (target.solid[row * target.width + col]) return true
+  }
+  return false
+}
+
 /** 攻擊方輪廓與「防守方輪廓外推 edge」重疊的像素平均點；沒有重疊回 null。 */
-export const silhouetteContact = (attacker: Placement, defender: Placement, edge = HIT_EDGE): { x: number; y: number } | null => {
-  const radius = Math.ceil(edge / defender.scale), target = dilated(defender.mask, radius)
+export const silhouetteContact = (attacker: Placement, defender: Placement, edge = DEFAULT_EDGE): { x: number; y: number } | null => {
+  const padding = edge / defender.scale, radius = Math.floor(padding), target = dilated(defender.mask, radius)
   const { width, height, solid } = attacker.mask
   let sx = 0, sy = 0, count = 0
   for (let v = 0; v < height; v += 1) for (let u = 0; u < width; u += 1) {
     if (!solid[v * width + u]) continue
     const wx = attacker.x + attacker.dir * (u + 0.5 - width / 2) * attacker.scale, wy = attacker.y + (v + 0.5 - attacker.originY * height) * attacker.scale
-    const du = Math.floor((wx - defender.x) * defender.dir / defender.scale + target.width / 2), dv = Math.floor((wy - defender.y) / defender.scale + defender.originY * defender.mask.height + radius)
-    if (du < 0 || du >= target.width || dv < 0 || dv >= target.height || !target.solid[dv * target.width + du]) continue
+    const du = (wx - defender.x) * defender.dir / defender.scale + target.width / 2
+    const dv = (wy - defender.y) / defender.scale + defender.originY * defender.mask.height + radius
+    if (!overlapsPixel(target, du, dv, padding - radius)) continue
     sx += wx; sy += wy; count += 1
   }
   return count ? { x: sx / count, y: sy / count } : null
@@ -124,8 +134,9 @@ export const clearGeneratedHitMasks = (sprite: string): void => {
  * 推擠以站姿最寬的列（常是護胸的拳頭）計算，腿較短的踢擊在那列之下伸不過去，不補這條就永遠打不到。
  * 接觸點：兩人中點、攻擊輪廓最前緣那一列的高度。
  */
-export const touchContact = (a: Placement, d: Placement, contact: number, edge = HIT_EDGE): { x: number; y: number } | null => {
-  if (a.y !== d.y || Math.abs(d.x - a.x) > contact + edge) return null
+export const touchContact = (a: Placement, d: Placement, contact: number, edge = DEFAULT_EDGE): { x: number; y: number } | null => {
+  const forward = (d.x - a.x) * a.dir
+  if (a.y !== d.y || forward < 0 || forward > contact + edge) return null
   const { width, height, solid } = a.mask
   let tip = -1, row = 0
   for (let i = 0; i < solid.length; i += 1) if (solid[i] && i % width > tip) { tip = i % width; row = Math.floor(i / width) }
@@ -142,5 +153,6 @@ export const createSpriteHitTest = (scene: Phaser.Scene, renderers: Record<Fight
   const a = place(attacker), d = place(defender)
   if (!a || !d) return undefined
   const width = contact()
-  return silhouetteContact(a, d, HIT_EDGE + reachFor(renderers[attacker.id].spriteId, attacker.attack)) ?? (width === undefined ? null : touchContact(a, d, width))
+  const edge = HIT_TUNING.edge[attacker.attack]
+  return silhouetteContact(a, d, edge + reachFor(renderers[attacker.id].spriteId, attacker.attack)) ?? (width === undefined ? null : touchContact(a, d, width, edge))
 }

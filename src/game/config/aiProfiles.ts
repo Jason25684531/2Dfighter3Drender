@@ -3,7 +3,8 @@
  * spacing：從「兩人輪廓貼身」的距離往外算的間距帶，AI 平時在帶內進退（沒有輪廓時從 AABB 攻擊距離起算）。
  * 防禦只來自 guardChance：玩家出招中 AI 不會因撤退／保持間距而「順便」後退防禦（EnemyAI.getIntent）。
  */
-export type AiProfileId = 'EASY' | 'NORMAL' | 'HARD'
+export const AI_PROFILE_IDS = ['EASY', 'NORMAL', 'HARD', 'EXTRA_HARD', 'HELL'] as const
+export type AiProfileId = typeof AI_PROFILE_IDS[number]
 export type AiProfile = {
   id: AiProfileId
   spacingMin: number // 間距帶近端（距攻擊距離）；比這更近就退開
@@ -20,7 +21,10 @@ export const AI_PROFILES: Readonly<Record<AiProfileId, AiProfile>> = {
   EASY: { id: 'EASY', spacingMin: 0, spacingMax: 140, aggression: 0.2, guardChance: 0.05, retreatTicks: 6, attackCooldownTicks: 30, decisionTicks: 18 },
   NORMAL: { id: 'NORMAL', spacingMin: 20, spacingMax: 150, aggression: 0.45, guardChance: 0.15, retreatTicks: 6, attackCooldownTicks: 12, decisionTicks: 10 },
   HARD: { id: 'HARD', spacingMin: 10, spacingMax: 120, aggression: 0.7, guardChance: 0.3, retreatTicks: 4, attackCooldownTicks: 6, decisionTicks: 6 },
+  EXTRA_HARD: { id: 'EXTRA_HARD', spacingMin: 5, spacingMax: 105, aggression: 0.85, guardChance: 0.47, retreatTicks: 3, attackCooldownTicks: 4, decisionTicks: 4 },
+  HELL: { id: 'HELL', spacingMin: 0, spacingMax: 85, aggression: 0.98, guardChance: 0.65, retreatTicks: 1, attackCooldownTicks: 2, decisionTicks: 2 },
 }
-export const AI_PROFILE_IDS: readonly AiProfileId[] = ['EASY', 'NORMAL', 'HARD']
+export const AI_DIFFICULTY_LABELS: Record<AiProfileId, string> = { EASY: 'EASY', NORMAL: 'NORMAL', HARD: 'HARD', EXTRA_HARD: 'EXTRA HARD', HELL: '地獄模式' }
+export const SCORE_PERCENT: Record<AiProfileId, number> = { EASY: 100, NORMAL: 100, HARD: 100, EXTRA_HARD: 120, HELL: 140 }
 export const DEFAULT_AI_PROFILE: AiProfile = AI_PROFILES.NORMAL
 export const resolveAiProfile = (id?: string): AiProfile => AI_PROFILES[id as AiProfileId] ?? DEFAULT_AI_PROFILE

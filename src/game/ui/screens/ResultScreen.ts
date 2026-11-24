@@ -8,7 +8,7 @@ import { ScreenView, type ScreenContext } from './ScreenView'
 
 /** P6：統計／結果／排行三欄；沒有結果（例如重整後）時只留背景。 */
 export class ResultScreen extends ScreenView {
-  constructor(ctx: ScreenContext, root: Phaser.GameObjects.Container, vm: ResultViewModel | undefined) {
+  constructor(ctx: ScreenContext, root: Phaser.GameObjects.Container, vm: ResultViewModel | undefined, private readonly readyAt: number) {
     super(ctx, root)
     if (vm) this.renderColumns(vm)
   }
@@ -60,7 +60,7 @@ export class ResultScreen extends ScreenView {
     })
     const next = new ActionButton(scene, 'CONTINUE', 380, 88, colors.playerPrimary, '繼續').setPosition(960, 952)
     const proceed = (): void => this.ctx.go(AppState.END)
-    next.on('pointerup', proceed)
-    root.add(next); this.focusable('result', 'result-next', next, proceed); this.ctx.ui.focus.activate('result')
+    root.add(next)
+    this.holdConfirm('result', 'result-next', next, proceed, this.readyAt)
   }
 }

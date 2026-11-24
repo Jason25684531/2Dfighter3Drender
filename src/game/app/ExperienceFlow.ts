@@ -4,7 +4,7 @@ import { UIFramework } from '../ui/UIFramework'
 import { NEUTRAL_INTENT, type FighterIntent } from '../combat/CombatWorld'
 import { MatchController } from '../match/MatchController'
 import { p6SubStateForRank, resolveMatchResult, type MatchResult } from '../match/ResultResolver'
-import { resolveAiProfile } from '../config/aiProfiles'
+import { resolveAiProfile, type AiProfileId } from '../config/aiProfiles'
 import type { LeaderboardEntry } from '../api/ApiTypes'
 import type { PlayerSlotId } from '../input/InputManager'
 import type { OpponentChoice } from '../select/P1SelectionModel'
@@ -20,6 +20,7 @@ export class ExperienceFlow {
   nextPlayerName?: string
   onOffline?: () => void
   onResultStored?: () => void
+  private difficulty?: AiProfileId
 
   constructor(readonly app = new AppStateMachine(), readonly ui = new UIFramework(app), readonly match = new MatchController(), readonly persistence?: ExperiencePersistence) {
     this.players = persistence?.context.snapshot.players ?? {}
@@ -35,7 +36,7 @@ export class ExperienceFlow {
     if (this.app.getCurrentState() !== AppState.BATTLE) return false
     this.persistence?.resetMatch(); this.result = undefined; this.nextPlayerName = undefined
     this.match.start(); this.ui.substates.set(AppState.BATTLE, this.match.getP4SubState())
-    void this.persistence?.beginMatch().catch(() => undefined)
+    void this.persistence?.beginMatch(this.difficulty).catch(() => undefined)
     return true
   }
 
@@ -49,7 +50,7 @@ export class ExperienceFlow {
     this.ui.substates.set(AppState.BATTLE, this.match.getP4SubState())
     const completed = this.match.getCompletedMatch()
     if (!completed || this.result) return
-    this.result = resolveMatchResult(completed)
+    this.result = resolveMatchResult(completed, this.difficulty)
     void persistence?.finishMatch(this.result).then(async (stored) => {
       this.ui.substates.set(AppState.RESULT, p6SubStateForRank(stored?.rank ?? persistence.context.snapshot.backendRank))
       this.leaderboard = await persistence.leaderboard(); this.nextPlayerName = await persistence.nextQueuedPlayer()
@@ -64,7 +65,12 @@ export class ExperienceFlow {
     if (next === AppState.READY) void persistence?.ensureSession().then(() => { if (this.app.getCurrentState() === AppState.IDLE) return persistence.finishSession() }).catch(() => this.onOffline?.())
     // 任何畫面回 P0 都結束 session；後端會把未完成的對戰標為 ABANDONED。
     if (next === AppState.IDLE) void persistence?.finishSession().catch(() => undefined)
-    if (next === AppState.BATTLE) { if (!this.players.P2) this.match.setAiProfile(resolveAiProfile(this.opponent?.difficulty)); this.match.start(); void persistence?.beginMatch().catch(() => undefined) }
+    if (next === AppState.BATTLE) {
+      this.difficulty = this.players.P2 ? undefined : this.opponent?.difficulty
+      if (!this.players.P2) this.match.setAiProfile(resolveAiProfile(this.difficulty))
+      this.match.start()
+      void persistence?.beginMatch(this.difficulty).catch(() => undefined)
+    }
     if (next === AppState.READY || next === AppState.SETUP || next === AppState.IDLE) { this.match.resetMatch(); persistence?.resetMatch(); this.result = undefined; this.nextPlayerName = undefined }
     if (next === AppState.IDLE) { this.players = {}; this.opponent = undefined }
   }

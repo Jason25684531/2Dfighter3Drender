@@ -2,7 +2,7 @@ import sqlite3
 
 from app.db import transaction
 from app.errors import ApiError
-from app.scoring import score_and_title
+from app.scoring import Difficulty, score_and_title
 from app.services import leaderboard
 from app.services.common import conflict, item, now
 
@@ -14,18 +14,18 @@ def _match(connection: sqlite3.Connection, match_id: int) -> dict:
     return result
 
 
-def create(connection: sqlite3.Connection, session_id: int, request_id: str) -> tuple[dict, bool]:
-    existing = connection.execute('SELECT id, session_id FROM matches WHERE client_request_id=?', (request_id,)).fetchone()
-    if existing:
-        if existing['session_id'] != session_id: conflict()
-        return _match(connection, existing['id']), False
+def create(connection: sqlite3.Connection, session_id: int, request_id: str, difficulty: Difficulty = 'NORMAL') -> tuple[dict, bool]:
     with transaction(connection):
+        existing = connection.execute('SELECT id, session_id, difficulty FROM matches WHERE client_request_id=?', (request_id,)).fetchone()
+        if existing:
+            if existing['session_id'] != session_id or existing['difficulty'] != difficulty: conflict()
+            return _match(connection, existing['id']), False
         session = connection.execute('SELECT status FROM sessions WHERE id=?', (session_id,)).fetchone()
         if not session: raise ApiError('SESSION_NOT_FOUND', 404, f'Session {session_id} not found')
         if session['status'] != 'ACTIVE': raise ApiError('INVALID_SESSION_STATE', 409, 'Session is not active')
         connection.execute("UPDATE matches SET status='ABANDONED' WHERE session_id=? AND status='IN_PROGRESS'", (session_id,))
         number = connection.execute('SELECT COUNT(*) FROM matches WHERE session_id=?', (session_id,)).fetchone()[0] + 1
-        cursor = connection.execute("INSERT INTO matches(session_id,match_number,status,client_request_id,created_at) VALUES(?,?, 'IN_PROGRESS', ?, ?)", (session_id, number, request_id, now()))
+        cursor = connection.execute("INSERT INTO matches(session_id,match_number,status,client_request_id,created_at,difficulty) VALUES(?,?, 'IN_PROGRESS', ?, ?, ?)", (session_id, number, request_id, now(), difficulty))
     return _match(connection, cursor.lastrowid), True
 
 
@@ -59,7 +59,7 @@ def finish(connection: sqlite3.Connection, match_id: int, payload: dict) -> dict
         match = _match(connection, match_id)
         if match['status'] == 'FINISHED':
             if match['finish_request_id'] == payload['finish_request_id']:
-                score, title = score_and_title(payload['outcome'], payload['player_round_wins'], payload['remaining_hp'], payload['max_combo'])
+                score, title = score_and_title(payload['outcome'], payload['player_round_wins'], payload['remaining_hp'], payload['max_combo'], match['difficulty'])
                 if not _finish_payload_matches(match, payload, score, title): conflict()
                 return match
             raise ApiError('MATCH_ALREADY_FINISHED', 409, 'Match already finished')
@@ -69,7 +69,7 @@ def finish(connection: sqlite3.Connection, match_id: int, payload: dict) -> dict
         outcome = payload['outcome']; p, e = payload['player_round_wins'], payload['enemy_round_wins']
         if (outcome == 'WIN' and (p != 2 or e >= 2)) or (outcome == 'LOSE' and (e != 2 or p >= 2)) or (outcome == 'DRAW' and (payload['finish_reason'] != 'DRAW' or p >= 2 or e >= 2)) or payload['finish_reason'] not in ('KO', 'TIME_UP', 'DRAW') or not 0 <= p <= 2 or not 0 <= e <= 2 or not 0 <= payload['remaining_hp'] <= 100 or payload['max_combo'] < 0:
             raise ApiError('VALIDATION_ERROR', 400, 'Inconsistent match result')
-        score, title = score_and_title(outcome, p, payload['remaining_hp'], payload['max_combo'])
+        score, title = score_and_title(outcome, p, payload['remaining_hp'], payload['max_combo'], match['difficulty'])
         if score != payload['client_score'] or title != payload['client_title']:
             raise ApiError('RESULT_MISMATCH', 422, 'Client result does not match authoritative result', {'score': score, 'title': title})
         connection.execute("UPDATE matches SET status='FINISHED', result=?, finish_reason=?, player_round_wins=?, enemy_round_wins=?, remaining_hp=?, max_combo=?, score=?, title=?, finished_at=?, finish_request_id=? WHERE id=?", (outcome, payload['finish_reason'], p, e, payload['remaining_hp'], payload['max_combo'], score, title, now(), payload['finish_request_id'], match_id))
