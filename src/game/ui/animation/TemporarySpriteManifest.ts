@@ -2,7 +2,7 @@ import type { FighterId, FighterSnapshot } from '../../combat/CombatWorld'
 import { alignedAction, alignedSprite, isSheetSprite, SHEET_FRAME_COUNT } from './SheetSpriteManifest'
 import type { AttackAction } from '../../input/ControlProfile'
 
-export type SpriteId = 'tony' | 'chris' | 'go' | 'joneey' | 'se7en' | 'yg' | 'kevin' | 'body01' | 's1aw' | 's2am' | 's2lw' | 's3ww' | `generated-${string}` | `hd-${string}`
+export type SpriteId = 'tony' | 'chris' | 'go' | 'joneey' | 'se7en' | 'yg' | 'hw' | 'hsi' | 'jf' | 'grace' | 'jeansen' | 'kevin' | 'body01' | 's1aw' | 's2am' | 's2lw' | 's3ww' | `generated-${string}` | `hd-${string}`
 // victory 只有 sheet 角色有素材；舊替身角色不載入，畫面停在前一張。
 export type SpriteAction = 'idle' | 'walk' | 'jump' | 'attack' | 'hurt' | 'guard' | 'victory'
 

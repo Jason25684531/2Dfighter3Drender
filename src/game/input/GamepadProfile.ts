@@ -49,6 +49,8 @@ export const updateSlots = (slots: PadSlots, now: PadDown, previous: PadDown): P
 /** 固定的系統鍵，不可綁定：R1＝返回，L3＝在 P0 開啟 CONTROLS，R2＝在選角刪除已存的生成角色。 */
 export const PAD_SYSTEM = { BACK: 'B5', CONTROLS: 'B10', DELETE: 'B7' } as const satisfies Record<string, PadCode>
 const SYSTEM_CODES = new Set<string>(Object.values(PAD_SYSTEM))
+/** P0 連按三次 L1 解鎖隱藏角色；不列入系統鍵，L1 仍可綁成招式。 */
+export const PAD_SECRET: PadCode = 'B4'
 
 const CODE = /^(?:B(\d{1,2})|A(\d{1,2})([+-]))$/
 // 軸 0–3 已固定併入方向（ANALOG_DIRECTIONS），再綁到動作會讓走路同時出拳、選單導航同時確認。

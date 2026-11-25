@@ -45,7 +45,7 @@ try {
       const liveId = live ? JSON.parse(await readFile('outputs/aligned-character-verification/comfy-live-report.json', 'utf8')).assetId : undefined
       let generatedReady = false
       const submissionErrors = []
-      await page.route('http://localhost:8000/**', async route => {
+      await page.route('http://localhost:8765/**', async route => {
         const url = new URL(route.request().url())
         if (route.request().method() === 'OPTIONS') return route.fulfill({ headers, status: 204 })
         if (offline && url.pathname.endsWith('/generation')) {

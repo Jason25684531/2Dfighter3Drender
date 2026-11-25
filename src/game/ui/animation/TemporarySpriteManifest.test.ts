@@ -7,7 +7,7 @@ import { isSheetSprite, sheetAnimations, sheetSprites, sheetUrl, SHEET_FRAME_COU
 
 describe('temporary sprite presentation', () => {
   it('maps the ordered roster without legacy frame preloads', () => {
-    expect(characterEntries().map(entry => entry.spriteId)).toEqual(['s1aw', 's2am', 's2lw', 's3ww', 'go', 'se7en', 'joneey', 'yg', 'tony', 'chris'])
+    expect(characterEntries().map(entry => entry.spriteId)).toEqual(['s1aw', 's2am', 's2lw', 's3ww', 'go', 'se7en', 'joneey', 'yg', 'tony', 'chris', 'hw', 'hsi', 'jf', 'grace'])
     expect(characterEntries().every(entry => isSheetSprite(entry.spriteId))).toBe(true)
   })
 

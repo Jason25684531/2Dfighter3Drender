@@ -36,7 +36,7 @@ describe('TemporarySpriteRenderer', () => {
 
   const fake = (key: string) => {
     const log = { alphas: [] as number[], ys: [] as number[], frames: [] as number[] }
-    const image = { height: 256, texture: { key }, frame: { name: 0 }, setOrigin() { return this }, setScale() { return this }, setY(y: number) { log.ys.push(y); return this },
+    const image = { height: 256, texture: { key }, frame: { name: 0, texture: { getFrameNames: () => [] } }, setOrigin() { return this }, setScale() { return this }, setY(y: number) { log.ys.push(y); return this },
       setAlpha(a: number) { log.alphas.push(a); return this }, setTexture(k: string, f: number) { this.texture.key = k; this.frame.name = f; log.frames.push(f); return this } }
     let hd = false
     const scene = { add: { ellipse: () => ({ setY: vi.fn() }), image: () => image }, textures: {
@@ -99,7 +99,7 @@ describe('TemporarySpriteRenderer', () => {
 
   it('draws generated characters at the same battle height as the roster', () => {
     const create = (id: 's1aw' | 'generated-check') => {
-      const image = { height: 1024, texture: { key: `${id}-idle` }, frame: { name: 0 }, setOrigin() { return this }, setScale: vi.fn(), setTexture() { return this } }
+      const image = { height: 1024, texture: { key: `${id}-idle` }, frame: { name: 0, texture: { getFrameNames: () => [] } }, setOrigin() { return this }, setScale: vi.fn(), setTexture() { return this } }
       const scene = { add: { ellipse: () => ({ setY: vi.fn() }), image: () => image }, textures: { exists: () => true } }
       return { image, renderer: new TemporarySpriteRenderer(scene as never, id, 820) }
     }

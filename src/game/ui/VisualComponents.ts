@@ -131,15 +131,15 @@ export class HexTimer extends Phaser.GameObjects.Container {
   destroy(fromScene?: boolean): void { if (this.pulse) stopOwnedTweens([this.pulse]); super.destroy(fromScene) }
 }
 
+/** 手把按鍵圖示：單字鍵（✕ ⭘ ▢ 🛆）畫圓，方向或多鍵畫長方框。 */
 export class KeyCap extends Phaser.GameObjects.Container {
-  constructor(scene: Phaser.Scene, key: string, readonly device: 'keyboard' | 'gamepad') {
+  constructor(scene: Phaser.Scene, key: string) {
     super(scene, 0, 0)
     const tone: UiColorToken = key === 'A' ? 'statusLime' : key === 'X' ? 'systemBlue' : 'resultGold', color = uiTokens.colors[tone]
     const width = Math.max(42, key.length * 13 + 16)
-    this.add(device === 'gamepad' && key.length <= 2 ? scene.add.circle(0, 0, 23, uiTokens.colors.background0).setStrokeStyle(2, color) : scene.add.rectangle(0, 0, width, 46, uiTokens.colors.background0).setStrokeStyle(2, uiTokens.colors.lineBright))
-    this.add(scene.add.text(0, 0, key, { ...typography.note, color: colorHex(device === 'gamepad' ? tone : 'textPrimary') }).setOrigin(0.5))
+    this.add(key.length <= 2 ? scene.add.circle(0, 0, 23, uiTokens.colors.background0).setStrokeStyle(2, color) : scene.add.rectangle(0, 0, width, 46, uiTokens.colors.background0).setStrokeStyle(2, uiTokens.colors.lineBright))
+    this.add(scene.add.text(0, 0, key, { ...typography.note, color: colorHex(tone) }).setOrigin(0.5))
   }
-  setEmphasis(emphasized: boolean): void { this.setAlpha(emphasized ? 1 : 0.48) }
 }
 
 const toneColor: Record<AnnouncerTone, number> = { system: uiTokens.colors.systemBlue, player: uiTokens.colors.playerPrimary, enemy: uiTokens.colors.enemyPrimary, danger: uiTokens.colors.danger, gold: uiTokens.colors.resultGold }

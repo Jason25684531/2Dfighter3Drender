@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildSlots, moveSlot, P1SelectionModel, sectionCounts, sectionOf, selectSectionTitles } from './P1SelectionModel'
-import { bodyTemplates, testCharacterManifest, type CharacterEntry } from '../ui/assets/TestAssetManifest'
+import { bodyTemplates, characterEntries, characterEntry, hiddenCharacter, testCharacterManifest, type CharacterEntry } from '../ui/assets/TestAssetManifest'
 import type { OwnedUiAction, PlayerSlotId } from '../input/InputManager'
 
 const press = (model: P1SelectionModel, id: PlayerSlotId, ...actions: OwnedUiAction[]) => actions.map((action) => model.input(id, action))
@@ -44,7 +44,7 @@ describe('P1 selection model', () => {
       players: { P1: { characterId: 'generated-job', nickname: 'ONE' }, P2: { characterId: 'preset-b', nickname: 'TWO' } },
       faceGenUsed: { P1: true },
     })
-    expect(model.player('P1')).toMatchObject({ cursor: 11, nickname: 'ONE', faceGenUsed: true })
+    expect(model.player('P1')).toMatchObject({ cursor: 16, nickname: 'ONE', faceGenUsed: true })
     expect(model.player('P2')).toMatchObject({ joined: true, cursor: 10, nickname: 'TWO', faceGenUsed: false })
     model.input('P1', 'CONFIRM'); model.input('P2', 'CONFIRM')
     expect(model.result()).toEqual({ P1: { characterId: 'generated-job', nickname: 'ONE' }, P2: { characterId: 'preset-b', nickname: 'TWO' } })
@@ -56,17 +56,19 @@ describe('P1 selection model', () => {
       model.slot(5).status = status; expect(model.input('P1', 'CONFIRM')).toBe('REJECTED'); expect(model.player('P1').locked).toBeUndefined()
     }
   })
-  it('lays out 30 honest slots: 4 body templates, 6 officers, the rest empty', () => {
+  it('lays out 30 honest slots: 4 body templates, 6 officers, 5 pinned players (one reserved), the rest empty', () => {
     const { slots } = new P1SelectionModel()
     expect(slots).toHaveLength(30)
     expect(slots.slice(0, 4).map((slot) => slot.entry?.displayName)).toEqual(['BODY 01', 'BODY 02', 'BODY 03', 'BODY 04'])
     expect(slots.slice(4, 10).map((slot) => slot.entry?.displayName)).toEqual(['GO', 'SE7EN', 'Joneey', 'YG', 'Tony', 'Chris'])
-    expect(slots.slice(10).every((slot) => slot.type === 'EMPTY' && !slot.entry)).toBe(true)
+    expect(slots.slice(10, 15).map((slot) => [slot.entry?.displayName, slot.pinned])).toEqual([['HW', true], ['HSI', true], ['JF', true], ['Grace', true], [undefined, true]])
+    expect(slots[14].type).toBe('EMPTY')
+    expect(slots.slice(15).every((slot) => slot.type === 'EMPTY' && !slot.entry && !slot.pinned)).toBe(true)
     expect(new P1SelectionModel([]).slots.slice(0, 4).map(slot => slot.entry?.id)).toEqual(['body-01', 'body-02', 'body-03', 'body-04'])
   })
   it('splits the grid into CUSTOMIZE 01–04, OFFICERS 05–10, ROSTER 11–30 with counts', () => {
     expect([1, 4, 5, 10, 11, 30].map(sectionOf)).toEqual(['CUSTOMIZE', 'CUSTOMIZE', 'OFFICERS', 'OFFICERS', 'ROSTER', 'ROSTER'])
-    expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 6, total: 6 }, ROSTER: { used: 0, total: 20 } })
+    expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 6, total: 6 }, ROSTER: { used: 4, total: 20 } })
   })
   it('displays four sections and counts the occupied roster slots', () => {
     const guests: CharacterEntry[] = Array.from({ length: 11 }, (_, i) => ({ id: `guest-${i}`, displayName: `Guest ${i}`, type: 'CUSTOM', status: 'READY' }))
@@ -82,23 +84,37 @@ describe('P1 selection model', () => {
     const featured = Array.from({ length: 8 }, (_, i) => entry(`f${i}`, 'FEATURED')), generated = [entry('c0', 'CUSTOM'), entry('c1', 'CUSTOM')]
     const slots = buildSlots([...featured, ...generated])
     expect(slots.slice(4, 10).map((slot) => slot.entry?.id)).toEqual(['f0', 'f1', 'f2', 'f3', 'f4', 'f5'])
-    expect(slots.slice(10, 14).map((slot) => [slot.entry?.id, slot.type])).toEqual([['f6', 'FEATURED'], ['f7', 'FEATURED'], ['c0', 'CUSTOM'], ['c1', 'CUSTOM']])
-    expect(buildSlots(generated).slice(4, 10).every((slot) => slot.type === 'EMPTY')).toBe(true); expect(buildSlots(generated)[10].entry?.id).toBe('c0')
+    expect(slots.slice(15, 19).map((slot) => [slot.entry?.id, slot.type])).toEqual([['f6', 'FEATURED'], ['f7', 'FEATURED'], ['c0', 'CUSTOM'], ['c1', 'CUSTOM']])
+    expect(buildSlots(generated).slice(4, 10).every((slot) => slot.type === 'EMPTY')).toBe(true); expect(buildSlots(generated)[15].entry?.id).toBe('c0')
   })
-  it('appends persisted generated assets to ROSTER in the order supplied', () => {
+  it('appends persisted generated assets to ROSTER after the pinned players in the order supplied', () => {
     const generated: CharacterEntry[] = ['one', 'two'].map((name) => ({ id: `generated-${name}`, displayName: name, type: 'CUSTOM', status: 'READY', spriteId: `generated-${name}` as CharacterEntry['spriteId'], generationId: name }))
-    const model = new P1SelectionModel([...bodyTemplates, ...Object.values(testCharacterManifest), ...generated])
-    expect(model.slots.slice(10, 12).map(({ entry }) => entry?.id)).toEqual(['generated-one', 'generated-two'])
+    const model = new P1SelectionModel([...characterEntries(), ...generated])
+    expect(model.slots.slice(15, 17).map(({ entry }) => entry?.id)).toEqual(['generated-one', 'generated-two'])
   })
-  it('shows the newest 20 generated characters when more are stored (oldest first from the backend)', () => {
+  it('rotates only the 15 dynamic slots: the newest 15 generated characters show, pinned players stay', () => {
     const generated: CharacterEntry[] = Array.from({ length: 25 }, (_, i) => ({ id: `generated-${i}`, displayName: `${i}`, type: 'CUSTOM', status: 'READY' }))
-    const roster = buildSlots(generated).slice(10).map(({ entry }) => entry?.id)
-    expect(roster).toEqual(generated.slice(5).map(({ id }) => id))
+    const slots = buildSlots([...characterEntries(), ...generated])
+    expect(slots.slice(10, 14).map(({ entry }) => entry?.displayName)).toEqual(['HW', 'HSI', 'JF', 'Grace'])
+    expect(slots.slice(15).map(({ entry }) => entry?.id)).toEqual(generated.slice(10).map(({ id }) => id))
+  })
+  it('adds the hidden character as slot 31 beside slot 30 only when it is passed in', () => {
+    expect(buildSlots()).toHaveLength(30)
+    const model = new P1SelectionModel([...characterEntries(), hiddenCharacter])
+    expect(model.slots).toHaveLength(31)
+    expect(model.slot(31)).toMatchObject({ index: 31, entry: { displayName: 'Jeansen' } })
+    toSlot(model, 'P1', 30); press(model, 'P1', 'NAV_RIGHT'); expect(model.player('P1').cursor).toBe(31)
+    press(model, 'P1', 'NAV_UP', 'NAV_DOWN'); expect(model.player('P1').cursor).toBe(31)
+    expect(model.input('P1', 'CONFIRM')).toBe('CONFIRMED'); expect(model.player('P1').locked).toBe(31)
+    expect(characterEntry(hiddenCharacter.id)).toBe(hiddenCharacter)
+    expect(new P1SelectionModel().focus('P1', 31)).toBe(false)
   })
   it('wraps row-major horizontally and column-wise vertically', () => {
     expect(moveSlot(5, 'NAV_DOWN')).toBe(15); expect(moveSlot(17, 'NAV_UP')).toBe(7); expect(moveSlot(7, 'NAV_UP')).toBe(27)
     expect(moveSlot(25, 'NAV_DOWN')).toBe(5); expect(moveSlot(3, 'NAV_UP')).toBe(23)
     expect(moveSlot(10, 'NAV_RIGHT')).toBe(11); expect(moveSlot(30, 'NAV_RIGHT')).toBe(1); expect(moveSlot(1, 'NAV_LEFT')).toBe(30)
+    expect(moveSlot(30, 'NAV_RIGHT', 31)).toBe(31); expect(moveSlot(31, 'NAV_RIGHT', 31)).toBe(1); expect(moveSlot(31, 'NAV_LEFT', 31)).toBe(30)
+    expect(moveSlot(1, 'NAV_LEFT', 31)).toBe(31); expect(moveSlot(3, 'NAV_UP', 31)).toBe(23)
   })
   it('keeps cursors independent, rejects empty slots, and requires an explicit 2P join', () => {
     const model = new P1SelectionModel()

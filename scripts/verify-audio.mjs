@@ -7,7 +7,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } }), cues = [], errors = []
   page.on('console', message => { if (message.text().startsWith('[audio] ')) cues.push(message.text().slice(8)) })
   page.on('pageerror', error => errors.push(error.message))
-  await page.route('http://localhost:8000/**', route => route.abort())
+  await page.route('http://localhost:8765/**', route => route.abort())
   await page.route('**/src/main.ts*', async route => { const response = await route.fetch(); await route.fulfill({ response, body: (await response.text()).replace('new Phaser.Game(', 'window.__game = new Phaser.Game(') }) })
   await page.goto((process.env.APP_URL ?? 'http://127.0.0.1:5189/') + '?audioDebug=1&mute=1')
   await page.waitForFunction(() => window.__game?.scene.isActive('AppScene'))

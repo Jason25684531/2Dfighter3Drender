@@ -3,7 +3,8 @@ import { ActionButton, AngularPanel } from '../VisualComponents'
 import { colorHex, uiTokens } from '../tokens/uiTokens'
 import { typography } from '../tokens/typography'
 import type { LeaderboardPanelModel, LeaderboardPanelStatus } from '../ViewModels'
-import { keyLabel, loadProfiles, menuKeys } from '../../input/ControlProfile'
+import { loadProfiles, menuKeys } from '../../input/ControlProfile'
+import { loadPadProfiles, PAD_SYSTEM, padLabel } from '../../input/GamepadProfile'
 
 const { colors } = uiTokens
 const STATUS_TEXT: Record<LeaderboardPanelStatus, string> = { LOADING: 'LOADING ・ 載入中…', READY: '', EMPTY: 'NO RECORDS YET ・ 尚無紀錄', OFFLINE: 'OFFLINE ・ 無法連線，稍後再試' }
@@ -25,8 +26,7 @@ export class LeaderboardPanel {
     this.status = scene.add.text(960, 520, '', { ...typography.instruction, color: colorHex('textSecondary') }).setOrigin(0.5); this.root.add(this.status)
     const close = new ActionButton(scene, 'CLOSE', 320, 80, colors.panelRaised, '關閉').setPosition(960, 900).setFocused(true)
     close.on('pointerup', () => this.onClose()); this.root.add(close)
-    const k = menuKeys(loadProfiles().P1)
-    this.root.add(scene.add.text(960, 970, `ESC / ${keyLabel(k.BACK?.[0] ?? '')} / ENTER 關閉`, typography.note).setOrigin(0.5))
+    this.root.add(scene.add.text(960, 970, `${padLabel(PAD_SYSTEM.BACK)} / ${padLabel(loadPadProfiles().P1.LIGHT_KICK)} 關閉`, typography.note).setOrigin(0.5))
     window.addEventListener('keydown', this.onKey, true)
     this.update(model)
   }

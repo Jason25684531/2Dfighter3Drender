@@ -15,7 +15,7 @@ try {
   page.on('pageerror', error => report.errors.push(error.message))
   page.on('response', response => { if (response.status() >= 400 && /\/(?:test-assets|assest)\//.test(new URL(response.url()).pathname)) report.failedAssets.push(response.url()) })
   await page.route('**/src/main.ts*', async route => { const response = await route.fetch(); await route.fulfill({ response, body: (await response.text()).replace('new Phaser.Game(', 'window.__game = new Phaser.Game(') }) })
-  await page.route('http://localhost:8000/**', async route => { const response = await route.fetch({ url: route.request().url().replace('http://localhost:8000/api/v1', api) }); await route.fulfill({ response }) })
+  await page.route('http://localhost:8765/**', async route => { const response = await route.fetch({ url: route.request().url().replace('http://localhost:8765/api/v1', api) }); await route.fulfill({ response }) })
   const scene = (fn, arg) => page.evaluate(({ code, arg }) => new Function('s', 'arg', `return (${code})(s,arg)`)(window.__game.scene.getScene('AppScene'), arg), { code: fn.toString(), arg })
   const state = prefix => page.waitForFunction(prefix => { const s = window.__game?.scene.getScene('AppScene'); return s?.appStateMachine.getCurrentState().startsWith(prefix) && s.screen?.alpha >= .99 }, prefix)
   const key = async name => { await page.keyboard.down(name); await scene(s => new Promise(r => s.events.once('postupdate', r))); await page.keyboard.up(name); await scene(s => new Promise(r => s.events.once('postupdate', r))) }

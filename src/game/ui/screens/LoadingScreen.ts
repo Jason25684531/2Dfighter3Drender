@@ -1,7 +1,7 @@
 import type Phaser from 'phaser'
 import { AppState } from '../../state/AppState'
 import type { InputManager, PlayerSlotId } from '../../input/InputManager'
-import { keyLabel, type CombatAction, type ControlProfiles } from '../../input/ControlProfile'
+import type { CombatAction } from '../../input/ControlProfile'
 import { padLabel, type PadProfiles } from '../../input/GamepadProfile'
 import { faceKey, type GenerationJobs } from '../../app/GenerationJobs'
 import { intentFromInput, type CombatEvent } from '../../combat/CombatWorld'
@@ -18,7 +18,7 @@ import { resolveStageAsset } from '../assets/TestAssetManifest'
 import { alignedAnimations, alignedSprites } from '../animation/SheetSpriteManifest'
 import { ArenaScreen, type Matchup, type ScreenContext } from './ScreenView'
 
-export type LoadingOptions = { matchup: Matchup; controls: ControlProfiles; pads: PadProfiles; input: InputManager; clock: GameClock; jobs: GenerationJobs; retry: () => boolean }
+export type LoadingOptions = { matchup: Matchup; pads: PadProfiles; input: InputManager; clock: GameClock; jobs: GenerationJobs; retry: () => boolean }
 
 /** P3 練習場：生成與素材載入期間可自由練習（獨立的練習對戰，不計分）；都完成後 FIGHT! 才可按，失敗時同一顆按鈕變成重試。 */
 export class LoadingScreen extends ArenaScreen {
@@ -29,34 +29,30 @@ export class LoadingScreen extends ArenaScreen {
   private readonly unsubscribe: () => void
   private readonly playerContext: PresentationContext = {}
   private readonly enemyContext: PresentationContext = {}
-  private promptDevice?: string
   private readonly button: ActionButton
   private readonly skipButton: ActionButton
   private readonly title: Phaser.GameObjects.Text
   private readonly bar: Phaser.GameObjects.Rectangle
   private readonly percent: Phaser.GameObjects.Text
-  private readonly keyCaps: KeyCap[] = []
   private face?: Phaser.GameObjects.Image
   private pulse?: Phaser.Tweens.Tween
 
   constructor(ctx: ScreenContext, root: Phaser.GameObjects.Container, private readonly options: LoadingOptions) {
     super(ctx, root, options.matchup.stageId, uiTokens.backdrop.battle)
-    const { scene } = this, { colors } = uiTokens, { matchup, controls, pads } = options
+    const { scene } = this, { colors } = uiTokens, { matchup, pads } = options
     const config = this.practice.world.getConfig()
     this.unsubscribe = this.practice.world.subscribe((event) => { this.events.push(event) })
     this.practice.start()
     this.view = new BattleView(scene, this.arena, this.stage.world, { stage: matchup.stageId, playerSprite: matchup.playerSprite, enemySprite: matchup.enemySprite, playerName: matchup.playerName, enemyName: matchup.enemyName, twoPlayer: matchup.twoPlayer, floorY: config.floorY, maxHp: config.maxHp, input: options.input, audio: ctx.audio, combat: this.practice.world })
     this.view.update(this.practice.getSnapshot(), [], this.playerContext, undefined, this.enemyContext)
 
-    const key = (...actions: CombatAction[]): string => actions.map((action) => keyLabel(controls.P1[action])).join(' ')
     const padKey = (...actions: CombatAction[]): string => actions.map((action) => padLabel(pads.P1[action])).join(' ')
     const panel = new AngularPanel(scene, 1040, 150, colors.panelRaised).setPosition(560, 985)
-    panel.add(scene.add.text(-490, -50, `PRACTICE ・ 練習場  ·  ${resolveStageAsset(matchup.stageId).label}  ·  ${key('CROUCH')} 蹲 · 後退＝防禦`, { ...typography.note, color: colorHex('statusLime') }).setOrigin(0, 0.5))
-    const bindings = [['MOVE', key('MOVE_LEFT', 'MOVE_RIGHT'), padKey('MOVE_LEFT', 'MOVE_RIGHT')], ['JUMP', key('JUMP'), padKey('JUMP')], ['PUNCH', key('LIGHT_PUNCH', 'HEAVY_PUNCH'), padKey('LIGHT_PUNCH', 'HEAVY_PUNCH')], ['KICK', key('LIGHT_KICK', 'HEAVY_KICK'), padKey('LIGHT_KICK', 'HEAVY_KICK')]]
-    bindings.forEach(([action, keyboard, pad], i) => {
+    panel.add(scene.add.text(-490, -50, `PRACTICE ・ 練習場  ·  ${resolveStageAsset(matchup.stageId).label}  ·  ${padKey('CROUCH')} 蹲 · 後退＝防禦`, { ...typography.note, color: colorHex('statusLime') }).setOrigin(0, 0.5))
+    const bindings = [['MOVE', padKey('MOVE_LEFT', 'MOVE_RIGHT')], ['JUMP', padKey('JUMP')], ['PUNCH', padKey('LIGHT_PUNCH', 'HEAVY_PUNCH')], ['KICK', padKey('LIGHT_KICK', 'HEAVY_KICK')]]
+    bindings.forEach(([action, pad], i) => {
       const x = -490 + i * 255
-      const keyboardCap = new KeyCap(scene, keyboard, 'keyboard').setPosition(x + 115, 20), padCap = new KeyCap(scene, pad, 'gamepad').setPosition(x + 200, 20)
-      panel.add([scene.add.text(x, 20, action, typography.note).setOrigin(0, 0.5), keyboardCap, padCap]); this.keyCaps.push(keyboardCap, padCap)
+      panel.add([scene.add.text(x, 20, action, typography.note).setOrigin(0, 0.5), new KeyCap(scene, pad).setPosition(x + 150, 20)])
     })
     root.add(panel)
 
@@ -64,7 +60,7 @@ export class LoadingScreen extends ArenaScreen {
     this.title = scene.add.text(-315, -45, LOADING_TITLE.LOADING.text, typography.note).setOrigin(0, 0.5)
     this.bar = scene.add.rectangle(-315, 15, 300, 12, colors.systemBlue).setOrigin(0, 0.5)
     this.percent = scene.add.text(-315, 45, '', typography.note).setOrigin(0, 0.5)
-    this.button = new ActionButton(scene, 'FIGHT!', 300, 92, colors.playerPrimary, `${keyLabel(controls.P1.LIGHT_PUNCH)} / ENTER / ${padLabel(pads.P1.LIGHT_KICK)}`).setPosition(165, 0).setEnabled(false)
+    this.button = new ActionButton(scene, 'FIGHT!', 300, 92, colors.playerPrimary, `${padLabel(pads.P1.LIGHT_KICK)} / START`).setPosition(165, 0).setEnabled(false)
     const fight = (): void => { if (!options.retry() && this.ready) ctx.go(AppState.BATTLE) }
     this.button.on('pointerup', fight)
     this.skipButton = new ActionButton(scene, '略過生成', 172, 44, colors.panel).setPosition(-110, 44).setEnabled(false).setVisible(false)
@@ -127,7 +123,5 @@ export class LoadingScreen extends ArenaScreen {
       this.pulse?.stop(); this.button.label.setAlpha(1)
       if (!busy) { this.ctx.ui.focus.activate('loading', 'loading-fight'); this.pulse = this.tween({ targets: this.button.label, alpha: 0.7, duration: 700, yoyo: true, repeat: -1 }) }
     }
-    const device = this.options.input.lastDevice()
-    if (device !== this.promptDevice) { this.promptDevice = device; this.keyCaps.forEach((cap) => cap.setEmphasis(cap.device === device)) }
   }
 }

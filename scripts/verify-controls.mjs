@@ -12,7 +12,7 @@ try {
   const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } })
   const page = await context.newPage()
   page.on('pageerror', error => report.errors.push(error.message))
-  await page.route('http://localhost:8000/**', route => route.abort())
+  await page.route('http://localhost:8765/**', route => route.abort())
   await page.route('**/src/main.ts*', async route => { const response = await route.fetch(); await route.fulfill({ response, body: (await response.text()).replace('new Phaser.Game(', 'window.__game = new Phaser.Game(') }) })
   const s = (fn, arg) => page.evaluate(({ code, arg }) => new Function('s', 'arg', `return (${code})(s,arg)`)(window.__game.scene.getScene('AppScene'), arg), { code: fn.toString(), arg })
   const key = async name => { await page.keyboard.press(name); await s(s => new Promise(resolve => s.events.once('postupdate', resolve))) }

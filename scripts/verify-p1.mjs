@@ -19,7 +19,7 @@ try {
  page.setDefaultTimeout(30000)
  page.on('pageerror', error => report.errors.push(error.message))
  await page.route('**/src/main.ts*', async route => { const response = await route.fetch(); await route.fulfill({ response, body: (await response.text()).replace('new Phaser.Game(', 'window.__game = new Phaser.Game(') }) })
- await page.route('http://localhost:8000/**', async route => { const response = await route.fetch({ url: route.request().url().replace('http://localhost:8000', api) }); await route.fulfill({ response }) })
+ await page.route('http://localhost:8765/**', async route => { const response = await route.fetch({ url: route.request().url().replace('http://localhost:8765', api) }); await route.fulfill({ response }) })
  let roster = []
  const cors = { 'access-control-allow-origin': '*' }
  await page.route('**/api/v1/generation/assets', route => route.fulfill({ headers: cors, json: roster }))
@@ -185,7 +185,7 @@ try {
  assert.match(await scene(s => s.appStateMachine.getCurrentState()), /^P0/)
  check('Deleting a roster asset and leaving P1 does not redraw the selection screen')
  await home()
- await page.unroute('http://localhost:8000/**'); await page.route('http://localhost:8000/**',route=>route.abort())
+ await page.unroute('http://localhost:8765/**'); await page.route('http://localhost:8765/**',route=>route.abort())
  await page.reload(); await page.waitForFunction(()=>window.__game?.scene.getScene('AppScene')?.persistence.lastLeaderboardOk===false)
  await key('Enter'); await waitState('P1'); await shot('offline')
  await key('f'); await key('f'); await key('f'); await waitState('P2'); check('Offline indicator and nonblocking progression')

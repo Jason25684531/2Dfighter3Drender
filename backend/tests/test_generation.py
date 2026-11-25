@@ -119,6 +119,24 @@ def test_api_format_workflow_is_submitted_as_is(client, monkeypatch, tmp_path):
     assert [submitted[node]['inputs'] for node in '1234'] == [{'value': 2}, {'String': 'Bo'}, {'image': 'photo.jpg'}, {'slot_2_name': 'S2AM'}]
 
 
+def test_art_machine_slot_paths_map_to_local_comfy_input(client, monkeypatch, tmp_path):
+    art = r'C:\Users\Artist\Desktop\Taskforce 2028\Fight\Assets'
+    motion = r'\Motion_Reference\{}\og_clip\sheets'
+    workflow = {'1': {'class_type': 'PrimitiveInt', 'inputs': {'value': 1}}, '2': {'class_type': 'String', 'inputs': {'String': 'x'}}, '3': {'class_type': 'LoadImage', 'inputs': {'image': 'a.jpg'}}, '4': {'class_type': 'TaskforceCharacterSlotSelector', 'inputs': {
+        'slot_2_name': 'S2AM', 'slot_2_template_image': art + r'\Character\S2AM\S2AM_Template.png', 'slot_2_motion_folder': art + motion.format('S2AM'), 'slot_2_reference_report': art + motion.format('S2AM') + r'\sprite_sheet_report.json',
+        'slot_3_name': 'S1AM', 'slot_3_motion_folder': art + motion.format('S1LM'), 'output_root': 'taskforce_2028_ftg'}}}
+    calls = fake_comfy(monkeypatch, tmp_path, workflow)
+    monkeypatch.setattr(generation, 'INPUT', tmp_path)
+    for name in ('S2AM', 'S1AM'):
+        (tmp_path / 'taskforce_2028_ftg' / 'Motion_Reference' / name / 'og_clip' / 'sheets').mkdir(parents=True)
+    assert client.post('/api/v1/generation', json={'name': 'Bo', 'template': 2, 'photo': PHOTO}).status_code == 200
+    assert calls[1][1]['json']['prompt']['4']['inputs'] == {
+        'slot_2_name': 'S2AM', 'slot_2_template_image': 'taskforce_2028_ftg/Character/S2AM_Template.png',
+        'slot_2_motion_folder': 'taskforce_2028_ftg/Motion_Reference/S2AM/og_clip/sheets', 'slot_2_reference_report': 'taskforce_2028_ftg/Motion_Reference/S2AM/og_clip/sheets/sprite_sheet_report.json',
+        'slot_3_name': 'S1AM', 'slot_3_motion_folder': 'taskforce_2028_ftg/Motion_Reference/S1AM/og_clip/sheets', 'output_root': 'taskforce_2028_ftg',
+    }, 'missing local S1LM motion falls back to the slot name'
+
+
 def test_cancel_interrupts_only_the_running_prompt_and_dequeues_it(client, monkeypatch, tmp_path):
     calls = fake_comfy(monkeypatch, tmp_path, UI_WORKFLOW)
     running = {'queue_running': [[1, 'prompt-1', {}]]}

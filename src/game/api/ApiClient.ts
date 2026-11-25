@@ -1,7 +1,10 @@
 import { ApiError } from './ApiError'
 import type { ErrorEnvelope, HealthResponse, LeaderboardEntry, Match, MatchCreate, MatchFinish, Player, RequestId, RoundCreate, Session } from './ApiTypes'
 
-export type ApiClientOptions = { baseUrl?: string; timeoutMs?: number; fetchImpl?: typeof fetch; maxRetries?: number; retryDelayMs?: number }
+/** 後端預設在 8765（避開常被占用的 8000）；VITE_API_BASE_URL 可覆寫。 */
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8765/api/v1').replace(/\/$/, '')
+
+export type ApiClientOptions ={ baseUrl?: string; timeoutMs?: number; fetchImpl?: typeof fetch; maxRetries?: number; retryDelayMs?: number }
 
 export class ApiClient {
   private readonly baseUrl: string
@@ -11,7 +14,7 @@ export class ApiClient {
   private readonly retryDelayMs: number
 
   constructor(options: ApiClientOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1').replace(/\/$/, '')
+    this.baseUrl = (options.baseUrl ?? API_BASE).replace(/\/$/, '')
     this.timeoutMs = options.timeoutMs ?? 3000
     // 瀏覽器的 fetch 必須以 window 為 this 呼叫，否則丟出 Illegal invocation。
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis)

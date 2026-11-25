@@ -13,7 +13,7 @@ try {
   page.on('pageerror', (error) => errors.push(error.message))
   let generation = 'processing'
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'content-type': 'application/json' }
-  await page.route('http://localhost:8000/**', async (route) => {
+  await page.route('http://localhost:8765/**', async (route) => {
     const { pathname } = new URL(route.request().url()), method = route.request().method()
     if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
     if (pathname.endsWith('/generation') && method === 'POST') return route.fulfill({ headers: cors, body: JSON.stringify({ job: 'job-1' }) })

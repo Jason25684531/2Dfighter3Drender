@@ -18,7 +18,7 @@ try {
     requested.add(path)
     if (response.status() >= 400) missing.add(path)
   })
-  await page.route('http://localhost:8000/**', (route) => route.abort())
+  await page.route('http://localhost:8765/**', (route) => route.abort())
   await page.route('**/src/main.ts*', async (route) => { const response = await route.fetch(); await route.fulfill({ response, body: (await response.text()).replace('new Phaser.Game(', 'window.__game = new Phaser.Game(') }) })
   await page.goto(base); await page.waitForFunction(() => window.__game?.scene.isActive('AppScene'), null, { timeout: 60000 })
   const s = (fn, arg) => page.evaluate(({ code, arg }) => new Function('s', 'arg', `return (${code})(s,arg)`)(window.__game.scene.getScene('AppScene'), arg), { code: fn.toString(), arg })

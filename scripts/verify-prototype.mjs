@@ -200,7 +200,7 @@ try {
   // 正式入口不載入原型。
   const formal = await browser.newPage()
   formal.on('pageerror', error => report.errors.push(error.message))
-  await formal.route('http://localhost:8000/**', route => route.abort())
+  await formal.route('http://localhost:8765/**', route => route.abort())
   const loaded = []; formal.on('request', r => loaded.push(r.url()))
   await formal.goto(`${base}/`); await wait(2500)
   assert.equal(await formal.evaluate(() => 'prototypeScene' in window), false)

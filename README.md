@@ -216,11 +216,11 @@ python -m pytest backend/tests -q
 
 ### 本機啟動與實機驗證
 
-一鍵啟動：雙擊 `start-dev.bat`。會檢查 venv／node_modules、提示 ComfyUI（8188）是否在跑，分別開視窗啟動後端（8000）與前端（5173），就緒後開啟 `http://localhost:5173/`。關閉那兩個視窗即停止服務。
+一鍵啟動：雙擊 `start-dev.bat`。會檢查 venv／node_modules、提示 ComfyUI（8188）是否在跑，分別開視窗啟動後端（8765）與前端（5173），就緒後開啟 `http://localhost:5173/`。關閉那兩個視窗即停止服務。
 
 ```bash
 # 後端（可省略；離線時流程照常、只是不記成績）
-venv/Scripts/python.exe -m uvicorn app.main:app --app-dir backend --port 8000
+venv/Scripts/python.exe -m uvicorn app.main:app --app-dir backend --port 8765
 # 前端：Playwright 腳本預設連 5189
 npx vite --port 5189 --host 127.0.0.1
 ```

@@ -4,7 +4,7 @@ import { lungeFor } from '../../config/hitTuning'
 import { uiTokens } from '../tokens/uiTokens'
 import { presentationSheetFor, resolvePresentation, spriteActionFor, spriteDisplayHeight, spriteFrameFor, spriteOriginY, spriteTextureFrame, spriteTextureKey, type Presentation, type PresentationContext, type SpriteAction, type SpriteId } from './TemporarySpriteManifest'
 import { alignedSprites, isSheetSprite } from './SheetSpriteManifest'
-import { crouchFrame, groundOrigin, peakFrame } from './SpriteHitTest'
+import { crouchFrame, groundOrigin, idleScale, peakFrame } from './SpriteHitTest'
 
 
 /** 起身無敵：固定半透明，不閃爍。 */
@@ -72,7 +72,10 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     const frame = this.shownFrame = Math.max(this.frameFloor, spriteFrameFor(fighter, action, tick - this.actionStartTick, this.spriteId, this.peak(action, sheet), sheet))
     const key = this.textureKey(this.spriteId, action, frame, sheet)
     const textureFrame = spriteTextureFrame(this.spriteId, frame)
-    if (this.scene.textures.exists(key) && (this.image.texture.key !== key || (textureFrame !== undefined && String(this.image.frame.name) !== String(textureFrame)))) this.image.setTexture(key, textureFrame).setScale(spriteDisplayHeight(this.spriteId) / this.image.height)
+    if (this.scene.textures.exists(key) && (this.image.texture.key !== key || (textureFrame !== undefined && String(this.image.frame.name) !== String(textureFrame)))) {
+      this.image.setTexture(key, textureFrame)
+      this.image.setScale(spriteDisplayHeight(this.spriteId) / this.image.height * (sheet === 'idle' ? idleScale(this.image.frame) : 1))
+    }
     this.image.setOrigin(0.5, this.originFor(this.image.frame, fighter.grounded && progress === undefined))
   }
 
@@ -94,7 +97,7 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   pose(fighter: FighterSnapshot, context?: PresentationContext): SpritePose | undefined {
     const { image, spriteId: id } = this
     if (!image || !id) return undefined
-    if (spriteActionFor(fighter, context) !== 'attack') return { key: image.texture.key, frame: image.frame.name, scale: spriteDisplayHeight(id) / image.height, originY: this.originFor(image.frame, fighter.grounded) }
+    if (spriteActionFor(fighter, context) !== 'attack') return { key: image.texture.key, frame: image.frame.name, scale: spriteDisplayHeight(id) / image.height * (this.presentation === 'IDLE' ? idleScale(image.frame) : 1), originY: this.originFor(image.frame, fighter.grounded) }
     const presentation = !isSheetSprite(id) ? undefined : fighter.attackId === this.attackId && this.action === 'attack' ? this.presentation : resolvePresentation(fighter, context)
     const sheet = presentation && presentationSheetFor(this.spriteId, presentation), frame = spriteFrameFor(fighter, 'attack', 0, id, this.peak('attack', sheet), sheet)
     const key = this.textureKey(id, 'attack', frame, sheet), name = spriteTextureFrame(id, frame) ?? image.frame.name

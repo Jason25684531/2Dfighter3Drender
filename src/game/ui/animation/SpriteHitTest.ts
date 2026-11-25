@@ -21,25 +21,48 @@ export const drawFrame = (context: CanvasRenderingContext2D, frame: Phaser.Textu
   context.drawImage(image, x * scale, y * scale, w * scale, h * scale, 0, 0, width, height)
 }
 
-export function groundOrigin(frame: Phaser.Textures.Frame, fallback: number): number {
-  if (!frame.source?.image) return fallback
-  const cached = groundOrigins.get(frame)
-  if (cached !== undefined) return cached
-  const width = 128, height = 256
+const SPAN_HEIGHT = 256
+/** 一格裡人物的頭頂與腳底列（以 256 高的取樣計），沒有像素或來源未載入時 undefined。 */
+function bodySpan(frame: Phaser.Textures.Frame): [number, number] | undefined {
+  if (!frame.source?.image) return undefined
+  const width = 128, height = SPAN_HEIGHT
   const probe = Object.assign(document.createElement('canvas'), { width, height }).getContext('2d', { willReadFrequently: true })
-  if (!probe) return fallback
+  if (!probe) return undefined
   drawFrame(probe, frame, width, height)
   const pixels = probe.getImageData(0, 0, width, height).data
-  for (let y = height - 1; y >= 0; y--) {
-    let solid = 0
-    for (let x = 0; x < width; x++) if (pixels[(y * width + x) * 4 + 3] > ALPHA_THRESHOLD) solid++
-    if (solid < 2) continue
-    const origin = (y + 1) / height
-    groundOrigins.set(frame, origin)
-    return origin
+  const solidRow = (y: number): boolean => { let solid = 0; for (let x = 0; x < width; x++) if (pixels[(y * width + x) * 4 + 3] > ALPHA_THRESHOLD && ++solid >= 2) return true; return false }
+  let bottom = height - 1
+  while (bottom >= 0 && !solidRow(bottom)) bottom--
+  if (bottom < 0) return undefined
+  let top = 0
+  while (!solidRow(top)) top++
+  return [top, bottom]
+}
+
+export function groundOrigin(frame: Phaser.Textures.Frame, fallback: number): number {
+  const cached = groundOrigins.get(frame)
+  if (cached !== undefined) return cached
+  if (!frame.source?.image) return fallback
+  const span = bodySpan(frame), origin = span ? (span[1] + 1) / SPAN_HEIGHT : fallback
+  groundOrigins.set(frame, origin)
+  return origin
+}
+
+const idleScales = new WeakMap<object, Map<string, number>>()
+/**
+ * 待機每格的縮放修正。8 格由兩張 2×2 各自生成再拼起來，兩張的人物大小常不同（S3WW 第 4–6 格大 7%，循環時忽大忽小）。
+ * 待機姿勢幾乎不動，身高差就是比例差：以第一張（前 4 格）的中位身高為準，偏離超過 2.5% 的格子拉回；更小的差異是呼吸動作，保留。
+ */
+export function idleScale(frame: Phaser.Textures.Frame): number {
+  let scales = idleScales.get(frame.texture)
+  if (!scales) {
+    const heights = frame.texture.getFrameNames().map((name) => { const span = bodySpan(frame.texture.get(name)); return [name, span ? span[1] - span[0] : 0] as const }).filter(([, h]) => h > 0)
+    if (!heights.length) return 1
+    const first = heights.slice(0, 4).map(([, h]) => h).sort((a, b) => a - b), reference = first[Math.floor(first.length / 2)]
+    scales = new Map(heights.map(([name, h]) => [name, Math.abs(h / reference - 1) > 0.025 ? reference / h : 1]))
+    idleScales.set(frame.texture, scales)
   }
-  groundOrigins.set(frame, fallback)
-  return fallback
+  return scales.get(String(frame.name)) ?? 1
 }
 
 export type Mask = { width: number; height: number; solid: Uint8Array }

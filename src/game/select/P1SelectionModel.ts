@@ -9,7 +9,10 @@ export const GRID_ROWS = 3
 export const SLOT_COUNT = GRID_COLUMNS * GRID_ROWS
 export const NICKNAME_MAX = 16
 
-export type Slot = { index: number; type: SlotType; status?: SlotStatus; entry?: CharacterEntry }
+/** 玩家區最前面的固定格數（11–15），其餘 15 格給最新生成的角色。 */
+export const PINNED_SLOTS = 5
+
+export type Slot = { index: number; type: SlotType; status?: SlotStatus; entry?: CharacterEntry; pinned?: true }
 // NAME＝輸入暱稱頁；CUSTOMIZE＝拍照頁（UX v03 UC02-4／UC03-1：暱稱與拍照分兩屏）。
 export type P1Phase = 'GRID' | 'OPPONENT' | 'DIFFICULTY' | 'NAME' | 'CUSTOMIZE' | 'REVIEW' | 'PROCESSING' | 'FAILED' | 'ALL_READY'
 export type GenerationState = 'PHOTO_CONFIRMED' | 'REQUESTING' | 'PROCESSING' | 'API_READY' | 'DOWNLOADING' | 'DECODED' | 'RUNTIME_READY' | 'FAILED'
@@ -42,24 +45,28 @@ export const selectSectionTitles = (slots: readonly Slot[]) => {
   }
 }
 
-// 01–04 永遠是 Body Template；FEATURED 依序填 05–10，超過的溢出到 ROSTER 起始；其餘（已生成）從 11 起。其餘為 EMPTY（不得補假角色）。
-// 已生成角色由舊到新傳入；超過名錄容量時只顯示最新的，剛生成的角色才不會被擠出畫面。
+// 01–04 永遠是 Body Template；FEATURED 依序填 05–10；11–15 固定玩家（缺的留空位）；超過的 FEATURED 與已生成角色從 16 起。其餘為 EMPTY（不得補假角色）。
+// 已生成角色由舊到新傳入；超過名錄容量時只顯示最新的，剛生成的角色才不會被擠出畫面。有傳入隱藏角色時多一格 31。
 export const buildSlots = (entries: readonly CharacterEntry[] = characterEntries()): Slot[] => {
   const bodies = bodyTemplates.map((template) => entries.find((entry) => entry.type === 'BODY_TEMPLATE' && entry.bodyTemplateId === template.bodyTemplateId) ?? template)
-  const officers = SECTIONS[1].to - SECTIONS[1].from + 1
-  const featured = entries.filter((entry) => entry.type === 'FEATURED'), generated = entries.filter((entry) => entry.type !== 'FEATURED' && entry.type !== 'BODY_TEMPLATE')
-  const room = SLOT_COUNT - SECTIONS[1].to - featured.slice(officers).length
-  const placed: (CharacterEntry | undefined)[] = [...featured.slice(0, officers), ...Array<undefined>(Math.max(0, officers - featured.length)), ...featured.slice(officers), ...generated.slice(Math.max(0, generated.length - room))]
-  return Array.from({ length: SLOT_COUNT }, (_, i) => {
-    const entry = i < 4 ? bodies[i] : placed[i - 4]
-    return entry ? { index: i + 1, type: entry.type, status: entry.status, entry } : { index: i + 1, type: i < 4 ? 'BODY_TEMPLATE' : 'EMPTY' }
+  const officers = SECTIONS[1].to - SECTIONS[1].from + 1, pad = (n: number) => Array<undefined>(Math.max(0, n))
+  const featured = entries.filter((entry) => entry.type === 'FEATURED'), pinned = entries.filter((entry) => entry.roster === 'PINNED').slice(0, PINNED_SLOTS)
+  const generated = entries.filter((entry) => entry.type !== 'FEATURED' && entry.type !== 'BODY_TEMPLATE' && !entry.roster), hidden = entries.find((entry) => entry.roster === 'HIDDEN')
+  const room = SLOT_COUNT - SECTIONS[1].to - PINNED_SLOTS - featured.slice(officers).length
+  const placed: (CharacterEntry | undefined)[] = [...featured.slice(0, officers), ...pad(officers - featured.length), ...pinned, ...pad(PINNED_SLOTS - pinned.length), ...featured.slice(officers), ...generated.slice(Math.max(0, generated.length - room))]
+  const slots = Array.from({ length: SLOT_COUNT }, (_, i): Slot => {
+    const entry = i < 4 ? bodies[i] : placed[i - 4], pin = i >= SECTIONS[1].to && i < SECTIONS[1].to + PINNED_SLOTS ? { pinned: true as const } : {}
+    return entry ? { index: i + 1, type: entry.type, status: entry.status, entry, ...pin } : { index: i + 1, type: i < 4 ? 'BODY_TEMPLATE' : 'EMPTY', ...pin }
   })
+  return hidden ? [...slots, { index: SLOT_COUNT + 1, type: hidden.type, status: hidden.status, entry: hidden }] : slots
 }
 
-// 沿用 focus-navigation 的 wrap 語意：左右 row-major 跨列循環，上下同欄循環。
-export const moveSlot = (index: number, action: OwnedUiAction): number => {
+// 沿用 focus-navigation 的 wrap 語意：左右 row-major 跨列循環（含隱藏第 31 格），上下同欄循環；第 31 格只能左右進出。
+export const moveSlot = (index: number, action: OwnedUiAction, count = SLOT_COUNT): number => {
   const step = action === 'NAV_LEFT' ? -1 : action === 'NAV_RIGHT' ? 1 : action === 'NAV_UP' ? -GRID_COLUMNS : action === 'NAV_DOWN' ? GRID_COLUMNS : 0
-  return ((index - 1 + step) % SLOT_COUNT + SLOT_COUNT) % SLOT_COUNT + 1
+  if (index > SLOT_COUNT) return step === -1 ? SLOT_COUNT : step === 1 ? 1 : index
+  const size = Math.abs(step) === 1 ? count : SLOT_COUNT
+  return ((index - 1 + step) % size + size) % size + 1
 }
 
 export const confirmable = (slot: Slot): boolean => Boolean(slot.entry) && (slot.status === 'AVAILABLE' || slot.status === 'READY')
@@ -113,7 +120,7 @@ export class P1SelectionModel {
 
   focus(id: PlayerSlotId, index: number): boolean {
     const p = this.state[id]
-    if (!Number.isInteger(index) || index < 1 || index > SLOT_COUNT || this.phase !== 'GRID' || !p.joined || p.locked !== undefined || p.cursor === index) return false
+    if (!Number.isInteger(index) || index < 1 || index > this.slots.length || this.phase !== 'GRID' || !p.joined || p.locked !== undefined || p.cursor === index) return false
     p.cursor = index; return true
   }
 
@@ -153,7 +160,7 @@ export class P1SelectionModel {
       return undefined
     }
     if (this.phase !== 'GRID' || p.locked !== undefined) return undefined
-    if (action !== 'CONFIRM') { p.cursor = moveSlot(p.cursor, action); return undefined }
+    if (action !== 'CONFIRM') { p.cursor = moveSlot(p.cursor, action, this.slots.length); return undefined }
     if (!confirmable(this.slot(p.cursor))) return 'REJECTED'
     p.locked = p.cursor; this.advance(); return 'CONFIRMED'
   }
@@ -207,7 +214,7 @@ export class P1SelectionModel {
   /** CPU 預設對手：1P 之後的下一位 Officer（循環），不預選 Body 模板或空格。 */
   private defaultRival(locked: number): number {
     const { from, to } = SECTIONS[1], officers = Array.from({ length: to - from + 1 }, (_, i) => from + i).filter((index) => index !== locked && confirmable(this.slot(index)))
-    return officers.find((index) => index > locked) ?? officers[0] ?? moveSlot(locked, 'NAV_RIGHT')
+    return officers.find((index) => index > locked) ?? officers[0] ?? moveSlot(locked, 'NAV_RIGHT', this.slots.length)
   }
 
   /** 單人：OPPONENT（選格）→ DIFFICULTY（←→ 切換）→ ALL_READY；BACK 逐層退回，OPPONENT 再退即解除 1P 鎖定。 */
@@ -215,7 +222,7 @@ export class P1SelectionModel {
     const rival = this.rival as NonNullable<P1SelectionModel['rival']>
     if (this.phase === 'OPPONENT') {
       if (action === 'BACK') { this.unlock('P1'); this.phase = 'GRID' }
-      else if (action !== 'CONFIRM') rival.cursor = moveSlot(rival.cursor, action)
+      else if (action !== 'CONFIRM') rival.cursor = moveSlot(rival.cursor, action, this.slots.length)
       else if (!confirmable(this.slot(rival.cursor)) || rival.cursor === this.state.P1.locked) return 'REJECTED'
       else { this.phase = 'DIFFICULTY'; return 'CONFIRMED' }
     } else if (this.phase === 'DIFFICULTY') {

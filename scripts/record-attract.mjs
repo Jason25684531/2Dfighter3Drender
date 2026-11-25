@@ -21,7 +21,7 @@ async function play({ p1, p2 }) {
   const opened = Date.now(), page = await context.newPage(), video = page.video()
   let report
   try {
-    await page.route('http://localhost:8000/**', route => route.abort())
+    await page.route('http://localhost:8765/**', route => route.abort())
     await page.route('**/src/main.ts*', async route => {
       const response = await route.fetch()
       await route.fulfill({ response, body: (await response.text()).replace('new Phaser.Game(', 'window.__game = new Phaser.Game(') })

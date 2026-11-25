@@ -15,11 +15,11 @@ import { P1SelectionModel, type P1Phase } from '../select/P1SelectionModel'
 import { LeaderboardPanel } from '../ui/board/LeaderboardPanel'
 import { P1SelectView } from '../ui/p1/P1SelectView'
 import { endViewModel, leaderboardPanelModel, resultViewModel } from '../ui/ViewModels'
-import { characterEntries, characterEntry, resolveStageAsset, stageTextureKey, testCharacterManifest, type CharacterEntry, type StageId } from '../ui/assets/TestAssetManifest'
+import { characterEntries, characterEntry, hiddenCharacter, resolveStageAsset, stageTextureKey, testCharacterManifest, type CharacterEntry, type StageId } from '../ui/assets/TestAssetManifest'
 import type { PresentationContext, SpriteId } from '../ui/animation/TemporarySpriteManifest'
 import { alignedSprites, type AlignedSpriteId } from '../ui/animation/SheetSpriteManifest'
 import { deleteGeneratedCharacter, dropGeneratedTextures, dropHead, loadHdSprite, loadHeads } from '../api/CharacterGeneration'
-import { keyLabel, loadProfiles, saveProfiles } from '../input/ControlProfile'
+import { loadProfiles, saveProfiles } from '../input/ControlProfile'
 import { ControlsPanel } from '../ui/controls/ControlsPanel'
 import { loadPadProfiles, PAD_SYSTEM, padLabel, savePadProfiles, type PadProfiles } from '../input/GamepadProfile'
 import { GameAudio } from '../audio/GameAudio'
@@ -69,6 +69,8 @@ export class AppScene extends Phaser.Scene {
   private attractClip = 0
   private attractInputConsumed = false
   private attractPadButtons = new Set<string>()
+  private secretPresses: number[] = []
+  private secretUnlocked = false
   private audio?: GameAudio
   private readonly controls = loadProfiles()
   private readonly padProfiles = loadPadProfiles()
@@ -129,7 +131,7 @@ export class AppScene extends Phaser.Scene {
       if (previousState === AppState.BATTLE && nextState !== AppState.PRESENTATION) this.audio?.stopLoop()
       if (previousState === AppState.PRESENTATION) this.audio?.stopLoop()
       if (nextState === AppState.READY) { this.p1Offline = false; this.p1Model = undefined; this.clearGeneration(); void this.refreshGeneratedEntries() }
-      if (nextState === AppState.IDLE) this.clearGeneration()
+      if (nextState === AppState.IDLE) { this.clearGeneration(); this.secretUnlocked = false }
       if (previousState === AppState.READY) { this.headLoad?.abort(); this.p1Model = undefined }
       this.lastActivity = this.time.now
       if (nextState === AppState.RESULT) this.resultReadyAt = this.time.now + RESULT_REVIEW_MS
@@ -174,6 +176,7 @@ export class AppScene extends Phaser.Scene {
       if (this.attract) { this.stopAttract(); this.attractInputConsumed = true }
     }
     this.attractPadButtons = padButtons
+    if (this.appStateMachine.getCurrentState() === AppState.IDLE && !this.attract && !this.attractInputConsumed && !this.controlsPanel && !this.boardPanel && (this.inputManager.secretPress('P1') || this.inputManager.secretPress('P2'))) this.countSecret(time)
     const visualState = this.appStateMachine.getCurrentState(), battling = visualState === AppState.BATTLE, practicing = visualState === AppState.LOADING, pausedBefore = this.clock.isPaused()
     // P1／P2 逐層返回；P3／P5／P6 返回主畫面（backRoutes）。
     const backScreen = ([AppState.READY, AppState.SETUP, AppState.LOADING, AppState.PRESENTATION, AppState.RESULT] as AppStateValue[]).includes(visualState)
@@ -214,7 +217,12 @@ export class AppScene extends Phaser.Scene {
         // 手把只有一顆返回鍵：1P 在最上層（未鎖定）時等同鍵盤 Esc，回到標題。
         if (device && this.p1View?.nameKey(owner, action)) this.noteActivity()
         else if (device && owner === 'P1' && action === 'BACK' && this.p1Model?.phase === 'GRID' && this.p1Model.player('P1').locked === undefined) this.ui.navigation.dispatch('BACK')
-        else this.p1Input(owner, action)
+        else {
+          const pick = this.p1View ? this.p1View.choiceKey(owner, action) : action
+          if (pick === 'SKIP') { this.noteActivity(); this.audio?.ui('CONFIRM'); this.p1Model?.skipCustomize(); this.syncP1() }
+          else if (pick) this.p1Input(owner, pick)
+          else { this.noteActivity(); this.audio?.ui(action) }
+        }
       })
     } else if (battling && !this.ui.navigation.isOverlayOpen()) {
       // P4 未暫停：只看 Combat profile 的 PAUSE，選單鍵不作用；暫停後才交給選單鍵。本場操作者（1P，雙人時含 2P）的手把斷線也暫停。
@@ -253,10 +261,10 @@ export class AppScene extends Phaser.Scene {
     this.addBackground(root, state)
     const ctx = this.screenContext
     const screens: Record<AppStateValue, () => ScreenView> = {
-      [AppState.IDLE]: () => new HomeScreen(ctx, root, `${keyLabel(this.controls.P1.LIGHT_PUNCH)} / ENTER / ${this.padConfirm()} 確認 · ↑ ↓ 切換 · P 播放開頭動畫 · C / ${padLabel(PAD_SYSTEM.CONTROLS)} 操作設定`, () => this.openBoard(), () => this.openControls()),
+      [AppState.IDLE]: () => new HomeScreen(ctx, root, `${this.padConfirm()} 確認 · ↑ ↓ 切換 · ${padLabel(PAD_SYSTEM.CONTROLS)} 操作設定`, () => this.openBoard(), () => this.openControls()),
       [AppState.READY]: () => new SelectScreen(ctx, root, this.jobs.entriesReady ? (parent) => this.createP1View(parent) : undefined),
       [AppState.SETUP]: () => new StageSelectScreen(ctx, root, this.selectedStageId, this.stepTotal(), (id) => this.selectStage(id), () => this.confirmStage()),
-      [AppState.LOADING]: () => new LoadingScreen(ctx, root, { matchup: this.matchup(), controls: this.controls, pads: this.padProfiles, input: this.inputManager, clock: this.clock, jobs: this.jobs, retry: () => this.jobs.retry(this.selectedCharacterIds(), this.selectedRosterSprites()) }),
+      [AppState.LOADING]: () => new LoadingScreen(ctx, root, { matchup: this.matchup(), pads: this.padProfiles, input: this.inputManager, clock: this.clock, jobs: this.jobs, retry: () => this.jobs.retry(this.selectedCharacterIds(), this.selectedRosterSprites()) }),
       [AppState.BATTLE]: () => new BattleScreen(ctx, root, this.matchup(), this.flow, { input: this.inputManager, clock: this.clock, takeEvents: () => this.tickEvents.splice(0), playerContext: this.playerContext, enemyContext: this.enemyContext }),
       [AppState.PRESENTATION]: () => new PresentationScreen(ctx, root, this.matchup(), this.flow),
       [AppState.RESULT]: () => new ResultScreen(ctx, root, this.flow.result && resultViewModel(this.flow.result, this.persistence?.context.snapshot.backendRank ?? null, p6SubStateForRank(this.persistence?.context.snapshot.backendRank), this.flow.leaderboard, this.persistence?.context.snapshot.sessionId), this.resultReadyAt),
@@ -286,7 +294,7 @@ export class AppScene extends Phaser.Scene {
   }
   private openOverlay(): void {
     if (!this.screen) return
-    this.overlay = new PauseOverlay(this.screenContext, this.screen, `ENTER / ${this.padConfirm()} 確認 ・ ESC / ${padLabel(PAD_SYSTEM.BACK)} 返回`, () => { this.flow.restartMatch(); this.current?.tick() })
+    this.overlay = new PauseOverlay(this.screenContext, this.screen, `${this.padConfirm()} 確認 ・ ${padLabel(PAD_SYSTEM.BACK)} 返回`, () => { this.flow.restartMatch(); this.current?.tick() })
   }
 
   /** 選單只認 1P：手把確認鍵＝1P 的輕踢鍵（預設 ✕）。 */
@@ -307,7 +315,7 @@ export class AppScene extends Phaser.Scene {
 
   private createP1View(root: Phaser.GameObjects.Container): P1SelectView {
     if (!this.p1Model) {
-      this.p1Model = new P1SelectionModel([...characterEntries(), ...this.jobs.entries], { players: this.flow.players, faceGenUsed: this.persistence?.context.snapshot.faceGenUsed })
+      this.p1Model = new P1SelectionModel([...characterEntries(), ...(this.secretUnlocked ? [hiddenCharacter] : []), ...this.jobs.entries], { players: this.flow.players, faceGenUsed: this.persistence?.context.snapshot.faceGenUsed })
       this.headLoad?.abort()
       this.headLoad = new AbortController()
       void loadHeads(this, this.p1Model.slots.flatMap(slot => slot.entry ? [slot.entry] : []), () => this.p1View?.refreshHeads(), this.headLoad.signal)
@@ -322,6 +330,13 @@ export class AppScene extends Phaser.Scene {
       onSkip: () => { this.p1Model?.skipCustomize(); this.syncP1() },
       onAllReady: () => this.confirmPlayers(),
     })
+  }
+  /** P0 在 1.2 秒內連按三次 L1：本次遊玩的選角多出第 31 格隱藏角色；只觸發一次，回主畫面清除。 */
+  private countSecret(time: number): void {
+    if (this.secretUnlocked) return
+    this.secretPresses = [...this.secretPresses.filter((at) => time - at <= 1200), time]
+    if (this.secretPresses.length < 3) return
+    this.secretUnlocked = true; this.secretPresses = []; this.audio?.ui('CONFIRM')
   }
   private p1Input(owner: PlayerSlotId, action: OwnedUiAction): void {
     if (this.p1View?.exitOpen) return

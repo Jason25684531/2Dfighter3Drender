@@ -4,8 +4,9 @@ import { GENERATED_ORIGIN_Y } from '../ui/animation/TemporarySpriteManifest'
 import { clearGeneratedHitMasks, forgetPixelSource, setPixelSource, warmAttackPose, warmIdleMasks } from '../ui/animation/SpriteHitTest'
 import type { CharacterEntry } from '../ui/assets/TestAssetManifest'
 import { headKey, paintHead } from '../ui/p1/headCrop'
+import { API_BASE } from './ApiClient'
 
-const base = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1').replace(/\/$/, '')
+const base = API_BASE
 type Sheet = { filename: string; frames: number; cellSize: number }
 type Asset = { id: string; displayName: string; fps: number; actions: Record<string, Sheet> }
 type Status = { status: 'processing' | 'failed' } | ({ status: 'ready' } & Asset)

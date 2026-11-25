@@ -15,7 +15,7 @@ async function open(args = [], permissions = [], setup) {
   const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, permissions })
   const page = await context.newPage()
   page.on('pageerror', error => report.errors.push(error.message))
-  await page.route('http://localhost:8000/**', route => route.abort())
+  await page.route('http://localhost:8765/**', route => route.abort())
   await page.route('**/src/main.ts*', async route => { const response = await route.fetch(); await route.fulfill({ response, body: (await response.text()).replace('new Phaser.Game(', 'window.__game = new Phaser.Game(') }) })
   await setup?.(page)
   await page.goto(base)

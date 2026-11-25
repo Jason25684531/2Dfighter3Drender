@@ -1,13 +1,12 @@
 import Phaser from 'phaser'
 import type { OwnedUiAction, PlayerSlotId, UIAction } from '../../input/InputManager'
-import { keyLabel, loadProfiles, menuKeys, SYSTEM_BACK_KEY } from '../../input/ControlProfile'
 import { NICKNAME_MAX, sectionOf, selectSectionTitles, type P1SelectionModel, type SelectFeedback, type Slot } from '../../select/P1SelectionModel'
 import { ActionButton, AngularPanel, hintBar } from '../VisualComponents'
 import { spriteDisplayHeight, spriteOriginY, spriteTextureFrame, spriteTextureKey, type SpriteId } from '../animation/TemporarySpriteManifest'
 import { headKey } from './headCrop'
 import { loadPadProfiles, PAD_SYSTEM, padLabel } from '../../input/GamepadProfile'
 import { isSheetSprite } from '../animation/SheetSpriteManifest'
-import { drawFrame } from '../animation/SpriteHitTest'
+import { drawFrame, idleScale } from '../animation/SpriteHitTest'
 import { colorHex, reducedMotion, uiTokens, type UiColorToken } from '../tokens/uiTokens'
 import { hudDisplay, hudLabel, typography } from '../tokens/typography'
 import { stopOwnedTweens } from '../tweens'
@@ -27,17 +26,15 @@ export type P1ViewHooks = {
   onAllReady: () => void
 }
 
+export type PhotoChoice = 'BACK' | 'SKIP' | 'CONFIRM'
 const { p1, colors, type } = uiTokens
 type Identity = { main: number; glow: number; text: UiColorToken; tag: string; label: string }
-// 鍵名跟著已存的自訂鍵位（與 InputManager 同一規則：menuKeys）。
+// 機台只有手把：提示一律顯示手把鍵。確認＝該玩家的輕踢鍵（跟著手把改鍵），返回＝固定的 R1。
 const withKeys = (owner: PlayerSlotId, base: Identity): Identity & { keys: string; back: string; confirm: string } => ({ ...base,
-  get keys() { const k = menuKeys(loadProfiles()[owner], owner); return [k.NAV_UP, k.NAV_LEFT, k.NAV_DOWN, k.NAV_RIGHT].map((codes) => keyLabel(codes[0] ?? '')).join(' ') },
-  get confirm() { return keyLabel(menuKeys(loadProfiles()[owner], owner).CONFIRM[0] ?? '') },
-  get back() { return keyLabel(menuKeys(loadProfiles()[owner], owner).BACK[0] ?? '') } })
-const difficultyKeys = () => {
-  const { NAV_LEFT, NAV_RIGHT } = menuKeys(loadProfiles().P1, 'P1')
-  return [NAV_LEFT[0], NAV_RIGHT[0]].map(keyLabel).join(' ')
-}
+  keys: '↑ ← ↓ →',
+  get confirm() { return padLabel(loadPadProfiles()[owner].LIGHT_KICK) },
+  back: padLabel(PAD_SYSTEM.BACK) })
+const difficultyKeys = () => '← →'
 /** 每次遊玩限生成一次；PLAY AGAIN 仍是同一次遊玩，游標已預設在剛生成的角色。 */
 const NAME_REQUIRED_HINT = 'ENTER A NAME FIRST · 請先輸入名稱'
 const NAME_TAKEN_HINT = 'NAME ALREADY USED · 名稱已被 1P 使用，請改一個'
@@ -49,7 +46,9 @@ const identity = {
 const pad = (index: number): string => String(index).padStart(2, '0')
 // 拍照／確認照片共用的取景框（16:9，全幅不裁切）；暱稱頁不佔用。
 const VIEWFINDER = { x: 960, y: 590, width: 800, height: 450 }
-const cellRect = (index: number) => layout.selectCells[index - 1]
+const cells = layout.selectCells, last = cells[cells.length - 1]
+// 隱藏第 31 格接在第 30 格右邊，間距同一列。
+const cellRect = (index: number) => cells[index - 1] ?? { ...last, x: last.x * 2 - cells[cells.length - 2].x }
 const cellCenter = (index: number): { x: number; y: number } => {
   const { x, y, w, h } = cellRect(index)
   return { x: x + w / 2, y: y + h / 2 }
@@ -158,6 +157,8 @@ class HeroPreview extends Phaser.GameObjects.Container {
       if (isSheetSprite(sprite) && !body && !reducedMotion && this.scene.anims.exists(`${sprite}-idle`)) image.play(`${sprite}-idle`)
       image.setScale(p1.hero.height * (this.mainGrid ? 0.9 : 1) / image.height * spriteDisplayHeight(sprite) / 520)
       if (this.mainGrid) fitPreview(image, this.owner === 'P1', this.x, this.y)
+      const base = image.scaleY
+      image.on(Phaser.Animations.Events.ANIMATION_UPDATE, (_: unknown, { frame }: Phaser.Animations.AnimationFrame) => image.setScale(base * idleScale(frame)))
       // Body 只顯示身形剪影（暫用替身 sprite 的輪廓），不冒充已生成角色。
       if (body) { image.setTintFill(colors.textPrimary).setAlpha(0.5); glowOn(image, colors.resultGold, 3) }
       else glowOn(image, id.main)
@@ -218,6 +219,8 @@ class GridSlotView extends AngularPanel {
       const id = identity[owner]
       return scene.add.container(0, offset, [scene.add.rectangle(0, 0, w, 20, id.main, 0.95), label(scene, 0, 0, `${id.tag} READY`, 'textPrimary', 14).setOrigin(0.5)]).setVisible(false)
     }
+    // 固定玩家格：內縮一圈淡金框，不另外寫字。
+    if (slot.pinned) this.add(scene.add.rectangle(0, 0, w - 6, h - 6).setStrokeStyle(2, colors.resultGold, 0.6))
     this.readyTags = { P1: tag('P1', 18), P2: tag('P2', 40) }
     this.add(Object.values(this.readyTags))
     this.scan = scene.add.rectangle(0, 0, 80, 8, colors.systemBlue, 0.4).setVisible(false)
@@ -320,7 +323,23 @@ export class P1SelectView {
   private exitChoice = 0
   private onExit?: () => void
 
+  private choices: [ActionButton, PhotoChoice][] = []
+  private choice = 0
+
   get exitOpen(): boolean { return Boolean(this.exitPanel) }
+
+  /** 拍照／確認照片頁的底部按鈕：預設停在最右邊（拍照／確認送出）。 */
+  private setChoices(choices: [ActionButton, PhotoChoice][]): void { this.choices = choices; this.focusChoice(choices.length - 1) }
+  private focusChoice(index: number): void {
+    this.choice = Phaser.Math.Clamp(index, 0, this.choices.length - 1)
+    this.choices.forEach(([button], i) => button.setFocused(i === this.choice))
+  }
+  /** 搖桿左右切換底部按鈕、確認執行選到的那顆；不在這兩頁或不是操作中的玩家就原樣回傳。undefined＝已處理。 */
+  choiceKey(owner: PlayerSlotId, action: OwnedUiAction): PhotoChoice | OwnedUiAction | undefined {
+    if (!this.choices.length || owner !== this.model.owner) return action
+    if (action === 'NAV_LEFT' || action === 'NAV_RIGHT') { this.focusChoice(this.choice + (action === 'NAV_RIGHT' ? 1 : -1)); return undefined }
+    return action === 'CONFIRM' ? this.choices[this.choice][1] : action
+  }
   refreshHeads(): void { this.slotViews.forEach((view) => view.setHead()) }
   setOffline(): void { this.offlineLabel?.setText('● OFFLINE · 成績不會被記錄').setColor(colorHex('danger')) }
 
@@ -532,7 +551,7 @@ export class P1SelectView {
     this.nickname = this.smallPlate('nickname', '1P NICKNAME', 'playerGlow')
     this.opponent = this.smallPlate('rival', 'OPPONENT', 'enemyGlow')
     this.modeText = label(scene, 1849, 47, '', 'textPrimary', 23).setOrigin(1, 0); root.add(this.modeText)
-    root.add([hintBar(scene, 1048, 35), label(scene, 960, 1048, `${keyLabel(SYSTEM_BACK_KEY)} 返回標題 · 右鍵／${padLabel(PAD_SYSTEM.DELETE)} 刪除生成角色`, 'textSecondary', 17).setOrigin(0.5)])
+    root.add([hintBar(scene, 1048, 35), label(scene, 960, 1048, `${padLabel(PAD_SYSTEM.BACK)} 返回標題 · ${padLabel(PAD_SYSTEM.DELETE)} 刪除生成角色`, 'textSecondary', 17).setOrigin(0.5)])
     this.keysP1 = label(scene, 65, 1048, '', 'playerGlow', 17).setOrigin(0, 0.5); root.add(this.keysP1)
     this.keysP2 = label(scene, 1854, 1048, '', 'enemyGlow', 17).setOrigin(1, 0.5); root.add(this.keysP2)
   }
@@ -607,7 +626,7 @@ export class P1SelectView {
       this.nameHint = label(scene, 960, 446, NAME_REQUIRED_HINT, 'danger').setOrigin(0.5); root.add(this.nameHint)
       this.buildNameKeyboard(owner)
       button('BACK', `${id.back} · 返回選角`, 790, colors.panelRaised, 'BACK')
-      this.primary = button('NEXT', `${id.confirm} / ENTER · 下一步拍照`, 1130, id.main, 'CONFIRM')
+      this.primary = button('NEXT', '選 OK / START · 下一步拍照', 1130, id.main, 'CONFIRM')
       this.refreshName(owner)
     } else if (model.phase === 'CUSTOMIZE') {
       // 第 2 頁：只拍照（UX v03 UC03-1）；無倒數，預設焦點在【拍照】。
@@ -617,11 +636,11 @@ export class P1SelectView {
       const cameraNote = label(scene, VIEWFINDER.x, VIEWFINDER.y, 'CAMERA CONNECTING · 相機連線中（請允許使用相機）', 'systemBlue', type.body).setOrigin(0.5)
       root.add(cameraNote); this.startCamera(owner, cameraNote, bandText)
       root.add(label(scene, 960, 840, 'ALIGN YOUR FACE · 把臉對準框裡，正面直視鏡頭', 'textPrimary', type.body).setOrigin(0.5))
-      const pad = loadPadProfiles()[owner]
-      button('BACK', `${id.back} / ${padLabel(PAD_SYSTEM.BACK)} · 返回上一頁`, 660, colors.panelRaised, 'BACK', 260)
-      this.primary = button('TAKE PHOTO', `${id.confirm} / ENTER / ${padLabel(pad.LIGHT_KICK)} ${padLabel(pad.LIGHT_PUNCH)} · 拍照`, 1260, id.main, 'CONFIRM', 260).setEnabled(!player.faceGenUsed)
-      const skip = new ActionButton(scene, 'SKIP PHOTO', 260, 84, colors.panelRaised, `${keyLabel(loadProfiles()[owner].LIGHT_KICK)} / ${padLabel(pad.HEAVY_KICK)} · 跳過拍照`).setPosition(960, 940)
+      const back = button('BACK', `${id.back} · 返回上一頁`, 660, colors.panelRaised, 'BACK', 260)
+      this.primary = button('TAKE PHOTO', `${id.confirm} / START · 拍照`, 1260, id.main, 'CONFIRM', 260).setEnabled(!player.faceGenUsed)
+      const skip = new ActionButton(scene, 'SKIP PHOTO', 260, 84, colors.panelRaised, `${padLabel(loadPadProfiles()[owner].HEAVY_KICK)} · 跳過拍照`).setPosition(960, 940)
       skip.on('pointerup', () => this.hooks.onSkip?.()); root.add(skip)
+      this.setChoices([[back, 'BACK'], [skip, 'SKIP'], [this.primary, 'CONFIRM']])
       this.nameHint = label(scene, 960, 876, player.faceGenUsed ? FACE_USED_HINT : '', 'textSecondary').setOrigin(0.5).setVisible(Boolean(player.faceGenUsed)); root.add(this.nameHint)
     } else if (model.phase === 'REVIEW') {
       if (player.photo) {
@@ -634,8 +653,7 @@ export class P1SelectView {
       }
       root.add(label(scene, 960, 330, player.nickname.trim(), 'textPrimary', type.body).setOrigin(0.5))
       root.add(scene.add.text(960, 868, 'USE THIS PHOTO? · 使用這張照片？', typography.secondaryAction).setOrigin(0.5))
-      button('RETAKE', `${id.back} · 重拍`, 790, colors.panelRaised, 'BACK')
-      button('CONFIRM', `${id.confirm} · 確認送出`, 1130, id.main, 'CONFIRM')
+      this.setChoices([[button('RETAKE', `${id.back} · 重拍`, 790, colors.panelRaised, 'BACK'), 'BACK'], [button('CONFIRM', `${id.confirm} / START · 確認送出`, 1130, id.main, 'CONFIRM'), 'CONFIRM']])
     } else if (model.phase === 'FAILED') {
       root.add(label(scene, 960, 600, 'GENERATION FAILED', 'danger', type.h2).setOrigin(0.5))
       root.add(label(scene, 960, 680, '本次生成已送出，不能重試；請返回選角', 'textPrimary', type.body).setOrigin(0.5))

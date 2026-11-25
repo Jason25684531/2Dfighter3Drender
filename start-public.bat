@@ -24,11 +24,11 @@ rem Console QuickEdit freezes any cmd window the moment it is clicked.
 reg add HKCU\Console /v QuickEdit /t REG_DWORD /d 0 /f >nul
 
 echo Stopping previous backend / frontend / tunnels...
-powershell -nop -c "Get-NetTCPConnection -State Listen -LocalPort 8000,5173 -ea 0 | %% { Stop-Process -Id $_.OwningProcess -Force -ea 0 }; Get-CimInstance Win32_Process -Filter \"Name='cloudflared.exe'\" | ? { $_.CommandLine -match ':(8000|5173)' } | %% { Stop-Process -Id $_.ProcessId -Force -ea 0 }"
+powershell -nop -c "Get-NetTCPConnection -State Listen -LocalPort 8765,5173 -ea 0 | %% { Stop-Process -Id $_.OwningProcess -Force -ea 0 }; Get-CimInstance Win32_Process -Filter \"Name='cloudflared.exe'\" | ? { $_.CommandLine -match ':(8765|5173)' } | %% { Stop-Process -Id $_.ProcessId -Force -ea 0 }"
 del "%LOGA%" "%LOGF%" 2>nul
 
 rem Tunnels first: each public URL is needed by the other side (API base for the frontend, CORS origin for the backend).
-start "Tunnel API" cmd /c ""%CF%" tunnel --no-autoupdate --url http://127.0.0.1:8000 2> "%LOGA%""
+start "Tunnel API" cmd /c ""%CF%" tunnel --no-autoupdate --url http://127.0.0.1:8765 2> "%LOGA%""
 start "Tunnel Web" cmd /c ""%CF%" tunnel --no-autoupdate --url http://localhost:5173 2> "%LOGF%""
 
 set "API_URL="
@@ -47,12 +47,12 @@ pause & exit /b 1
 set "EXP2_CORS_ORIGINS=%WEB_URL%,http://localhost:5173"
 set "VITE_API_BASE_URL=%API_URL%/api/v1"
 
-start "Backend :8000" cmd /k venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+start "Backend :8765" cmd /k venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8765
 start "Frontend :5173" cmd /k npm run dev -- --host localhost --port 5173 --strictPort
 
 echo Waiting for servers...
 for /l %%i in (1,1,30) do (
-  curl.exe -s -o nul -m 1 http://127.0.0.1:8000/api/v1/health && curl.exe -s -o nul -m 1 http://localhost:5173/ && goto ready
+  curl.exe -s -o nul -m 1 http://127.0.0.1:8765/api/v1/health && curl.exe -s -o nul -m 1 http://localhost:5173/ && goto ready
   ping -n 2 127.0.0.1 >nul
 )
 echo [WARN] Servers did not answer within 30s. Check the Backend / Frontend windows.

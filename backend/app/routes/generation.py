@@ -18,8 +18,10 @@ from pydantic import BaseModel, Field
 from app.errors import ApiError
 
 router = APIRouter()
-WORKFLOW = Path(__file__).resolve().parents[3] / 'ComfyUI_API' / '2026_Taskforce_2028_FTG_Final_CAM_261115.json'
+WORKFLOW = Path(__file__).resolve().parents[3] / 'ComfyUI_API' / '2026_Taskforce_2028_FTG_Final_CAM_261125.json'
 OUTPUT = Path(os.getenv('COMFYUI_OUTPUT', r'C:\ComfyUI_windows_portable_260701\ComfyUI\output'))
+INPUT = Path(os.getenv('COMFYUI_INPUT', str(OUTPUT.parent / 'input')))
+ART_ASSETS = re.compile(r'^.*?[\\/]Assets[\\/]', re.IGNORECASE)
 COMFY = os.getenv('COMFYUI_URL', 'http://127.0.0.1:8188').rstrip('/')
 ASSET_ID = re.compile(r'[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?')
 # Node ids per docs/Taskforce 2028 FTG_README_交接說明.md.
@@ -59,6 +61,21 @@ def api_prompt(workflow: dict) -> dict:
                 inputs[slot['name']] = sources[slot['link']]
         prompt[str(node['id'])] = {'class_type': node['type'], 'inputs': inputs}
     return prompt
+
+
+def local_slot_paths(selector: dict) -> None:
+    """The art team saves slot paths from their own disk (...\\Assets\\Character\\S1AW\\S1AW_Template.png).
+    Map them onto this machine's input/taskforce_2028_ftg layout (Character/<name>_Template.png, Motion_Reference/<motion>/...)."""
+    for key, value in selector.items():
+        if not isinstance(value, str) or not ART_ASSETS.match(value):
+            continue
+        parts = ART_ASSETS.sub('', value).replace('\\', '/').split('/')
+        if parts[0] == 'Character':
+            parts = ['Character', parts[-1]]
+        elif parts[0] == 'Motion_Reference' and not (INPUT / 'taskforce_2028_ftg' / '/'.join(parts)).exists():
+            # ponytail: a motion the art team has not shipped here yet (261125 slot 3 = S1LM) reuses the slot's own motion; drop it into input/ to switch.
+            parts[1] = selector[key.rsplit('_', 2)[0] + '_name']
+        selector[key] = 'taskforce_2028_ftg/' + '/'.join(parts)
 
 
 def asset_folder(asset_id: str) -> Path:
@@ -103,6 +120,7 @@ async def submit_generation(request: GenerationRequest):
         job = uuid4().hex
         workflow[TEMPLATE]['inputs']['value'] = request.template
         workflow[NAME]['inputs']['String'] = request.name.strip()
+        local_slot_paths(workflow[SELECTOR]['inputs'])
         async with httpx.AsyncClient(base_url=COMFY, timeout=30) as client:
             upload = await client.post('/upload/image', files={'image': (f'{job}.jpg', photo, 'image/jpeg')}, data={'type': 'input', 'overwrite': 'false'})
             upload.raise_for_status()

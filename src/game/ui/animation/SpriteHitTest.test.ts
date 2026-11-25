@@ -1,12 +1,33 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CombatWorld, DEFAULT_COMBAT_CONFIG } from '../../combat/CombatWorld'
 import { spriteFrameFor } from './TemporarySpriteManifest'
-import { contactWidth, createSpriteHitTest, dilate, peakFrame, touchContact, silhouetteContact, type Mask, type Placement } from './SpriteHitTest'
+import { contactWidth, createSpriteHitTest, dilate, idleScale, peakFrame, touchContact, silhouetteContact, type Mask, type Placement } from './SpriteHitTest'
 import { HIT_TUNING, reachFor } from '../../config/hitTuning'
 
 // 10×10 實心方塊，錨點在底部中央：world 佔 [x-5, x+5]。
 const block: Mask = { width: 10, height: 10, solid: new Uint8Array(100).fill(1) }
 const at = (x: number, dir: 1 | -1 = 1, mask = block): Placement => ({ mask, x, y: 0, dir, scale: 1, originY: 1 })
+
+describe('idleScale', () => {
+  it('pulls idle frames drawn at a different size back to the median body height and leaves small breathing alone', () => {
+    const bodies = [200, 204, 200, 199, 214, 214, 213, 201]
+    let drawn = 0
+    const texture: { getFrameNames: () => string[]; get: (name: string) => unknown } = { getFrameNames: () => bodies.map((_, i) => String(i)), get: (name) => frames[Number(name)] }
+    const frames = bodies.map((_, i) => ({ name: i, cutX: i, cutY: 0, cutWidth: 1, cutHeight: 1, source: { image: {} }, texture }))
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({
+      drawImage: (_image: unknown, x: number) => { drawn = x },
+      getImageData: () => { const data = new Uint8Array(128 * 256 * 4), feet = 250; for (let y = feet - bodies[drawn]; y <= feet; y++) for (let x = 60; x < 70; x++) data[(y * 128 + x) * 4 + 3] = 255; return { data } },
+    }) }) })
+    try {
+      const scales = frames.map((frame) => idleScale(frame as never))
+      expect(scales.slice(0, 4)).toEqual([1, 1, 1, 1])
+      for (const i of [4, 5, 6]) expect(Math.abs(scales[i] * bodies[i] / 201 - 1)).toBeLessThan(0.02)
+      expect(scales[7]).toBe(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
 
 describe('SpriteHitTest', () => {
   it('finds a silhouette and peak frame after the texture becomes available', () => {
