@@ -69,7 +69,7 @@ try {
   await page.evaluate(() => localStorage.setItem('exp2.controls.v1', JSON.stringify({ version: 1, profiles: { P1: {} } }))) // 舊版存檔應被忽略
   await page.evaluate((p1) => localStorage.setItem('exp2.controls.v3', JSON.stringify({ version: 3, profiles: { P1: { ...p1, LIGHT_PUNCH: 'KeyQ' } } })), { MOVE_LEFT: 'KeyA', MOVE_RIGHT: 'KeyD', JUMP: 'KeyW', CROUCH: 'KeyS', LIGHT_PUNCH: 'KeyF', HEAVY_PUNCH: 'KeyU', LIGHT_KICK: 'KeyG', HEAVY_KICK: 'KeyI', GUARD: 'KeyC', PAUSE: 'Escape' })
   await boot('?inputDebug=1')
-  await s(s => { s.flow.setPlayers({ P1: { characterId: 'preset-e' } }); ['P1_READY', 'P2_SETUP', 'P3_LOADING', 'P4_BATTLE'].forEach(state => s.appStateMachine.transitionTo(state)) })
+  await s(s => { s.flow.setPlayers({ P1: { characterId: 'body-01' } }); ['P1_READY', 'P2_SETUP', 'P3_LOADING', 'P4_BATTLE'].forEach(state => s.appStateMachine.transitionTo(state)) })
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').appStateMachine.getCurrentState().startsWith('P4'))
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').flow.match.getSnapshot().matchState === 'FIGHTING', null, { timeout: 15000 }) // 起手序列期間輸入凍結
   const enemyFar = () => s(s => { s.flow.match.world.fighters.ENEMY.x = 1700; s.flow.match.world.fighters.PLAYER.x = 400 })
@@ -88,20 +88,20 @@ try {
     lastDebug = debug
     return [texture, action]
   }
-  assert.deepEqual(await attackSheet('q'), ['body01-attack', 'LIGHT_PUNCH'])
+  assert.deepEqual(await attackSheet('q'), ['s1aw-attack', 'LIGHT_PUNCH'])
   await page.screenshot({ path: `${out}/05-battle-light-punch-q.png` })
-  assert.deepEqual(await attackSheet('u'), ['body01-punch-heavy', 'HEAVY_PUNCH'])
-  assert.deepEqual(await attackSheet('g'), ['body01-kick-light', 'LIGHT_KICK'])
-  assert.deepEqual(await attackSheet('i'), ['body01-kick-heavy', 'HEAVY_KICK'])
-  assert.deepEqual(await attackSheet('q', 'w'), ['body01-punch-jump', 'LIGHT_PUNCH'])
-  assert.deepEqual(await attackSheet('i', 'w'), ['body01-kick-jump', 'HEAVY_KICK'])
-  assert.deepEqual(await attackSheet('q', 's'), ['body01-punch-crouch', 'LIGHT_PUNCH'])
-  assert.deepEqual(await attackSheet('g', 's'), ['body01-kick-crouch', 'LIGHT_KICK'])
+  assert.deepEqual(await attackSheet('u'), ['s1aw-punch-heavy', 'HEAVY_PUNCH'])
+  assert.deepEqual(await attackSheet('g'), ['s1aw-kick-light', 'LIGHT_KICK'])
+  assert.deepEqual(await attackSheet('i'), ['s1aw-kick-heavy', 'HEAVY_KICK'])
+  assert.deepEqual(await attackSheet('q', 'w'), ['s1aw-punch-jump', 'LIGHT_PUNCH'])
+  assert.deepEqual(await attackSheet('i', 'w'), ['s1aw-kick-jump', 'HEAVY_KICK'])
+  assert.deepEqual(await attackSheet('q', 's'), ['s1aw-punch-crouch', 'LIGHT_PUNCH'])
+  assert.deepEqual(await attackSheet('g', 's'), ['s1aw-kick-crouch', 'LIGHT_KICK'])
   await page.screenshot({ path: `${out}/06-battle-crouch-kick.png` })
   check('Q（改綁後的 Light Punch）／U／G／I 站立、空中、蹲姿各播放正確 sheet')
 
   const debug = lastDebug
-  assert.match(debug, /Physical Key: G/); assert.match(debug, /Semantic Action: LIGHT_KICK/); assert.match(debug, /Fighter Context: CROUCHING\nResolved Presentation: KICK_CROUCH\nAnimation: 15_Kick_Crounch/)
+  assert.match(debug, /Physical Key: G/); assert.match(debug, /Semantic Action: LIGHT_KICK/); assert.match(debug, /Fighter Context: CROUCHING\nResolved Presentation: KICK_CROUCH\nAnimation: 15_Kick_Crouch/)
   check('DEV ?inputDebug=1 顯示實體鍵→語意→姿態→呈現→圖檔')
 
   await enemyFar(); const startX = await s(s => s.flow.match.world.getFighter('PLAYER').x)
@@ -144,16 +144,17 @@ try {
   await page.keyboard.down('s'); await new Promise(r => setTimeout(r, 300))
   const crouch = await s(s => [s.current.view.player.image.texture.key, s.current.view.player.scaleY, s.flow.match.world.getFighter('PLAYER').y])
   await page.keyboard.up('s')
-  assert.deepEqual(crouch, ['body01-crouch', 1, 820]); await page.screenshot({ path: `${out}/08b-crouch-s.png` })
+  assert.deepEqual(crouch, ['s1aw-block', 1, 820]); await page.screenshot({ path: `${out}/08b-crouch-s.png` })
   check('W 跳躍、S 蹲下（只換圖、不改模擬），角色沒有縱深座標與縮放')
   await s(s => { s.flow.match.world.fighters.PLAYER.x = 1300; s.flow.match.world.fighters.ENEMY.x = 1500 })
   let closest = Infinity
   await page.keyboard.down('d')
   for (let i = 0; i < 20; i++) { await new Promise(r => setTimeout(r, 100)); const [p, e] = await s(s => [s.flow.match.world.getFighter('PLAYER'), s.flow.match.world.getFighter('ENEMY')]); closest = Math.min(closest, Math.abs(e.x - p.x)) }
   await page.keyboard.up('d')
-  assert.ok(closest >= 220 - 1e-6, `closest ${closest}`)
+  const push = await s(s => s.flow.match.world.contactWidth ?? s.flow.match.world.getConfig().pushWidth)
+  assert.ok(closest >= push - 1e-6, `closest ${closest}, push width ${push}`)
   await page.screenshot({ path: `${out}/09-pushbox.png` })
-  check(`D 一直往對手走：最近距離 ${closest.toFixed(0)}（≥ 推擠寬 220），不重疊、不穿過`)
+  check(`D 一直往對手走：最近距離 ${closest.toFixed(0)}（推擠寬 ${push.toFixed(0)}），不穿過`)
   await s(s => { s.flow.match.world.fighters.PLAYER.x = 2820; s.flow.match.world.fighters.ENEMY.x = 3100 })
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').stage.scroll > 520, null, { timeout: 5000 })
   const edge = await s(s => [s.stage.scroll, s.stage.world.x + s.current.view.player.x * s.stage.world.scaleX, s.stage.world.x + s.current.view.enemy.x * s.stage.world.scaleX])

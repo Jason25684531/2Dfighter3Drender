@@ -2,6 +2,10 @@ import type { AttackAction } from '../input/ControlProfile'
 import type { SpriteId } from '../ui/animation/TemporarySpriteManifest'
 
 type Reach = Partial<Record<AttackAction, number>>
+type Lunge = Partial<Record<AttackAction, { advance: number; hop: number }>>
+const bodyReach = { LIGHT_PUNCH: 40, HEAVY_PUNCH: 40, LIGHT_KICK: 40, HEAVY_KICK: 40 }
+const heavyLunge = { advance: 140, hop: 60 }
+const bothLunges = { LIGHT_PUNCH: { advance: 90, hop: 40 }, HEAVY_PUNCH: heavyLunge }
 
 /**
  * 命中距離的調整參數；只改這個檔案即可。
@@ -25,13 +29,30 @@ export const HIT_TUNING = {
    */
   reach: {
     default: { LIGHT_PUNCH: 30, LIGHT_KICK: 30 },
-    s1aw: { LIGHT_PUNCH: 40, HEAVY_PUNCH: 40, LIGHT_KICK: 40, HEAVY_KICK: 40 },
-    s2am: { LIGHT_PUNCH: 40, HEAVY_PUNCH: 40, LIGHT_KICK: 40, HEAVY_KICK: 40 },
-    s2lw: { LIGHT_PUNCH: 40, HEAVY_PUNCH: 40, LIGHT_KICK: 40, HEAVY_KICK: 40 },
+    s1aw: bodyReach,
+    s2am: bodyReach,
+    s2lw: bodyReach,
   } as Partial<Record<SpriteId | 'default', Reach>>,
+  /** 地面站姿拳招的前進距離與顯示高度，使用戰鬥座標。 */
+  lunge: {
+    go: bothLunges,
+    joneey: bothLunges,
+    yg: { HEAVY_PUNCH: heavyLunge },
+    tony: { HEAVY_PUNCH: heavyLunge },
+    // Body 03：重拳原本是站定直拳，加上前衝＋跳起。
+    s2lw: { HEAVY_PUNCH: heavyLunge },
+  } as Partial<Record<SpriteId, Lunge>>,
 }
 
+// 生成角色 ID＝generated-<名稱>_<模板名>；ComfyUI 模板 3（S1AM）沿用跳過拍照 Body 03 的 S2LW 調整值。
+const baseSprite = (sprite?: SpriteId): SpriteId | undefined => sprite?.replace(/^hd-/, '').replace(/^generated-.*_S1AM$/, 's2lw') as SpriteId | undefined
+
 export const reachFor = (sprite: SpriteId | undefined, attack: AttackAction): number => {
-  const id = sprite?.replace(/^hd-/, '') as SpriteId | undefined
+  const id = baseSprite(sprite)
   return (id && HIT_TUNING.reach[id]?.[attack]) ?? HIT_TUNING.reach.default?.[attack] ?? 0
+}
+
+export const lungeFor = (sprite?: SpriteId): Lunge | undefined => {
+  const id = baseSprite(sprite)
+  return id ? HIT_TUNING.lunge[id] : undefined
 }

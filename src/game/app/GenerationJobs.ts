@@ -21,7 +21,7 @@ export class GenerationJobs {
   private assetGate = new Promise<void>(resolve => { this.releaseAssets = resolve })
 
   /** onReady：生成完成、名冊已加入新角色後呼叫，generatedId 為 `generated-<assetId>`。 */
-  constructor(private readonly scene: Phaser.Scene, private readonly onReady: (owner: PlayerSlotId, generatedId: string, template: number) => void) {}
+  constructor(private readonly scene: Phaser.Scene, private readonly onReady: (owner: PlayerSlotId, generatedId: `generated-${string}`, template: number) => void) {}
 
   has(owner: PlayerSlotId): boolean { return Boolean(this.jobs[owner]) }
   assetId(owner: PlayerSlotId): string | undefined { return this.jobs[owner]?.assetId }
@@ -29,6 +29,7 @@ export class GenerationJobs {
   /** 已送出算圖且沒有失敗：之後不可回上一頁或主選單（UX v03 UC03-1／UC05-1）。失敗或素材載入失敗時放行，機台才不會卡死。 */
   get locked(): boolean { const jobs = Object.values(this.jobs); return jobs.length > 0 && this.assets !== 'failed' && jobs.every((job) => job.state !== 'failed') }
   get failed(): boolean { return Object.values(this.jobs).some((job) => job.state === 'failed') }
+  get canSkip(): boolean { return this.failed && !this.generating && this.assets === 'ready' }
 
   async refreshEntries(): Promise<void> {
     this.entriesReady = false
@@ -50,6 +51,12 @@ export class GenerationJobs {
   }
 
   cancel(owner: PlayerSlotId): void { this.jobs[owner]?.controller.abort(); delete this.jobs[owner] }
+
+  skipFailed(): boolean {
+    if (!this.canSkip) return false
+    for (const owner of ['P1', 'P2'] as const) if (this.jobs[owner]?.state === 'failed') this.cancel(owner)
+    return true
+  }
 
   load(assetId: string, idleOnly = false): Promise<void> {
     const key = `${assetId}:${idleOnly}`, current = this.loads.get(key)

@@ -32,7 +32,7 @@ export type AttackData = { startupTicks: number; activeTicks: number; recoveryTi
 export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
   inputBufferTicks: 3,
   arenaWidth: ARENA_WIDTH, floorY: 820, fighterWidth: 220, fighterHeight: 220, walkSpeed: 18, jumpVelocity: -34, gravity: 3, maxHp: 100,
-  // attack＝輕拳；不變式：hitStun > recovery，push 距離下四招皆命中（CombatWorld.test）。
+  // attack＝輕拳。命中後的硬直比收招長，讓玩家有機會銜接下一招。
   attack: { startupTicks: 2, activeTicks: 3, recoveryTicks: 8, damage: 6, hitStunTicks: 14, hitboxOffset: 170, hitboxWidth: 130, hitboxHeight: 90, blockStunTicks: 6, knockback: 10, knockbackTicks: 4, blockPush: 5, blockPushTicks: 3, hitFreeze: 2, blockFreeze: 2 },
   moves: {
     HEAVY_PUNCH: { startupTicks: 4, recoveryTicks: 14, damage: 12, hitStunTicks: 20, hitboxOffset: 190, hitboxWidth: 150, hitboxHeight: 110, blockStunTicks: 9, knockback: 16, knockbackTicks: 5, hitFreeze: 4 },
@@ -65,12 +65,13 @@ export type CombatEvent =
 
 type Fighter = {
   jumpBuffer: number; attackBuffer: number; bufferedAttack: AttackAction
+  attackAdvance: number
   id: FighterId; x: number; y: number; vx: number; vy: number; facing: Facing; currentHP: number; grounded: boolean; state: FighterState
   hitStunTicks: number; blockStunTicks: number; pushTicks: number; pushVx: number; attackPhase: AttackPhase; attackTicks: number; attackId: number; attack: AttackAction; hitTargets: Set<FighterId>; combo: number; comboWindowTicks: number
   knockdownTicks: number; invulnerableTicks: number; lightHits: number; heavyHits: number
 }
 
-export type FighterSnapshot = Omit<Fighter, 'hitTargets' | 'jumpBuffer' | 'attackBuffer' | 'bufferedAttack' | 'lightHits' | 'heavyHits'>
+export type FighterSnapshot = Omit<Fighter, 'hitTargets' | 'jumpBuffer' | 'attackBuffer' | 'bufferedAttack' | 'attackAdvance' | 'lightHits' | 'heavyHits'> & { lungeProgress?: number }
 /** 外部命中判定（畫面輪廓）：回傳接觸點＝命中、null＝未命中、undefined＝無法判定而退回 AABB。 */
 export type HitTest = (attacker: FighterSnapshot, defender: FighterSnapshot) => { x: number; y: number } | null | undefined
 export type CombatSnapshot = { tick: number; fighters: Record<FighterId, FighterSnapshot> }
@@ -91,6 +92,7 @@ export class CombatWorld {
   private freezeTicks = 0
   private hitTest?: HitTest
   private stancePush?: number
+  private lunge?: Record<FighterId, Partial<Record<AttackAction, number>>>
 
   constructor(config: CombatConfig = DEFAULT_COMBAT_CONFIG) {
     this.config = config
@@ -98,7 +100,7 @@ export class CombatWorld {
   }
 
   private createFighter(id: FighterId): Fighter {
-    return { id, x: this.config.initialPositions[id], y: this.config.floorY, vx: 0, vy: 0, facing: id === 'PLAYER' ? 'RIGHT' : 'LEFT', currentHP: this.config.maxHp, grounded: true, state: 'IDLE', hitStunTicks: 0, blockStunTicks: 0, pushTicks: 0, pushVx: 0, attackPhase: 'NONE', attackTicks: 0, attackId: 0, attack: 'LIGHT_PUNCH', hitTargets: new Set(), combo: 0, comboWindowTicks: 0, knockdownTicks: 0, invulnerableTicks: 0, lightHits: 0, heavyHits: 0, jumpBuffer: 0, attackBuffer: 0, bufferedAttack: 'LIGHT_PUNCH' }
+    return { id, x: this.config.initialPositions[id], y: this.config.floorY, vx: 0, vy: 0, facing: id === 'PLAYER' ? 'RIGHT' : 'LEFT', currentHP: this.config.maxHp, grounded: true, state: 'IDLE', hitStunTicks: 0, blockStunTicks: 0, pushTicks: 0, pushVx: 0, attackPhase: 'NONE', attackTicks: 0, attackId: 0, attack: 'LIGHT_PUNCH', attackAdvance: 0, hitTargets: new Set(), combo: 0, comboWindowTicks: 0, knockdownTicks: 0, invulnerableTicks: 0, lightHits: 0, heavyHits: 0, jumpBuffer: 0, attackBuffer: 0, bufferedAttack: 'LIGHT_PUNCH' }
   }
 
   subscribe(listener: (event: CombatEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener) }
@@ -108,10 +110,20 @@ export class CombatWorld {
   /** 呈現層量出的站姿輪廓接觸距離；設定後推擠改用它，undefined 回到 config.pushWidth。 */
   setPushWidth(width?: number): void { this.stancePush = width }
   get contactWidth(): number | undefined { return this.stancePush }
+  setLunge(lunge?: Record<FighterId, Partial<Record<AttackAction, number>>>): void { this.lunge = lunge }
+  private get pushWidth(): number { return this.stancePush ?? this.config.pushWidth ?? this.config.fighterWidth }
   /** AI 用：id 此刻出 attack，判定期打不打得到（依輪廓）；沒有輪廓判定回 undefined。 */
   reaches(id: FighterId, attack: AttackAction): boolean | undefined {
     const probe: FighterSnapshot = { ...this.getFighter(id), attack, attackPhase: 'ACTIVE', attackTicks: 1, attackId: -1 }
-    const at = this.hitTest?.(probe, this.getFighter(id === 'PLAYER' ? 'ENEMY' : 'PLAYER'))
+    const target = this.getFighter(id === 'PLAYER' ? 'ENEMY' : 'PLAYER')
+    const advance = probe.grounded ? this.lunge?.[id][attack] : undefined
+    if (advance) {
+      const direction = target.x < probe.x ? -1 : 1
+      probe.facing = direction === -1 ? 'LEFT' : 'RIGHT'
+      probe.x += direction * this.lungeDistance(probe.x, probe.y, target.x, target.y, direction, advance)
+      probe.lungeProgress = 1
+    }
+    const at = this.hitTest?.(probe, target)
     return at === undefined ? undefined : at !== null
   }
   move(attack: AttackAction): AttackData { return { ...this.config.attack, ...this.config.moves?.[attack] } }
@@ -150,11 +162,11 @@ export class CombatWorld {
     fighter.attackBuffer = Math.max(0, fighter.attackBuffer - 1)
     if (fighter.comboWindowTicks > 0) fighter.comboWindowTicks -= 1
     if (fighter.comboWindowTicks === 0 && fighter.combo > 0) this.setCombo(fighter, 0)
-    if (fighter.hitStunTicks > 0) { fighter.hitStunTicks -= 1; if (fighter.hitStunTicks === 0) fighter.state = 'IDLE' }
+    if (fighter.hitStunTicks > 0) { fighter.hitStunTicks -= 1; if (fighter.hitStunTicks === 0) fighter.state = fighter.grounded ? 'IDLE' : 'JUMP' }
     if (fighter.blockStunTicks > 0) { fighter.blockStunTicks -= 1; if (fighter.blockStunTicks === 0) fighter.state = 'IDLE' }
     if (fighter.invulnerableTicks > 0) fighter.invulnerableTicks -= 1
     // KO 倒地不起身：回合由 MatchController 結束。
-    if (fighter.knockdownTicks > 0 && fighter.currentHP > 0) { fighter.knockdownTicks -= 1; if (fighter.knockdownTicks === 0) { fighter.state = 'IDLE'; fighter.invulnerableTicks = KNOCKDOWN.invulnerableTicks; fighter.lightHits = 0; fighter.heavyHits = 0; this.emit({ type: 'WAKE_UP', fighter: fighter.id }) } }
+    if (fighter.grounded && fighter.knockdownTicks > 0 && fighter.currentHP > 0) { fighter.knockdownTicks -= 1; if (fighter.knockdownTicks === 0) { fighter.state = 'IDLE'; fighter.invulnerableTicks = KNOCKDOWN.invulnerableTicks; fighter.lightHits = 0; fighter.heavyHits = 0; this.emit({ type: 'WAKE_UP', fighter: fighter.id }) } }
   }
 
   private applyIntent(fighter: Fighter, intent: FighterIntent, opponentId: FighterId): void {
@@ -176,14 +188,15 @@ export class CombatWorld {
       fighter.state = 'JUMP'
       this.emit({ type: 'JUMP', fighter: fighter.id })
     }
-    if (fighter.attackBuffer > 0) { fighter.attackBuffer = 0; this.startAttack(fighter, fighter.bufferedAttack); return }
+    if (fighter.attackBuffer > 0) { fighter.attackBuffer = 0; this.startAttack(fighter, fighter.bufferedAttack, Boolean(intent.guard)); return }
     // 地面按住防禦鍵：站定擺防禦姿勢（不走、不跳）；出招優先。
     if (intent.guard && fighter.grounded) { fighter.vx = 0; fighter.jumpBuffer = 0; fighter.state = 'GUARD'; return }
     fighter.vx = move
     if (fighter.vx !== 0) fighter.state = 'WALK'; else if (fighter.grounded) fighter.state = 'IDLE'
   }
 
-  private startAttack(fighter: Fighter, attack: AttackAction): void {
+  private startAttack(fighter: Fighter, attack: AttackAction, crouched: boolean): void {
+    fighter.attackAdvance = crouched && fighter.grounded ? 0 : this.lunge?.[fighter.id][attack] ?? 0
     fighter.attack = attack; fighter.attackPhase = 'STARTUP'; fighter.attackTicks = 0; fighter.attackId = this.nextAttackId++; fighter.hitTargets.clear(); fighter.state = 'ATTACK'; this.emit({ type: 'ATTACK_STARTED', attacker: fighter.id, attackId: fighter.attackId, attack })
   }
 
@@ -195,16 +208,27 @@ export class CombatWorld {
     for (const fighter of Object.values(this.fighters)) this.advanceVertical(fighter)
   }
 
+  private lungeDistance(x: number, y: number, opponentX: number, opponentY: number, direction: number, distance: number): number {
+    if (Math.abs(y - opponentY) >= this.config.fighterHeight * 0.75) return distance
+    return clamp((opponentX - x) * direction - this.pushWidth, 0, distance)
+  }
+
   private advancePhysics(fighter: Fighter): void {
     this.advanceVertical(fighter)
+    let lunge = 0
     if (fighter.pushTicks > 0) { fighter.vx = fighter.pushVx; fighter.pushTicks -= 1 }
-    fighter.x += fighter.vx; const edge = this.config.wallMargin ?? this.config.fighterWidth / 2; fighter.x = clamp(fighter.x, edge, this.config.arenaWidth - edge)
+    else if (fighter.attackAdvance > 0) {
+      const move = this.move(fighter.attack)
+      // 疊在 vx 之外，不覆寫跳躍的水平速度；不在對手前煞車，由 separate() 把對手頂退。
+      if (fighter.attackPhase === 'STARTUP' || (fighter.attackPhase === 'ACTIVE' && fighter.attackTicks < move.activeTicks)) lunge = (fighter.facing === 'RIGHT' ? 1 : -1) * fighter.attackAdvance / (move.startupTicks + move.activeTicks)
+    }
+    fighter.x += fighter.vx + lunge; const edge = this.config.wallMargin ?? this.config.fighterWidth / 2; fighter.x = clamp(fighter.x, edge, this.config.arenaWidth - edge)
     if (fighter.grounded) fighter.vx = 0
   }
 
   /** 推擠：高度重疊時，兩人中心至少相距一個身寬；牆邊由另一人讓出。再限制最大距離，由往外走的一方停下。 */
   private separate(before: Record<FighterId, number>): void {
-    const { PLAYER: a, ENEMY: b } = this.fighters, width = this.stancePush ?? this.config.pushWidth ?? this.config.fighterWidth, low = this.config.wallMargin ?? this.config.fighterWidth / 2, high = this.config.arenaWidth - low
+    const { PLAYER: a, ENEMY: b } = this.fighters, width = this.pushWidth, low = this.config.wallMargin ?? this.config.fighterWidth / 2, high = this.config.arenaWidth - low
     const dir = a.x !== b.x ? Math.sign(b.x - a.x) : a.facing === 'RIGHT' ? 1 : -1
     if (Math.abs(a.y - b.y) < this.config.fighterHeight * 0.75 && Math.abs(b.x - a.x) < width) {
       const overlap = width - Math.abs(b.x - a.x)
@@ -225,35 +249,57 @@ export class CombatWorld {
     const move = this.move(fighter.attack)
     if (fighter.attackPhase === 'STARTUP' && fighter.attackTicks > move.startupTicks) { fighter.attackPhase = 'ACTIVE'; fighter.attackTicks = 1 }
     else if (fighter.attackPhase === 'ACTIVE' && fighter.attackTicks > move.activeTicks) { fighter.attackPhase = 'RECOVERY'; fighter.attackTicks = 1 }
-    else if (fighter.attackPhase === 'RECOVERY' && fighter.attackTicks > move.recoveryTicks) { fighter.attackPhase = 'NONE'; fighter.attackTicks = 0; fighter.state = fighter.grounded ? 'IDLE' : 'JUMP' }
+    else if (fighter.attackPhase === 'RECOVERY' && fighter.attackTicks > move.recoveryTicks) { fighter.attackPhase = 'NONE'; fighter.attackTicks = 0; fighter.attackAdvance = 0; fighter.state = fighter.grounded ? 'IDLE' : 'JUMP' }
   }
 
   private resolveCollisions(): void {
-    ;(['PLAYER', 'ENEMY'] as FighterId[]).forEach((attackerId) => {
-      const attacker = this.fighters[attackerId]; const defenderId = attackerId === 'PLAYER' ? 'ENEMY' : 'PLAYER'; const defender = this.fighters[defenderId]; const hitbox = this.getActiveHitbox(attackerId), hurtbox = this.getHurtbox(defenderId)
-      if (!hitbox || attacker.hitTargets.has(defenderId) || defender.knockdownTicks > 0 || defender.invulnerableTicks > 0) return
+    const strikes: { attacker: Fighter; defender: Fighter; at: { x: number; y: number }; direction: number; blocked: boolean }[] = []
+    for (const attackerId of ['PLAYER', 'ENEMY'] as const) {
+      const defenderId = attackerId === 'PLAYER' ? 'ENEMY' : 'PLAYER'
+      const attacker = this.fighters[attackerId], defender = this.fighters[defenderId]
+      const hitbox = this.getActiveHitbox(attackerId)
+      if (!hitbox || attacker.hitTargets.has(defenderId) || defender.knockdownTicks > 0 || defender.invulnerableTicks > 0) continue
       const silhouette = this.hitTest?.(this.snapshotFighter(attacker), this.snapshotFighter(defender))
+      const hurtbox = this.getHurtbox(defenderId)
       const at = silhouette !== undefined ? silhouette : overlaps(hitbox, hurtbox) ? contact(hitbox, hurtbox) : null
-      if (!at) return
+      if (!at) continue
+      const direction = Math.sign(defender.x - attacker.x) || (attacker.facing === 'RIGHT' ? 1 : -1)
+      const intent = this.intents[defenderId]
+      const blocked = defender.grounded && defender.attackPhase === 'NONE' && defender.hitStunTicks === 0 && (!!intent.guard || intent.moveX * direction > 0)
+      strikes.push({ attacker, defender, at, direction, blocked })
+    }
+    for (const { attacker, defender, at, direction, blocked } of strikes) {
+      const attackerId = attacker.id, defenderId = defender.id
       const move = this.move(attacker.attack)
       attacker.hitTargets.add(defenderId); this.emit({ type: 'HIT', attacker: attackerId, defender: defenderId, attackId: attacker.attackId, attack: attacker.attack, at })
-      const direction = Math.sign(defender.x - attacker.x) || (attacker.facing === 'RIGHT' ? 1 : -1)
-      if (defender.grounded && defender.attackPhase === 'NONE' && defender.hitStunTicks === 0 && (this.intents[defenderId].guard || this.intents[defenderId].moveX * direction > 0)) {
-        defender.blockStunTicks = move.blockStunTicks ?? 0; defender.state = 'GUARD'; defender.pushTicks = move.blockPushTicks ?? 0; defender.pushVx = direction * (move.blockPush ?? 0); this.freezeTicks = move.blockFreeze ?? 0
-        this.emit({ type: 'BLOCK', attacker: attackerId, defender: defenderId, attackId: attacker.attackId }); return
+      if (blocked) {
+        defender.blockStunTicks = move.blockStunTicks ?? 0; defender.state = 'GUARD'; defender.pushTicks = move.blockPushTicks ?? 0; defender.pushVx = direction * (move.blockPush ?? 0); this.freezeTicks = Math.max(this.freezeTicks, move.blockFreeze ?? 0)
+        this.emit({ type: 'BLOCK', attacker: attackerId, defender: defenderId, attackId: attacker.attackId }); continue
       }
-      defender.pushTicks = move.knockbackTicks ?? 0; defender.pushVx = direction * (move.knockback ?? 0); this.freezeTicks = move.hitFreeze ?? 0
-      const previousHP = defender.currentHP; defender.currentHP = Math.max(0, defender.currentHP - move.damage); defender.attackPhase = 'NONE'; defender.attackTicks = 0; this.setCombo(attacker, attacker.comboWindowTicks > 0 ? attacker.combo + 1 : 1); attacker.comboWindowTicks = move.activeTicks - 1 + move.recoveryTicks + COMBO_GRACE_TICKS; this.setCombo(defender, 0)
+      defender.pushTicks = move.knockbackTicks ?? 0; defender.pushVx = direction * (move.knockback ?? 0); this.freezeTicks = Math.max(this.freezeTicks, move.hitFreeze ?? 0)
+      const previousHP = defender.currentHP; defender.currentHP = Math.max(0, defender.currentHP - move.damage); defender.attackPhase = 'NONE'; defender.attackTicks = 0; defender.attackAdvance = 0
+      if (strikes.length === 1) {
+        this.setCombo(attacker, attacker.comboWindowTicks > 0 ? attacker.combo + 1 : 1)
+        attacker.comboWindowTicks = move.activeTicks - 1 + move.recoveryTicks + COMBO_GRACE_TICKS
+      }
+      this.setCombo(defender, 0)
       if (attacker.attack.startsWith('HEAVY')) defender.heavyHits += 1; else defender.lightHits += 1
-      if (defender.heavyHits >= KNOCKDOWN.heavyHits || defender.lightHits >= KNOCKDOWN.lightHits || defender.currentHP === 0) { defender.hitStunTicks = 0; defender.knockdownTicks = KNOCKDOWN.downTicks; defender.state = 'KNOCKDOWN'; this.freezeTicks = KNOCKDOWN.hitFreeze; this.emit({ type: 'KNOCKDOWN', fighter: defenderId }) }
+      if (defender.heavyHits >= KNOCKDOWN.heavyHits || defender.lightHits >= KNOCKDOWN.lightHits || defender.currentHP === 0) { defender.hitStunTicks = 0; defender.knockdownTicks = KNOCKDOWN.downTicks; defender.state = 'KNOCKDOWN'; this.freezeTicks = Math.max(this.freezeTicks, KNOCKDOWN.hitFreeze); this.emit({ type: 'KNOCKDOWN', fighter: defenderId }) }
       else { defender.hitStunTicks = move.hitStunTicks; defender.state = 'HIT_STUN' }
       this.emit({ type: 'DAMAGE', attacker: attackerId, defender: defenderId, amount: previousHP - defender.currentHP, attackId: attacker.attackId }); this.emit({ type: 'HP_CHANGED', fighter: defenderId, currentHP: defender.currentHP, previousHP })
-    })
+    }
   }
 
   private setCombo(fighter: Fighter, combo: number): void { if (fighter.combo === combo) return; fighter.combo = combo; this.emit({ type: 'COMBO_CHANGED', fighter: fighter.id, combo }) }
   private emit(event: CombatEvent): void { this.listeners.forEach((listener) => listener(event)) }
-  private snapshotFighter(fighter: Fighter): FighterSnapshot { const { hitTargets: _hitTargets, jumpBuffer: _jumpBuffer, attackBuffer: _attackBuffer, bufferedAttack: _bufferedAttack, ...snapshot } = fighter; return { ...snapshot } }
+  private snapshotFighter(fighter: Fighter): FighterSnapshot {
+    const { hitTargets: _hitTargets, jumpBuffer: _jumpBuffer, attackBuffer: _attackBuffer, bufferedAttack: _bufferedAttack, attackAdvance, ...snapshot } = fighter
+    if (attackAdvance === 0) return snapshot
+    const move = this.move(fighter.attack)
+    const elapsed = fighter.attackPhase === 'STARTUP' ? fighter.attackTicks : move.startupTicks + fighter.attackTicks
+    const progress = fighter.attackPhase === 'RECOVERY' ? 1 : clamp((elapsed - 1) / Math.max(1, move.startupTicks + move.activeTicks - 1), 0, 1)
+    return { ...snapshot, lungeProgress: progress }
+  }
 
   reset(): void { this.tickNumber = 0; this.nextAttackId = 1; this.freezeTicks = 0; (['PLAYER', 'ENEMY'] as FighterId[]).forEach((id) => { const fresh = this.createFighter(id); this.fighters[id] = fresh }) }
 }

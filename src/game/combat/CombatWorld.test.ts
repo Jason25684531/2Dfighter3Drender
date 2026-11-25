@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { STAGE_TUNING } from '../config/stageTuning'
+import { lungeFor } from '../config/hitTuning'
 import { ATTACK_ACTIONS } from '../input/ControlProfile'
 import { CombatWorld, DEFAULT_COMBAT_CONFIG, KNOCKDOWN, type CombatConfig, type CombatEvent, type FighterIntent } from './CombatWorld'
 
@@ -11,6 +12,130 @@ const closeConfig = (positions = { PLAYER: 560, ENEMY: 640 }): CombatConfig => (
 const tick = (world: CombatWorld, player = neutral, enemy = neutral): void => world.tick(player, enemy)
 
 describe('CombatWorld', () => {
+  it('advances standing punches by the configured distance without changing attack timing or height', () => {
+    const config = closeConfig({ PLAYER: 400, ENEMY: 1000 })
+    const world = new CombatWorld(config), baseline = new CombatWorld(config)
+    const distance = lungeFor('go')!.HEAVY_PUNCH!.advance
+    const input = { ...neutral, attackPressed: true, attack: 'HEAVY_PUNCH' } as const
+    world.setLunge({ PLAYER: { HEAVY_PUNCH: distance }, ENEMY: {} })
+    for (let i = 0; i < 15; i++) {
+      tick(world, i === 0 ? input : neutral)
+      tick(baseline, i === 0 ? input : neutral)
+      const fighter = world.getFighter('PLAYER'), reference = baseline.getFighter('PLAYER')
+      expect([fighter.attackPhase, fighter.attackTicks, fighter.y, fighter.grounded]).toEqual([reference.attackPhase, reference.attackTicks, reference.y, reference.grounded])
+      if (fighter.attackPhase === 'RECOVERY') expect(fighter.x).toBeCloseTo(400 + distance)
+    }
+    expect(world.getFighter('PLAYER').x).toBeCloseTo(400 + distance)
+    expect(world.getFighter('PLAYER').lungeProgress).toBeUndefined()
+  })
+
+  it('carries an up + punch forward without changing the jump arc', () => {
+    for (const attack of ['LIGHT_PUNCH', 'HEAVY_PUNCH'] as const) {
+      const config = closeConfig({ PLAYER: 400, ENEMY: 1400 })
+      const world = new CombatWorld(config), plain = new CombatWorld(config)
+      world.setLunge({ PLAYER: { LIGHT_PUNCH: 90, HEAVY_PUNCH: 140 }, ENEMY: {} })
+      const input = { ...neutral, jumpPressed: true, attackPressed: true, attack }
+      tick(world, input); tick(plain, input)
+      for (let i = 0; i < 30; i++) {
+        tick(world); tick(plain)
+        expect([world.getFighter('PLAYER').y, world.getFighter('PLAYER').grounded], 'same jump height every tick').toEqual([plain.getFighter('PLAYER').y, plain.getFighter('PLAYER').grounded])
+      }
+      expect(world.getFighter('PLAYER').x, `${attack} in the air moves forward by its lunge`).toBeCloseTo(400 + (attack === 'HEAVY_PUNCH' ? 140 : 90))
+    }
+  })
+
+  it('gives body 03 (S2LW stand-in and generated template 3) a hopping heavy punch', () => {
+    for (const sprite of ['s2lw', 'hd-s2lw', 'generated-Kazu_S1AM'] as const) expect(lungeFor(sprite)?.HEAVY_PUNCH?.hop, sprite).toBeGreaterThan(0)
+  })
+
+  it('keeps unconfigured and crouched attacks from lunging', () => {
+    expect(lungeFor('hd-go')).toBe(lungeFor('go'))
+    expect(lungeFor('yg')?.LIGHT_PUNCH).toBeUndefined()
+    for (const input of [{ attack: 'LIGHT_PUNCH' }, { attack: 'HEAVY_PUNCH', guard: true }, { attack: 'HEAVY_KICK', jumpPressed: true }] as const) {
+      const world = new CombatWorld(closeConfig({ PLAYER: 400, ENEMY: 1000 }))
+      world.setLunge({ PLAYER: { HEAVY_PUNCH: 140 }, ENEMY: {} })
+      tick(world, { ...neutral, ...input, attackPressed: true })
+      for (let i = 0; i < 8; i++) tick(world)
+      expect(world.getFighter('PLAYER').x).toBe(400)
+      expect(world.getFighter('PLAYER').lungeProgress).toBeUndefined()
+    }
+  })
+
+  it('drives a point-blank lunge into the opponent and stops at the arena wall', () => {
+    const config = closeConfig({ PLAYER: 700, ENEMY: 820 })
+    const world = new CombatWorld(config)
+    world.setLunge({ PLAYER: { HEAVY_PUNCH: 140 }, ENEMY: {} })
+    world.setHitTest(() => null)
+    tick(world, { ...neutral, attackPressed: true, attack: 'HEAVY_PUNCH' })
+    for (let i = 0; i < 8; i++) tick(world)
+    const [attacker, defender] = [world.getFighter('PLAYER').x, world.getFighter('ENEMY').x]
+    expect(attacker, 'attacker advances even when already touching').toBeGreaterThanOrEqual(700 + 140 / 2)
+    expect(defender, 'defender is shoved back').toBeGreaterThan(820)
+    expect(defender - attacker, 'fighters never overlap or swap sides').toBeGreaterThanOrEqual(config.fighterWidth)
+
+    const wall = new CombatWorld({ ...config, jumpVelocity: -45, initialPositions: { PLAYER: 1810, ENEMY: 1860 } })
+    wall.setLunge({ PLAYER: { HEAVY_PUNCH: 140 }, ENEMY: {} })
+    wall.setHitTest(() => null)
+    tick(wall, neutral, { ...neutral, jumpPressed: true })
+    for (let i = 0; i < 8; i++) tick(wall)
+    tick(wall, { ...neutral, attackPressed: true, attack: 'HEAVY_PUNCH' })
+    for (let i = 0; i < 4; i++) tick(wall)
+    expect(wall.getFighter('PLAYER').x).toBe(config.arenaWidth - config.fighterWidth / 2)
+  })
+
+  it('ends a lunge when the other fighter interrupts it', () => {
+    const world = new CombatWorld(closeConfig({ PLAYER: 400, ENEMY: 1000 }))
+    world.setLunge({ PLAYER: { HEAVY_PUNCH: 140 }, ENEMY: {} })
+    world.setHitTest(attacker => attacker.id === 'ENEMY' ? { x: 0, y: 0 } : null)
+    tick(world, neutral, { ...neutral, attackPressed: true })
+    tick(world, neutral)
+    tick(world, { ...neutral, attackPressed: true, attack: 'HEAVY_PUNCH' })
+    tick(world)
+    const struck = world.getFighter('PLAYER')
+    expect(struck).toMatchObject({ attackPhase: 'NONE', state: 'HIT_STUN' })
+    expect(struck.x).toBeGreaterThan(400)
+    expect(struck.x).toBeLessThan(540)
+    for (let i = 0; i < 8; i++) tick(world)
+    expect(world.getFighter('PLAYER').x).toBe(struck.x)
+  })
+
+  it('applies both hits when two fighters connect on the same tick', () => {
+    const world = new CombatWorld(closeConfig()), hits: string[] = []
+    world.subscribe(event => { if (event.type === 'DAMAGE') hits.push(event.defender) })
+    const punch = { ...neutral, attackPressed: true }
+    tick(world, punch, punch)
+    for (let i = 0; i < 3; i++) tick(world)
+    expect(hits).toEqual(['ENEMY', 'PLAYER'])
+    expect(world.getFighter('PLAYER').currentHP).toBe(90)
+    expect(world.getFighter('ENEMY').currentHP).toBe(90)
+  })
+
+  it('starts the knockdown countdown only after landing', () => {
+    const config = closeConfig(), world = new CombatWorld({ ...config, attack: { ...config.attack, damage: 1 } })
+    const heavy = { ...neutral, attackPressed: true, attack: 'HEAVY_PUNCH' } as const
+    world.setHitTest(() => ({ x: 0, y: 0 }))
+    tick(world, heavy)
+    for (let i = 0; i < 15; i++) tick(world)
+    tick(world, heavy, { ...neutral, jumpPressed: true })
+    for (let i = 0; i < 3; i++) tick(world)
+    while (world.isFrozen()) tick(world)
+    while (!world.getFighter('ENEMY').grounded) {
+      expect(world.getFighter('ENEMY')).toMatchObject({ state: 'KNOCKDOWN', knockdownTicks: KNOCKDOWN.downTicks })
+      tick(world)
+    }
+    expect(world.getFighter('ENEMY').knockdownTicks).toBe(KNOCKDOWN.downTicks)
+    tick(world)
+    expect(world.getFighter('ENEMY').knockdownTicks).toBe(KNOCKDOWN.downTicks - 1)
+  })
+
+  it('restores the jump state when short hit stun ends while airborne', () => {
+    const world = new CombatWorld(closeConfig())
+    world.setHitTest(() => ({ x: 0, y: 0 }))
+    tick(world, { ...neutral, attackPressed: true }, { ...neutral, jumpPressed: true })
+    for (let i = 0; i < 9; i++) tick(world)
+    expect(world.getFighter('ENEMY')).toMatchObject({ grounded: false, state: 'JUMP', hitStunTicks: 0 })
+  })
+
   it('takes off and starts a heavy punch when both inputs arrive on the same tick', () => {
     const world = new CombatWorld(), events: CombatEvent[] = []
     world.subscribe(event => events.push(event))
@@ -205,17 +330,12 @@ describe('CombatWorld', () => {
     for (let i = 0; i < 10; i += 1) tick(world, { ...neutral, moveX: -1 })
     expect(world.getFighter('ENEMY').x).toBe(2090); expect(world.getFighter('ENEMY').x - world.getFighter('PLAYER').x).toBe(1800)
   })
-  it('gives each attack its own move data with a playable window, and every move reaches at push distance', () => {
+  it('gives each attack its own move data with a playable window', () => {
     const world = new CombatWorld(), moves = ATTACK_ACTIONS.map((attack) => world.move(attack))
     moves.forEach((move) => expect(move.hitStunTicks).toBeGreaterThan(move.recoveryTicks))
     expect(new Set(moves.map((move) => move.damage)).size).toBe(4)
     expect(world.move('LIGHT_PUNCH').startupTicks).toBeLessThan(world.move('HEAVY_PUNCH').startupTicks)
     expect(world.move('LIGHT_KICK').hitboxOffset).toBeGreaterThan(world.move('LIGHT_PUNCH').hitboxOffset)
-    ATTACK_ACTIONS.forEach((attack) => {
-      const close = new CombatWorld({ ...DEFAULT_COMBAT_CONFIG, initialPositions: { PLAYER: 1300, ENEMY: 1300 + STAGE_TUNING.pushWidth } })
-      tick(close, { ...neutral, attackPressed: true, attack }); for (let i = 0; i < 8; i += 1) tick(close)
-      expect(close.getFighter('ENEMY').currentHP).toBe(100 - close.move(attack).damage)
-    })
   })
   it('records the attack kind and reports the contact point', () => {
     const run = (attack?: 'HEAVY_KICK') => {

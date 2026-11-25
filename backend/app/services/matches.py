@@ -67,6 +67,7 @@ def finish(connection: sqlite3.Connection, match_id: int, payload: dict) -> dict
         reused = connection.execute('SELECT id FROM matches WHERE finish_request_id=? AND id<>?', (payload['finish_request_id'], match_id)).fetchone()
         if reused: conflict()
         outcome = payload['outcome']; p, e = payload['player_round_wins'], payload['enemy_round_wins']
+        # The health cap matches DEFAULT_COMBAT_CONFIG.maxHp in src/game/combat/CombatWorld.ts.
         if (outcome == 'WIN' and (p != 2 or e >= 2)) or (outcome == 'LOSE' and (e != 2 or p >= 2)) or (outcome == 'DRAW' and (payload['finish_reason'] != 'DRAW' or p >= 2 or e >= 2)) or payload['finish_reason'] not in ('KO', 'TIME_UP', 'DRAW') or not 0 <= p <= 2 or not 0 <= e <= 2 or not 0 <= payload['remaining_hp'] <= 100 or payload['max_combo'] < 0:
             raise ApiError('VALIDATION_ERROR', 400, 'Inconsistent match result')
         score, title = score_and_title(outcome, p, payload['remaining_hp'], payload['max_combo'], match['difficulty'])

@@ -4,7 +4,8 @@ import { AI_PROFILE_IDS, DEFAULT_AI_PROFILE, type AiProfileId } from '../config/
 import { bodyTemplates, characterEntries, type CharacterEntry, type SlotStatus, type SlotType } from '../ui/assets/TestAssetManifest'
 
 export const GRID_COLUMNS = 10
-export const GRID_ROWS = 4
+// 名錄 2 排＝最多顯示 20 位已生成角色。
+export const GRID_ROWS = 3
 export const SLOT_COUNT = GRID_COLUMNS * GRID_ROWS
 export const NICKNAME_MAX = 16
 
@@ -22,7 +23,7 @@ export type P1SelectionSeed = { players?: Partial<Record<PlayerSlotId, PlayerSel
 
 const players: readonly PlayerSlotId[] = ['P1', 'P2']
 
-// 區段索引帶：CUSTOMIZE 01–04、OFFICERS 05–10（補滿第 1 列）、ROSTER 11–40。編號與導覽不因分區改變。
+// 區段索引帶：CUSTOMIZE 01–04、OFFICERS 05–10（補滿第 1 列）、ROSTER 11–30。編號與導覽不因分區改變。
 export type SectionId = 'CUSTOMIZE' | 'OFFICERS' | 'ROSTER'
 export const SECTIONS: readonly { id: SectionId; from: number; to: number }[] = [
   { id: 'CUSTOMIZE', from: 1, to: 4 }, { id: 'OFFICERS', from: 5, to: 10 }, { id: 'ROSTER', from: 11, to: SLOT_COUNT },
@@ -42,11 +43,13 @@ export const selectSectionTitles = (slots: readonly Slot[]) => {
 }
 
 // 01–04 永遠是 Body Template；FEATURED 依序填 05–10，超過的溢出到 ROSTER 起始；其餘（已生成）從 11 起。其餘為 EMPTY（不得補假角色）。
+// 已生成角色由舊到新傳入；超過名錄容量時只顯示最新的，剛生成的角色才不會被擠出畫面。
 export const buildSlots = (entries: readonly CharacterEntry[] = characterEntries()): Slot[] => {
   const bodies = bodyTemplates.map((template) => entries.find((entry) => entry.type === 'BODY_TEMPLATE' && entry.bodyTemplateId === template.bodyTemplateId) ?? template)
   const officers = SECTIONS[1].to - SECTIONS[1].from + 1
   const featured = entries.filter((entry) => entry.type === 'FEATURED'), generated = entries.filter((entry) => entry.type !== 'FEATURED' && entry.type !== 'BODY_TEMPLATE')
-  const placed: (CharacterEntry | undefined)[] = [...featured.slice(0, officers), ...Array<undefined>(Math.max(0, officers - featured.length)), ...featured.slice(officers), ...generated]
+  const room = SLOT_COUNT - SECTIONS[1].to - featured.slice(officers).length
+  const placed: (CharacterEntry | undefined)[] = [...featured.slice(0, officers), ...Array<undefined>(Math.max(0, officers - featured.length)), ...featured.slice(officers), ...generated.slice(Math.max(0, generated.length - room))]
   return Array.from({ length: SLOT_COUNT }, (_, i) => {
     const entry = i < 4 ? bodies[i] : placed[i - 4]
     return entry ? { index: i + 1, type: entry.type, status: entry.status, entry } : { index: i + 1, type: i < 4 ? 'BODY_TEMPLATE' : 'EMPTY' }
@@ -167,7 +170,7 @@ export class P1SelectionModel {
 
   skipCustomize(): void {
     if (this.phase !== 'CUSTOMIZE' || !this.owner) return
-    this.state[this.owner].customized = true; this.owner = undefined; this.phase = 'GRID'; this.advance()
+    this.state[this.owner].customized = true; this.state[this.owner].photo = undefined; this.owner = undefined; this.phase = 'GRID'; this.advance()
   }
 
   setGenerationState(state: GenerationState): void {
@@ -175,7 +178,7 @@ export class P1SelectionModel {
     this.state[this.owner].generation = state
     if (state === 'FAILED') { this.phase = 'FAILED'; return }
     if (state !== 'RUNTIME_READY') return
-    this.state[this.owner].customized = true; this.owner = undefined; this.phase = 'GRID'; this.advance()
+    this.state[this.owner].customized = true; this.state[this.owner].photo = undefined; this.owner = undefined; this.phase = 'GRID'; this.advance()
   }
 
   /** Customize 中返回或逾時：只解鎖 owner，另一位的鎖定與 READY 保留。 */

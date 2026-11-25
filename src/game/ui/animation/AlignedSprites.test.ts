@@ -2,20 +2,20 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { CombatWorld } from '../../combat/CombatWorld'
-import { alignedAction, alignedSprites, registerGeneratedSprite, sheetAnimations, sheetUrl, type AlignedSprite } from './SheetSpriteManifest'
+import { alignedAction, alignedSheetUrl, alignedSprites, registerGeneratedSprite, sheetAnimations, sheetUrl, type AlignedSprite } from './SheetSpriteManifest'
 import { presentationSheetFor, spriteFrameFor, type Presentation } from './TemporarySpriteManifest'
 
 describe('aligned character sheets', () => {
   it('matches all source manifests/PNG geometry and compact runtime sheets', () => {
     for (const [id, sprite] of Object.entries(alignedSprites)) {
-      const root = `assest/source/1113_characters/${sprite.folder}`
+      const root = `public/assest/characters/${sprite.folder}`
       const manifest = sprite.manifestFallback ? undefined : JSON.parse(readFileSync(`${root}/game_manifest.json`, 'utf8'))
       expect(sprite.manifestFallback).toBe(id === 'tony')
       expect(sprite.sourceCellSize).toBe(manifest?.cell_width ?? 1024)
       expect(sprite.fps).toBe(manifest?.gif_fps ?? 16)
       expect(Object.keys(sprite.actions)).toHaveLength(15)
       for (const [number, action] of Object.entries(sprite.actions)) {
-        const source = readFileSync(`${root}/${action.filename}`), runtime = readFileSync(`public/test-assets/1113_characters/runtime/${sprite.folder}/${action.filename}`)
+        const source = readFileSync(`${root}/${action.filename}`), runtime = readFileSync(`${root}/compact/${action.filename}`)
         const entry = manifest?.actions.find((candidate: { id: string }) => candidate.id.startsWith(number + '_')) as { frame_count: number; sprite_sheet: string } | undefined
         expect(source.readUInt32BE(16)).toBe(sprite.sourceCellSize * 4)
         expect(action.frames).toBe(entry?.frame_count ?? source.readUInt32BE(20) / sprite.sourceCellSize * 4)
@@ -45,7 +45,8 @@ describe('aligned character sheets', () => {
     for (const id of Object.keys(alignedSprites) as (keyof typeof alignedSprites)[]) {
       for (const presentation of presentations) {
         const key = presentationSheetFor(id, presentation), action = alignedAction(id, key)!
-        expect(sheetUrl(id, key, '')).toContain(`/runtime/${alignedSprites[id].folder}/${action.filename}`)
+        expect(sheetUrl(id, key, '')).toBe(`/assest/characters/${alignedSprites[id].folder}/compact/${action.filename}`)
+        expect(alignedSheetUrl(alignedSprites[id], action.filename, true)).toBe(`/assest/characters/${alignedSprites[id].folder}/${action.filename}`)
         for (const attackPhase of ['NONE', 'STARTUP', 'ACTIVE', 'RECOVERY'] as const) {
           for (let tick = 0; tick < 70; tick++) {
             const frame = spriteFrameFor({ ...fighter, attackPhase, attackTicks: tick }, attackPhase === 'NONE' ? 'idle' : 'attack', tick, id, action.frames - 1, key)

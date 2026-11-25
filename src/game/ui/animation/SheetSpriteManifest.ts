@@ -41,9 +41,12 @@ export const alignedAction = (id: string | undefined, key: string) => {
   const number = key === 'block' ? '06' : sheetAnimations.find(action => action.key === key)?.filename.slice(0, 2)
   return sprite && number ? (sprite.actions as Record<string, { filename: string; frames: number }>)[number] : undefined
 }
+export const alignedSheetUrl = (sprite: AlignedSprite, filename: string, fullSize = false): string =>
+  `/assest/characters/${sprite.folder}/${fullSize ? '' : 'compact/'}${filename}`
+
 export const sheetUrl = (id: SheetSpriteId, key: string, filename: string): string => {
   const aligned = alignedSprite(id), action = alignedAction(id, key)
-  if (aligned && action) return `/test-assets/1113_characters/runtime/${aligned.folder}/${action.filename}`
+  if (aligned && action) return alignedSheetUrl(aligned, action.filename)
   return id in sheetSprites ? `/test-assets/characters/${sheetSprites[id as StaticSheetSpriteId].folder}/${sheetSprites[id as StaticSheetSpriteId].renamed[key] ?? filename}` : filename
 }
 export const alignedAnimations = [...sheetAnimations, { key: 'block', filename: '06_Block.png', loop: false }]

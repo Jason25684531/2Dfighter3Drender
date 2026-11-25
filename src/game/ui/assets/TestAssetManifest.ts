@@ -10,7 +10,7 @@ export const testStageManifest: Record<StageId, { id: StageId; label: string; ur
 
 export type SlotType = 'BODY_TEMPLATE' | 'FEATURED' | 'CUSTOM' | 'EMPTY'
 export type SlotStatus = 'AVAILABLE' | 'PROCESSING' | 'READY' | 'FAILED'
-export type CharacterEntry = { id: string; displayName: string; type: Exclude<SlotType, 'EMPTY'>; status: SlotStatus; spriteId?: SpriteId; heroTextureKey?: string; bodyTemplateId?: string; generationId?: string; idleSheet?: { filename: string; cellSize: number } }
+export type CharacterEntry = { id: string; displayName: string; type: Exclude<SlotType, 'EMPTY'>; status: SlotStatus; spriteId?: SpriteId; bodyTemplateId?: string; generationId?: string }
 
 // 長官區 05–10，依序填格：GO、SE7EN、Joneey、YG、Tony、Chris。
 export const testCharacterManifest = {

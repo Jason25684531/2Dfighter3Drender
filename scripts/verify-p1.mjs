@@ -23,8 +23,8 @@ try {
  let roster = []
  const cors = { 'access-control-allow-origin': '*' }
  await page.route('**/api/v1/generation/assets', route => route.fulfill({ headers: cors, json: roster }))
- await page.route('**/api/v1/generation/assets/ui-*/sheets/02_custom_idle.png', async route => {
-   const response = await route.fetch({ url: new URL('/test-assets/1113_characters/runtime/GO/full/02_Idle.png', base).href })
+ await page.route('**/api/v1/generation/assets/ui-*/thumb.png', async route => {
+   const response = await route.fetch({ url: new URL('/test-assets/ui/select/body-card-1.png', base).href })
    await route.fulfill({ response, headers: { ...response.headers(), ...cors } })
  })
  const scene = async (fn, arg) => page.evaluate(({ code, arg }) => { const s = window.__game.scene.getScene('AppScene'); return new Function('s', 'arg', `return (${code})(s, arg)`)(s, arg) }, { code: fn.toString(), arg })
@@ -65,12 +65,11 @@ try {
      slot.status=status; s.p1View.sync()
      if(view.scan.visible!==(status==='PROCESSING') || view.statusLabel.text!==({PROCESSING:'…',READY:'NEW',FAILED:'!',AVAILABLE:''}[status])) throw new Error('Slot status view mismatch: '+status)
    }
-   const body=s.p1Model.slot(1), original=body.entry, hero=s.p1View.heroes.P1
-   s.p1Model.focus('P1',1); s.p1View.sync(); body.entry={...original,heroTextureKey:'ring-p1'}; s.p1View.sync()
-   if(s.p1View.heroes.P1!==hero || hero.figure?.texture.key!=='ring-p1' || hero.figure.alpha!==1) throw new Error('Hero source was not replaced in place')
-   body.entry=original; s.p1Model.focus('P1',5); s.p1View.sync()
+   const hero=s.p1View.heroes.P1
+   s.p1Model.focus('P1',1); s.p1View.sync(); s.p1Model.focus('P1',5); s.p1View.sync()
+   if(s.p1View.heroes.P1!==hero || !/^(hd-)?go-idle$/.test(hero.figure?.texture.key) || hero.figure.alpha!==1) throw new Error('Hero source was not replaced in place')
  })
- check('Slot status visuals and replacing a Body hero source without rebuilding its layout')
+ check('Slot status visuals and replacing the hero preview without rebuilding its layout')
  await scene(s => { s.__screen = s.screen; s.__hero = s.p1View.heroes.P1 })
  await key('ArrowDown'); assert.equal(await scene(s => s.p1Model.player('P2').joined), false)
  await key('Numpad1'); await shot('grid-joined')
@@ -168,10 +167,23 @@ try {
  roster = Array.from({ length: 11 }, (_, i) => ({ id: `ui-${i + 1}`, displayName: `Guest ${i + 1}`, actions: { '02_Idle': { filename: '02_custom_idle.png', frames: 8, cellSize: 1024 } } }))
  await scene(s => s.jobs.refreshEntries())
  await start()
- assert(await scene(s => s.screen.list.some(panel => panel.list?.some(text => text.text?.includes('11 / 30')))))
+ assert(await scene(s => s.screen.list.some(panel => panel.list?.some(text => text.text?.includes('11 / 20')))))
  await page.waitForFunction(() => window.__game.textures.exists('head-generated-ui-11'))
  await shot('grid-roster')
- check('Roster displays its actual 11 / 30 count and the same stage background')
+ check('Roster displays its actual 11 / 20 count and the same stage background')
+ let releaseDelete
+ const deletePending = new Promise(resolve => { releaseDelete = resolve })
+ await page.route('**/api/v1/generation/assets/ui-11', async route => {
+   await deletePending
+   await route.fulfill({ status: 204, headers: cors })
+ })
+ await scene(s => { s.deleteProbe = s.deleteCharacter(s.p1Model.slots.find(slot => slot.entry?.generationId === 'ui-11').index) })
+ await home()
+ releaseDelete()
+ await scene(s => s.deleteProbe)
+ assert.equal(await scene(s => s.p1Model), undefined)
+ assert.match(await scene(s => s.appStateMachine.getCurrentState()), /^P0/)
+ check('Deleting a roster asset and leaving P1 does not redraw the selection screen')
  await home()
  await page.unroute('http://localhost:8000/**'); await page.route('http://localhost:8000/**',route=>route.abort())
  await page.reload(); await page.waitForFunction(()=>window.__game?.scene.getScene('AppScene')?.persistence.lastLeaderboardOk===false)

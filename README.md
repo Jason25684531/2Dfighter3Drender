@@ -35,7 +35,7 @@ ComfyUI 的 cmd 視窗被滑鼠點到時，Windows 會進入「選取」模式�
 已上線的玩法細節：
 
 - P0 有【排行榜】按鈕，開啟 Top 10 覆蓋面板，離線時顯示提示。
-- P1 選角顯示化身鬥士（01–04）、ROG SAGA 英雄（05–06）、特邀鬥士（07–10）及參戰者名錄（11–40）。安裝 Pillow 後可執行 `python scripts/prepare-ui-vfx-assets.py` 重建遊戲用切片和特效。正式字型可放在 `public/fonts/rog-fonts.woff2` 和 `public/fonts/trade-gothic-bdcn.woff2`。
+- P1 選角顯示化身鬥士（01–04）、ROG SAGA 英雄（05–06）、特邀鬥士（07–10）及參戰者名錄（11–30，最多顯示最新 20 位已生成角色；更舊的仍留在 ComfyUI 輸出資料夾，可用右鍵／R2 刪除）。安裝 Pillow 後可執行 `python scripts/prepare-ui-vfx-assets.py` 重建遊戲用切片和特效。正式字型可放在 `public/fonts/rog-fonts.woff2` 和 `public/fonts/trade-gothic-bdcn.woff2`。
 - 1P 模式在 P1 選角頁一次完成：鎖定角色 → 紫色 CPU 游標選對手 → 選難度（EASY／NORMAL／HARD／EXTRA HARD／地獄模式）→ 確認。P2 一律只選場景。選對手時 2P 按自己的確認鍵（預設 NUM 1）加入，會改為雙人選角。雙人對戰以 1P 的結果計入排行榜。
 - 戰鬥是單一水平軸（已移除 2.5D 縱深）：W 跳、S 蹲。四種攻擊（F／U／G／I）傷害相同，輕重只影響動畫與特效大小。
 - 命中時在接觸點播放爆炸特效（重拳重腳較大），防禦成功播放藍色波紋，弧面朝向攻擊者。
@@ -188,8 +188,9 @@ ComfyUI 的 cmd 視窗被滑鼠點到時，Windows 會進入「選取」模式�
 | `src/game/ui/screens` | P0–P7 各畫面的 `ScreenView` 子類別與暫停疊層（見 `docs/architecture/README.md`） |
 | `src/game/config` | AI 難度、舞台調校 |
 | `backend/app` | FastAPI 路由、服務、SQLite schema、計分 |
-| `public/test-assets` | 執行期載入的暫用素材（不進 git，Vite 會整包複製進 `dist`）：舞台、對齊後角色圖集（`1113_characters/runtime`，Customize Body 01–04 = `S1AW`／`S2AM`／`S2LW`／`S3WW`；Body 03 拍照生成用 S1AM 模板，跳過拍照仍是 S2LW 圖集）、特效（`vfx/*-impact-fx/sheet-transparent.png`）、開頭影片、音效。只放執行期會請求的檔案 |
-| `assest` | 原始素材（不進 git、不進 `dist`）：`prepare-stage-assets.py` 的影片與前景圖、`source/1113_characters` 為 `prepare-aligned-characters.py` 的輸入、`source/legacy-characters` 為已停用的舊角色 |
+| `public/test-assets` | 舞台、特效（`vfx/*-impact-fx/sheet-transparent.png`）、開頭影片、音效與原型頁角色。Vite 複製到 `dist` |
+| `public/assest/characters` | 內建角色原圖、`game_manifest.json` 與 `compact/` 精簡圖集。Customize Body 01–04 對應 `S1AW`／`S2AM`／`S2LW`／`S3WW`。Body 03 拍照生成用 S1AM 模板，跳過拍照使用 S2LW 圖集 |
+| `assest` | 場景素材原檔。未引用的舊角色素材已於 2026-11-24 移到資源回收筒 |
 | `scripts` | Playwright 實機驗證與素材處理腳本 |
 | `docs/architecture` | 系統架構圖、遊戲流程圖與校正說明 |
 | `openspec/specs` | 已接受的需求規格 |
@@ -248,7 +249,12 @@ Playwright 腳本在前端啟動後執行，截圖輸出到 `outputs/*-verificat
 | `scripts/verify-aligned-characters.mjs` | 對齊後角色圖集載入與呈現（需另起隔離後端於 19881） |
 | `scripts/verify-comfy-live.py` | 對本機 ComfyUI（8188）實跑一次生成（需 ComfyUI 與後端） |
 
-素材處理腳本（需要 Pillow；場景腳本另需 ffmpeg）：`scripts/prepare-aligned-characters.py` 由 `assest/source/1113_characters`（每角色 15 張原圖 + `game_manifest.json`，Tony 無 manifest 時以圖檔幾何推算）產生 `public/test-assets/1113_characters/runtime` 的每格 256 精簡圖與 `AlignedSpriteData.json`。美術交來的原圖要先放進 `assest/source/1113_characters/<角色>/`，腳本會清空並重建對應的 runtime 資料夾；可用 ComfyUI 內附的 `python_embeded\python.exe` 執行（已含 Pillow）。`scripts/prepare-stage-assets.py` 由 `assest/` 產生實驗室影片、前景與開頭動畫。
+更新內建角色時，用相同檔名替換 `public/assest/characters/<角色>/` 裡的原圖，再執行 `python scripts/prepare-aligned-characters.py`。遊戲直接載入原圖作為全尺寸圖集。腳本重建 `compact/` 的 256 像素影格與 `AlignedSpriteData.json`，並依 `game_manifest.json` 取影格資料。Tony 的影格數由 PNG 尺寸推算。腳本需要 Pillow，也可用 ComfyUI 內附的 `python_embeded\python.exe` 執行。
+
+
+場景素材由 `scripts/prepare-stage-assets.py` 從 `assest/` 產生，需安裝 ffmpeg。
+
+P0 閒置 60 秒後依序輪播四支實機對戰影片（`public/test-assets/attract/`）：Joneey 對 GO、YG 對 SE7EN、Tony 對 GO、Chris 對 SE7EN，皆由左邊 1P 以 2–0 獲勝。一支播完接下一支；任何輸入（含輕拳）回 P0，下次閒置從下一支開始。啟動 Vite 後執行 `node scripts/record-attract.mjs [片名…]` 可重錄全部或指定的影片，腳本需要 Playwright、Chrome 與 ffmpeg，片名清單須與 `AppScene.ts` 的 `ATTRACT_CLIPS` 一致。輸出為 720p、30 fps，音軌使用遊戲的觀眾歡呼聲。舊的 GO 對 Tony 影片備份在 `outputs/attract-recording/intro-go-vs-tony.mp4`。
 
 ## Roadmap
 

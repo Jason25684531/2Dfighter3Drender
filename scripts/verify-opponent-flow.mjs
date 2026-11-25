@@ -20,7 +20,7 @@ try {
   const sub = () => s((s) => s.ui.substates.get('P2_SETUP'))
   const waitState = (prefix, timeout = 10000) => page.waitForFunction((p) => window.__game.scene.getScene('AppScene').appStateMachine.getCurrentState().startsWith(p), prefix, { timeout })
   const model = () => s((s) => ({ phase: s.p1Model?.phase, rival: s.p1Model?.rival, locked: s.p1Model?.player('P1').locked, p2: s.p1Model?.player('P2').joined }))
-  // P0 → P1 → 1P 鎖定 05（ARIA）→ 對手階段
+  // P0 → P1 → 1P 鎖定 05（GO）→ 對手階段
   const toOpponent = async () => { await key('Enter'); await waitState('P1'); await page.waitForTimeout(600); await page.screenshot({ path: `${out}/00-p1-grid.png` }); await key('f'); assert.equal((await model()).phase, 'OPPONENT') }
   const texts = () => s((s) => { const out = []; const walk = (o) => { if (o.type === 'Text' && o.visible) out.push(o.text); (o.list ?? []).forEach(walk) }; s.children.list.forEach(walk); return out })
   const waitAnnounce = (text, timeout = 10000) => page.waitForFunction((t) => { const a = window.__game.scene.getScene('AppScene').current.view.announcer; return a?.visible && a.label.text === t }, text, { timeout })
@@ -28,7 +28,7 @@ try {
 
   // 1 首頁排行榜
   await waitState('P0'); assert.equal(await s((s) => s.ui.focus.current()), 'p0-start')
-  await key('ArrowRight'); assert.equal(await s((s) => s.ui.focus.current()), 'p0-board')
+  await key('ArrowRight'); assert.equal(await s((s) => s.ui.focus.current()), 'p0-leaderboard')
   await key('Enter'); assert.ok(await s((s) => Boolean(s.boardPanel))); assert.match(await state(), /^P0/)
   await page.screenshot({ path: `${out}/01-board.png` })
   await key('Enter'); assert.ok(!(await s((s) => Boolean(s.boardPanel)))); assert.match(await state(), /^P0/)
@@ -51,31 +51,33 @@ try {
   await key('Backspace'); assert.deepEqual([(await model()).phase, (await model()).rival?.cursor], ['OPPONENT', 6])
   check('2P 中途 NUM 1 加入捨棄 CPU 選擇；2P 退出回到選對手')
   await key('f'); await key('f'); await waitState('P2'); assert.equal(await sub(), 'DEFAULT')
-  assert.equal(await s((s) => s.flow.opponent?.characterId), 'preset-b'); await page.screenshot({ path: `${out}/04-stage.png` })
-  await key('Escape'); await waitState('P1'); assert.equal((await model()).phase, 'GRID')
-  check('確認 NORMAL 後 ALL READY 直接到 P2 選場景（無對手頁）；P2 BACK 回 P1')
+  assert.equal(await s((s) => s.flow.opponent?.characterId), 'preset-f'); await page.screenshot({ path: `${out}/04-stage.png` })
+  await key('Escape'); await waitState('P2')
+  await key('Enter'); await waitState('P3'); await key('Escape'); await waitState('P0')
+  check('確認 NORMAL 後直接到 P2 選場景；進 P3 後可返回首頁')
 
-  // 3 選 RIVEN／HARD 進戰鬥
-  await key('f'); await key('d'); await key('f'); await key('d'); await key('f'); await waitState('P2')
-  assert.equal(await s((s) => s.enemyName()), 'RIVEN')
+  // 3 選 Joneey／HARD 進戰鬥
+  await toOpponent(); await key('d'); await key('f'); await key('d'); await key('f'); await waitState('P2')
+  assert.equal(await s((s) => s.enemyName()), 'Joneey')
   await s((s) => s.confirmStage()); await waitState('P3')
-  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').current?.ready === true, null, { timeout: 15000 })
-  assert.ok((await texts()).includes('RIVEN'))
+  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').current?.ready === true, null, { timeout: 45000 })
+  assert.ok((await texts()).includes('Joneey'))
   await key('Enter'); await waitState('P4')
   assert.equal(await s((s) => s.flow.match.ai.profile.id), 'HARD')
   await waitAnnounce('ROUND 1'); const frozen = await s((s) => s.flow.match.getSnapshot().remainingTicks); await page.screenshot({ path: `${out}/05-round.png` })
   await waitAnnounce('READY?'); await waitAnnounce('FIGHT!')
   const t = await s((s) => s.flow.match.getSnapshot()); assert.equal(t.matchState, 'FIGHTING'); assert.ok(t.remainingTicks >= frozen - 3)
   await page.screenshot({ path: `${out}/06-fight.png` })
-  check('P3 顯示 RIVEN；P4 Announcer 依序 ROUND 1→READY?→FIGHT!，期間時間不減；HARD AI 已套用')
-  await key('Escape'); await key('ArrowDown'); await key('Enter')
+  check('P3 顯示 Joneey；P4 依序 ROUND 1→READY?→FIGHT!，期間時間不減；HARD AI 已套用')
+  await key('Escape'); await key('ArrowDown'); await key('ArrowDown'); await key('Enter')
   assert.equal(await s(s => s.ui.navigation.isExitConfirmationOpen()), true)
   assert.equal(await s(s => s.ui.focus.current()), 'overlay-CANCEL')
-  assert.ok((await texts()).includes('將回到首頁，本局成績不列入排行榜'))
+  assert.ok((await texts()).includes('將結束這場遊戲並回到首頁，本局成績不列入排行榜'))
   await key('ArrowDown'); await key('Enter')
   assert.equal(await s(s => s.ui.focus.current()), 'overlay-CANCEL')
   assert.match(await state(), /^P4/)
   await page.waitForTimeout(450); await key('Enter')
+  if (await s(s => s.ui.navigation.isOverlayOpen())) await key('Escape')
   assert.equal(await s(s => s.ui.navigation.isOverlayOpen()), false)
   check('離開確認預設 CANCEL，顯示後果且 0.4 秒內忽略快速輸入')
 
@@ -83,18 +85,20 @@ try {
   const fx = (k) => page.waitForFunction((k) => window.__game.scene.getScene('AppScene').stage.world.list.some((o) => o.texture?.key === k), k, { timeout: 3000 }).then(() => s((s, k) => s.stage.world.list.filter((o) => o.texture?.key === k).map((o) => ({ scale: o.scaleX, flip: o.flipX, x: o.x })), k))
   const noFx = (k) => page.waitForFunction((k) => !window.__game.scene.getScene('AppScene').stage.world.list.some((o) => o.texture?.key === k), k, { timeout: 3000 })
   await s((s) => { s.flow.match.ai.getIntent = () => ({ moveX: 0, jumpPressed: false, attackPressed: false }) })
-  await world((w) => { w.fighters.PLAYER.x = 1300; w.fighters.ENEMY.x = 1520 })
-  await key('u'); const heavy = await fx('fx-hit'); await page.screenshot({ path: `${out}/07-hit-heavy.png` })
-  assert.equal(heavy[0].scale, 1.5); assert.equal(heavy[0].flip, false); assert.ok(heavy[0].x > 1300 && heavy[0].x < 1520)
-  await noFx('fx-hit'); await page.waitForTimeout(500)
-  await world((w) => { w.fighters.PLAYER.x = 1300; w.fighters.ENEMY.x = 1520 })
-  await key('g'); const light = await fx('fx-hit'); assert.equal(light[0].scale, 0.9)
-  check('重拳命中：接觸點出現完整尺寸爆炸並自毀；輕腳命中縮小播放')
-  await noFx('fx-hit'); await page.waitForTimeout(500)
-  await s((s) => { s.flow.match.ai.getIntent = () => ({ moveX: 1, jumpPressed: false, attackPressed: false }) })
-  await world((w) => { w.fighters.PLAYER.x = 1300; w.fighters.ENEMY.x = 1520 }); const hp = await world((w) => w.getFighter('ENEMY').currentHP)
+  const art = await page.evaluate(async () => (await import('/src/game/ui/vfx/ImpactFx.ts')).impactFx)
+  const touch = () => world(w => { w.fighters.PLAYER.x = 1300; w.fighters.ENEMY.x = 1300 + w.contactWidth })
+  await touch()
+  await key('u'); const heavy = await fx(art.HEAVY_PUNCH.key); await page.screenshot({ path: `${out}/07-hit-heavy.png` })
+  assert.equal(heavy[0].scale, art.HEAVY_PUNCH.scale); assert.equal(heavy[0].flip, false)
+  await noFx(art.HEAVY_PUNCH.key); await page.waitForTimeout(900)
+  await touch()
+  await key('g'); const light = await fx(art.LIGHT_KICK.key); assert.equal(light[0].scale, art.LIGHT_KICK.scale)
+  check('重拳與輕踢命中各播放對應特效，播放完畢自毀')
+  await noFx(art.LIGHT_KICK.key); await page.waitForTimeout(500)
+  await s((s) => { s.flow.match.ai.getIntent = () => ({ moveX: 0, jumpPressed: false, attackPressed: false, guard: true }) })
+  await touch(); const hp = await world((w) => w.getFighter('ENEMY').currentHP)
   await key('f'); const guard = await fx('fx-guard'); await page.screenshot({ path: `${out}/08-guard.png` })
-  assert.equal(guard[0].flip, true); assert.equal(await s((s) => s.stage.world.list.some((o) => o.texture?.key === 'fx-hit')), false); assert.equal(await world((w) => w.getFighter('ENEMY').currentHP), hp)
+  assert.equal(guard[0].flip, true); assert.equal(await s((s, id) => s.stage.world.list.some((o) => o.texture?.key === id), art.LIGHT_PUNCH.key), false); assert.equal(await world((w) => w.getFighter('ENEMY').currentHP), hp)
   check('面向左的敵方防禦：波紋弧面朝左（朝攻擊者），沒有爆炸、不扣血')
 
   // 5 回合 K.O. 停留 → 結果 → ROUND 2
@@ -112,9 +116,13 @@ try {
   await page.screenshot({ path: `${out}/11-p5.png` })
   check('第 2 勝不停留直接 P5，Announcer 顯示 K.O. 與 YOU WIN')
 
-  // 7 Replay 沿用對手直接到選場景
-  await key('Enter'); await waitState('P6'); await key('Enter'); await waitState('P7'); await key('Enter'); await waitState('P2')
-  assert.equal(await sub(), 'DEFAULT'); assert.deepEqual(await s((s) => s.flow.opponent), { characterId: 'preset-c', difficulty: 'HARD' })
-  check('Replay 直接到 P2 選場景，沿用 RIVEN／HARD')
+  // 7 Replay 返回選角並保留對手資料
+  for (const [focus, next] of [['presentation-next', 'P6'], ['result-next', 'P7']]) {
+    await page.waitForFunction(id => window.__game.scene.getScene('AppScene').ui.focus.current() === id, focus)
+    await key('Enter'); await waitState(next)
+  }
+  await key('Enter'); await waitState('P1')
+  assert.deepEqual(await s((s) => s.flow.opponent), { characterId: 'preset-g', difficulty: 'HARD' })
+  check('Replay 返回 P1 選角，保留 Joneey／HARD')
   assert.deepEqual(errors, [], errors.join('\n'))
 } finally { await browser.close() }

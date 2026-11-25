@@ -46,14 +46,19 @@ export class ExperienceFlow {
   tick(intent: FighterIntent = NEUTRAL_INTENT, p2Intent: FighterIntent = NEUTRAL_INTENT): void {
     if (this.app.getCurrentState() !== AppState.BATTLE) return
     const persistence = this.persistence
-    this.match.tick(intent, this.players.P2 ? p2Intent : undefined); void persistence?.recordRounds(this.match.getRoundSummaries()).catch(() => undefined)
+    const round = this.match.tick(intent, this.players.P2 ? p2Intent : undefined)
+    if (round) void persistence?.recordRounds([round]).catch(() => undefined)
     this.ui.substates.set(AppState.BATTLE, this.match.getP4SubState())
     const completed = this.match.getCompletedMatch()
     if (!completed || this.result) return
     this.result = resolveMatchResult(completed, this.difficulty)
+    const attemptId = persistence?.currentAttemptId
     void persistence?.finishMatch(this.result).then(async (stored) => {
+      if (!attemptId || persistence.currentAttemptId !== attemptId) return
+      const [leaderboard, nextPlayerName] = await Promise.all([persistence.leaderboard(), persistence.nextQueuedPlayer()])
+      if (persistence.currentAttemptId !== attemptId) return
+      this.leaderboard = leaderboard; this.nextPlayerName = nextPlayerName
       this.ui.substates.set(AppState.RESULT, p6SubStateForRank(stored?.rank ?? persistence.context.snapshot.backendRank))
-      this.leaderboard = await persistence.leaderboard(); this.nextPlayerName = await persistence.nextQueuedPlayer()
       this.onResultStored?.()
     }).catch(() => undefined)
     this.app.transitionTo(AppState.PRESENTATION)

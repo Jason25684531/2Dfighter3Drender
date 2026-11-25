@@ -1,4 +1,4 @@
-// 單人完整流程 P0→P7 截圖，並記錄所有 /test-assets/ 請求與 404。先啟動 Vite（預設 http://127.0.0.1:5189）。
+// P0→P7 截圖與素材請求記錄。先啟動 Vite（預設 http://127.0.0.1:5189）。
 // 用法：node scripts/verify-screens.mjs [輸出資料夾]
 import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -14,9 +14,9 @@ try {
   page.on('pageerror', (error) => errors.push(error.message))
   page.on('response', (response) => {
     const path = decodeURIComponent(new URL(response.url()).pathname)
-    if (!path.startsWith('/test-assets/')) return
+    if (!/^\/(test-assets|assest)\//.test(path)) return
     requested.add(path)
-    if (response.status() === 404) missing.add(path)
+    if (response.status() >= 400) missing.add(path)
   })
   await page.route('http://localhost:8000/**', (route) => route.abort())
   await page.route('**/src/main.ts*', async (route) => { const response = await route.fetch(); await route.fulfill({ response, body: (await response.text()).replace('new Phaser.Game(', 'window.__game = new Phaser.Game(') }) })
@@ -38,6 +38,7 @@ try {
 
   await waitState('P0'); await shot('p0-home')
   await key('Enter'); await waitState('P1'); await page.waitForTimeout(600); await shot('p1-grid')
+  assert((await texts()).some(text => text.includes('OFFLINE')), 'P1 indicates the backend is unavailable')
   await key('d'); await key('f'); await shot('p1-opponent')
   await key('f'); await shot('p1-difficulty')
   await key('f'); await waitState('P2'); await shot('p2-stage')
@@ -46,6 +47,12 @@ try {
   assert.ok((await texts()).some((t) => /FIGHT!/.test(t)), 'P3 shows the FIGHT! button')
   await key('Enter'); await waitState('P4')
   await waitText(/^FIGHT!$/); await page.waitForTimeout(900); await shot('p4-battle')
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')))
+  await waitText(/^PAUSED$/, 4000)
+  const pausedTick = await world(w => w.getSnapshot().tick)
+  await page.waitForTimeout(200)
+  assert.equal(await world(w => w.getSnapshot().tick), pausedTick)
+  await key('Enter'); await page.waitForFunction(() => !window.__game.scene.getScene('AppScene').ui.navigation.isOverlayOpen())
   await key('Escape'); await waitText(/^PAUSED$/); await shot('p4-pause')
   await key('Enter'); await page.waitForFunction(() => !window.__game.scene.getScene('AppScene').ui.navigation.isOverlayOpen())
   await world((w) => { w.fighters.ENEMY.currentHP = 0 }); await waitText(/^ROUND 2$/, 15000); await waitText(/^FIGHT!$/)
@@ -189,8 +196,9 @@ try {
   console.log('PASS 雙人流程 P0→P7→P0 走完，HUD 狀態與頭像皆已驗證')
 
   await writeFile(`${out}/assets.json`, JSON.stringify({ requested: [...requested].sort(), missing: [...missing].sort() }, null, 2))
-  assert.deepEqual([...missing], [], `404: ${[...missing].join(', ')}`)
-  console.log(`PASS /test-assets/ 請求 ${requested.size} 個，0 個 404`)
+  assert.deepEqual([...missing], [], `素材請求失敗: ${[...missing].join(', ')}`)
+  assert.ok([...requested].some(path => path.startsWith('/assest/characters/')))
+  console.log(`PASS 素材請求 ${requested.size} 個，0 個 HTTP 錯誤`)
   assert.deepEqual(errors, [], errors.join('\n'))
   console.log('PASS 沒有頁面錯誤')
 } finally { await browser.close() }

@@ -1,8 +1,10 @@
-// Run Vite on 5189 and an isolated backend on 19881 before this check.
+// Run Vite and an isolated backend before this check.
 import assert from 'node:assert/strict'
 import { mkdir, writeFile, readFile } from 'node:fs/promises'
 import { chromium } from 'playwright'
 const out = 'outputs/aligned-character-verification'
+const base = process.env.APP_URL ?? 'http://127.0.0.1:5189/'
+const api = process.env.COMFY_SMOKE_API ?? 'http://127.0.0.1:19881/api/v1'
 await mkdir(out, { recursive: true })
 const metadata = JSON.parse(await readFile('src/game/ui/animation/AlignedSpriteData.json', 'utf8'))
 const report = { checks: [], errors: [], failedAssets: [] }
@@ -11,15 +13,15 @@ let page
 try {
   page = await browser.newPage({ viewport: { width: 1920, height: 1080 } })
   page.on('pageerror', error => report.errors.push(error.message))
-  page.on('response', response => { if (response.status() >= 400 && response.url().includes('/test-assets/')) report.failedAssets.push(response.url()) })
+  page.on('response', response => { if (response.status() >= 400 && /\/(?:test-assets|assest)\//.test(new URL(response.url()).pathname)) report.failedAssets.push(response.url()) })
   await page.route('**/src/main.ts*', async route => { const response = await route.fetch(); await route.fulfill({ response, body: (await response.text()).replace('new Phaser.Game(', 'window.__game = new Phaser.Game(') }) })
-  await page.route('http://localhost:8000/**', async route => { const response = await route.fetch({ url: route.request().url().replace('http://localhost:8000', 'http://127.0.0.1:19881') }); await route.fulfill({ response }) })
+  await page.route('http://localhost:8000/**', async route => { const response = await route.fetch({ url: route.request().url().replace('http://localhost:8000/api/v1', api) }); await route.fulfill({ response }) })
   const scene = (fn, arg) => page.evaluate(({ code, arg }) => new Function('s', 'arg', `return (${code})(s,arg)`)(window.__game.scene.getScene('AppScene'), arg), { code: fn.toString(), arg })
   const state = prefix => page.waitForFunction(prefix => { const s = window.__game?.scene.getScene('AppScene'); return s?.appStateMachine.getCurrentState().startsWith(prefix) && s.screen?.alpha >= .99 }, prefix)
   const key = async name => { await page.keyboard.down(name); await scene(s => new Promise(r => s.events.once('postupdate', r))); await page.keyboard.up(name); await scene(s => new Promise(r => s.events.once('postupdate', r))) }
   const shot = async name => { await page.waitForTimeout(350); await page.screenshot({ path: `${out}/${name}.png` }) }
   const check = text => { report.checks.push(text); console.log('PASS ' + text) }
-  await page.goto('http://127.0.0.1:5189/')
+  await page.goto(base)
   await state('P0'); await key('Enter'); await state('P1')
   assert.deepEqual(await scene(s => s.p1Model.slots.slice(0, 10).map(slot => slot.entry.spriteId)), ['s1aw', 's2am', 's2lw', 's3ww', 'go', 'se7en', 'joneey', 'yg', 'tony', 'chris'])
   assert.deepEqual(await scene(s => ['aria-idle-1', 'kael-idle-1', 'riven-idle-1'].filter(key => s.textures.exists(key))), [])
@@ -60,7 +62,8 @@ try {
         for (const tick of [0, 2, 12, 40]) {
           renderer.update(fighter, tick, context)
           const image = renderer.image
-          if (image.texture.key !== `${id}-${expected}` || !image.texture.has(image.frame.name)) throw new Error(`Invalid pose: ${id} ${expected} ${image.texture.key}:${image.frame.name}`)
+          const key = s.textures.exists(`hd-${id}-${expected}`) ? `hd-${id}-${expected}` : `${id}-${expected}`
+          if (image.texture.key !== key || !image.texture.has(image.frame.name)) throw new Error(`Invalid pose: ${id} ${expected} ${image.texture.key}:${image.frame.name}`)
         }
         results.push(`${id}-${expected}`)
       }
@@ -78,13 +81,17 @@ try {
   await state('P5'); await shot('05-result-presentation')
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').flow.persistence.context.snapshot.backendRank !== undefined)
   const saved = await scene(s => s.flow.persistence.context.snapshot)
-  const stored = await (await page.request.get(`http://127.0.0.1:19881/api/v1/matches/${saved.matchId}`)).json()
+  const stored = await (await page.request.get(`${api}/matches/${saved.matchId}`)).json()
   assert.equal(stored.status, 'FINISHED'); assert.equal(stored.rounds.length, 2); assert.equal(stored.rank, saved.backendRank)
-  const board = await (await page.request.get('http://127.0.0.1:19881/api/v1/leaderboard')).json()
+  const board = await (await page.request.get(`${api}/leaderboard?limit=100`)).json()
   assert.ok(board.some(entry => entry.session_id === saved.sessionId && entry.score === stored.score))
-  await key('Enter'); await state('P6'); await key('Enter'); await state('P7'); await key('ArrowDown'); await key('Enter'); await state('P0')
+  for (const [id, next] of [['presentation-next', 'P6'], ['result-next', 'P7']]) {
+    await page.waitForFunction(id => window.__game.scene.getScene('AppScene').ui.focus.current() === id, id)
+    await key('Enter'); await state(next)
+  }
+  await key('ArrowDown'); await key('Enter'); await state('P0')
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').flow.persistence.context.snapshot.sessionId === undefined)
-  const session = await (await page.request.get(`http://127.0.0.1:19881/api/v1/sessions/${saved.sessionId}`)).json()
+  const session = await (await page.request.get(`${api}/sessions/${saved.sessionId}`)).json()
   assert.equal(session.status, 'FINISHED')
   check('P0 → P7 → Finish P0 persists both rounds, score, leaderboard rank and finished session')
   await key('Enter'); await state('P1')

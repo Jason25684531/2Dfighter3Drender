@@ -6,12 +6,13 @@ import { announceCue, combatCues } from '../../audio/AudioCues'
 import type { InputManager } from '../../input/InputManager'
 import { keyLabel } from '../../input/ControlProfile'
 import { TemporarySpriteRenderer } from '../animation/TemporarySpriteRenderer'
-import { createSpriteHitTest, stancePushWidth } from '../animation/SpriteHitTest'
+import { createSpriteHitTest, drawContactRange, stancePushWidth } from '../animation/SpriteHitTest'
 import { outcomeFor, presentationSheetFor, resolvePresentation, spriteActionFor, type PresentationContext, type SpriteId } from '../animation/TemporarySpriteManifest'
 import { isSheetSprite, sheetAnimations, sheetUrl } from '../animation/SheetSpriteManifest'
 import { impactFlip, playImpactFx } from '../vfx/ImpactFx'
 import { Announcer } from '../VisualComponents'
 import { BattleHud } from './BattleHud'
+import { HIT_TUNING, lungeFor, reachFor } from '../../config/hitTuning'
 import { battleAnnouncement, battleViewModel } from '../ViewModels'
 import { ComboTag } from './ComboTag'
 import type { StageId } from '../assets/TestAssetManifest'
@@ -42,6 +43,8 @@ export class BattleView {
   private contexts: Partial<Record<FighterId, PresentationContext>> = {}
   /** 動畫時鐘：每次 update 加一。回合結束與開場停留時 combat tick 不前進，勝利／倒地動作仍要播。 */
   private animationTick = 0
+  private stanceKeys?: string
+  private worldTick = 0
 
   constructor(private readonly scene: Phaser.Scene, root: Phaser.GameObjects.Container, private readonly world: Phaser.GameObjects.Container, private readonly options: BattleViewOptions) {
     const { playerSprite, enemySprite, floorY } = options
@@ -50,7 +53,8 @@ export class BattleView {
     world.add([this.enemy, this.player])
     // 命中依出招輪廓及招式外推距離，推擠依站姿輪廓；destroy() 解除。
     options.combat?.setHitTest(createSpriteHitTest(scene, { PLAYER: this.player, ENEMY: this.enemy }, (id) => this.contexts[id], () => options.combat?.contactWidth))
-    options.combat?.setPushWidth(stancePushWidth(scene, { PLAYER: this.player, ENEMY: this.enemy }, options.combat.getSnapshot().fighters))
+    this.syncLunges()
+    this.syncStance(0)
     this.hud = new BattleHud(scene, { sprite: playerSprite, name: options.playerName }, { sprite: enemySprite, name: options.enemyName })
     root.add(this.hud)
     // 連擊標語顯示在連擊者所在的那一側（站在對手左邊 → 左側），色塊用陣營色。
@@ -60,7 +64,7 @@ export class BattleView {
     this.firstAttack = scene.add.text(710, 240, 'FIRST ATTACK!', { ...typography.note, color: colorHex('statusLime') }).setOrigin(0.5).setVisible(false)
     this.announcer = new Announcer(scene)
     if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('inputDebug') === '1') { this.inputDebug = scene.add.text(40, 820, '', { ...typography.note, color: colorHex('statusLime'), backgroundColor: colorHex('shadow') + 'cc', padding: { x: 12, y: 8 } }); root.add(this.inputDebug) }
-    // DEV ?hitbox：畫 hurtbox（藍）與 active hitbox（紅），對照動畫調招式表。
+    // DEV ?hitbox：攻擊輪廓（紅）、防守輪廓與外推範圍（藍）、實際接觸點（黃）。
     if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('hitbox')) { this.boxes = scene.add.graphics(); world.add(this.boxes) }
     root.add([this.combos.PLAYER, this.combos.ENEMY, this.danger, this.lastTen, this.firstAttack, this.announcer])
   }
@@ -90,12 +94,16 @@ export class BattleView {
     const outcome = (id: FighterId) => outcomeFor(id, snapshot.matchState, round?.winner)
     const animationTick = this.animationTick++
     this.player.update(vm.player, animationTick, { ...context, outcome: outcome('PLAYER') }); this.enemy.update(vm.enemy, animationTick, { ...enemyContext, outcome: outcome('ENEMY') })
-    const combat = this.options.combat
-    if (this.boxes && combat) {
-      this.boxes.clear().lineStyle(3, uiTokens.colors.systemBlue)
-      ;(['PLAYER', 'ENEMY'] as const).forEach((id) => { const box = combat.getHurtbox(id); this.boxes?.strokeRect(box.x, box.y, box.width, box.height) })
-      this.boxes.lineStyle(3, uiTokens.colors.danger)
-      ;(['PLAYER', 'ENEMY'] as const).forEach((id) => { const box = combat.getActiveHitbox(id); if (box) this.boxes?.strokeRect(box.x, box.y, box.width, box.height) })
+    this.syncStance(tick)
+    if (this.boxes) {
+      this.boxes.clear()
+      for (const id of ['PLAYER', 'ENEMY'] as const) {
+        const { [id]: fighter, [id === 'PLAYER' ? 'ENEMY' : 'PLAYER']: opponent } = snapshot.world.fighters
+        const active = fighter.attackPhase === 'ACTIVE'
+        const edge = opponent.attackPhase === 'ACTIVE' ? HIT_TUNING.edge[opponent.attack] + reachFor(this.fighter(opponent.id).spriteId, opponent.attack) : 0
+        drawContactRange(this.boxes, this.fighter(id), fighter, active ? uiTokens.colors.danger : uiTokens.colors.systemBlue, this.contexts[id], edge)
+      }
+      for (const event of events) if (event.type === 'HIT') this.boxes.fillStyle(uiTokens.colors.resultGold).fillCircle(event.at.x, event.at.y, 14)
     }
     if (this.inputDebug) {
       const last = this.options.input.lastCombatInput, presentation = this.player.presentation ?? resolvePresentation(vm.player, context), sprite = this.options.playerSprite
@@ -121,5 +129,28 @@ export class BattleView {
     if (!this.scene.anims.paused) this.fighter(this.jitter.id).x += (Math.floor(this.scene.time.now / 30) % 2 ? 1 : -1) * this.jitter.amplitude
   }
   private fighter(id: FighterId): TemporarySpriteRenderer { return id === 'PLAYER' ? this.player : this.enemy }
-  destroy(): void { this.options.combat?.setHitTest(undefined); this.options.combat?.setPushWidth(undefined) }
+  setSprite(id: FighterId, sprite: SpriteId): void {
+    this.fighter(id).spriteId = sprite
+    this.hud.usePortrait(id === 'PLAYER' ? 'p1' : 'p2', sprite)
+    this.syncLunges()
+  }
+
+  private syncLunges(): void {
+    const distances = (id?: SpriteId) => Object.fromEntries(Object.entries(lungeFor(id) ?? {}).map(([attack, lunge]) => [attack, lunge.advance]))
+    this.options.combat?.setLunge({ PLAYER: distances(this.player.spriteId), ENEMY: distances(this.enemy.spriteId) })
+  }
+
+  private syncStance(tick: number): void {
+    const combat = this.options.combat
+    if (!combat) return
+    const player = this.player.idlePose(), enemy = this.enemy.idlePose()
+    const keys = `${player?.key}:${enemy?.key}`
+    if (keys !== this.stanceKeys || tick < this.worldTick) {
+      this.stanceKeys = keys
+      combat.setPushWidth(stancePushWidth(this.scene, player, enemy))
+    }
+    this.worldTick = tick
+  }
+
+  destroy(): void { this.options.combat?.setHitTest(undefined); this.options.combat?.setPushWidth(undefined); this.options.combat?.setLunge(undefined) }
 }

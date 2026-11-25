@@ -85,6 +85,8 @@ export class ExperiencePersistence {
     return this.enqueue({ key: `session-update:${sessionId}`, run: async () => { await this.api.updateSession(sessionId, { selected_character: selectedCharacter, client_request_id: requestId }); this.persist() } })
   }
 
+  get currentAttemptId(): string | undefined { return this.attemptId }
+
   recordRounds(summaries: readonly RoundSummary[]): Promise<void> {
     const attemptId = this.attemptId
     if (!attemptId) return Promise.resolve()

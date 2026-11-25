@@ -13,11 +13,27 @@ const playToEnd = (flow: ExperienceFlow): void => {
 }
 const fakePersistence = (fail = false) => {
   const call = () => fail ? vi.fn().mockRejectedValue(new Error('offline')) : vi.fn().mockResolvedValue(undefined)
-  const fake = { context: new ExperienceContext(), ensureSession: call(), finishSession: call(), beginMatch: call(), recordRounds: call(), finishMatch: call(), updateSession: call(), resetMatch: vi.fn(), leaderboard: vi.fn().mockResolvedValue([]), nextQueuedPlayer: vi.fn().mockResolvedValue(undefined) }
+  const fake = { context: new ExperienceContext(), ensureSession: call(), finishSession: call(), beginMatch: call(), recordRounds: call(), finishMatch: call(), updateSession: call(), resetMatch: vi.fn(), leaderboard: vi.fn().mockResolvedValue([]), nextQueuedPlayer: vi.fn().mockResolvedValue(undefined), currentAttemptId: undefined as string | undefined }
+  fake.beginMatch.mockImplementation(async () => { fake.currentAttemptId = 'test-attempt'; if (fail) throw new Error('offline') })
+  fake.resetMatch.mockImplementation(() => { fake.currentAttemptId = undefined })
   return { fake, flow: new ExperienceFlow(undefined, undefined, undefined, fake as unknown as ExperiencePersistence) }
 }
 
 describe('ExperienceFlow', () => {
+  it('ignores a stored result from a match that the player has already left', async () => {
+    const { fake, flow } = fakePersistence()
+    let resolve = () => {}
+    fake.finishMatch.mockReturnValue(new Promise<void>(done => { resolve = done }))
+    const onResultStored = flow.onResultStored = vi.fn()
+    toPresentation(flow)
+    expect(fake.currentAttemptId).toBeDefined()
+    expect(flow.ui.navigation.dispatch('BACK')).toBe(true)
+    resolve()
+    await new Promise(done => setTimeout(done, 0))
+    expect(onResultStored).not.toHaveBeenCalled()
+    expect(fake.nextQueuedPlayer).not.toHaveBeenCalled()
+  })
+
   it('completes a match and replays to P1 with clean match state, keeping the opponent', () => {
     const flow = new ExperienceFlow(); flow.opponent = { characterId: 'preset-c', difficulty: 'HARD' }; playToEnd(flow)
     flow.setPlayers({ P1: { characterId: 'generated-one', nickname: 'MOMO' } })

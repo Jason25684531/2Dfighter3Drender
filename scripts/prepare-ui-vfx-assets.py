@@ -4,7 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageStat
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageStat
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'public/test-assets'
@@ -72,6 +72,41 @@ def prepare_attacks():
     return metadata
 
 
+def swap_body_portraits(slices):
+    """The design draws body 02's face on card 03 and vice versa (game body 02 = S2AM glasses).
+
+    The two cards differ only in their portraits and digits, so start from the
+    other card and redraw this card's digits. The no-portrait slices (36-39)
+    show where the digits are.
+    """
+    def card(number):
+        return Image.open(SOURCE / slices[number]['file']).convert('RGBA')
+
+    for target, source in ((2, 3), (3, 2)):
+        result, own, other = card(16 + source), card(35 + target), card(35 + source)
+        digits = ImageChops.difference(own, other).convert('L').point(lambda d: 255 if d > 24 else 0).filter(ImageFilter.MaxFilter(5))
+        # Bright glyph pixels from either digit; the old digit's leftover pixels get the blurred portrait behind them.
+        glyph = lambda image: ImageChops.multiply(image.convert('L').point(lambda v: 255 if v > 110 else 0), digits)
+        own_glyph = glyph(own).filter(ImageFilter.MaxFilter(3))
+        result = Image.composite(result.filter(ImageFilter.MedianFilter(9)), result, glyph(other).filter(ImageFilter.MaxFilter(3)))
+        result.paste(own, (0, 0), own_glyph)
+        result.save(ASSETS / 'ui/select' / f'body-card-{target}.png')
+
+
+def prepare_home():
+    """P0 title screen: the 4K design halved to the 1920x1080 logical canvas."""
+    source, folder = ROOT / 'assest/source/ui/P0_UI', ASSETS / 'ui/home'
+    folder.mkdir(parents=True, exist_ok=True)
+    with Image.open(source / 'GAME TITLE SCREEN.png') as image:
+        image.convert('RGB').resize((1920, 1080), Image.Resampling.LANCZOS).save(folder / 'title-screen.jpg', quality=92)
+    for name in ('START', 'LEADERBOARD', 'SETTINGS'):
+        for suffix in ('', '_CHOSE'):
+            with Image.open(source / f'{name}{suffix}.png') as image:
+                size = (round(image.width / 2), round(image.height / 2))
+                key = f'{name.lower()}{"-chosen" if suffix else ""}'
+                image.resize(size, Image.Resampling.LANCZOS).save(folder / f'{key}.png')
+
+
 def prepare_ui():
     manifest = json.loads((SOURCE / 'manifest.json').read_text(encoding='utf-8'))
     size = manifest['canvas']['w'], manifest['canvas']['h']
@@ -122,6 +157,7 @@ def prepare_ui():
     cells = [{**{k: c[k] for k in ('w', 'h')}, 'x': c['x'] + c['grid']['x'], 'y': c['y'] + c['grid']['y']}
              for c in manifest['selectCells']]
     select = output('select', SELECT)
+    swap_body_portraits(groups['select'])
     panels = {key: {k: groups['select'][num][k] for k in ('x', 'y', 'w', 'h')}
               for key, num in {'panel-p1': 5, 'panel-p2': 6, 'body': 13, 'saga': 14, 'guest': 15,
                                'roster': 16, 'nickname': 56, 'rival': 57}.items()}
@@ -130,6 +166,7 @@ def prepare_ui():
 
 if __name__ == '__main__':
     CHECKS.mkdir(parents=True, exist_ok=True)
+    prepare_home()
     attacks = prepare_attacks()
     layout = prepare_ui()
     (ROOT / 'src/game/ui/assets/hudLayout.json').write_text(

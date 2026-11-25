@@ -38,9 +38,37 @@ describe('TemporarySpriteRenderer', () => {
     const log = { alphas: [] as number[], ys: [] as number[], frames: [] as number[] }
     const image = { height: 256, texture: { key }, frame: { name: 0 }, setOrigin() { return this }, setScale() { return this }, setY(y: number) { log.ys.push(y); return this },
       setAlpha(a: number) { log.alphas.push(a); return this }, setTexture(k: string, f: number) { this.texture.key = k; this.frame.name = f; log.frames.push(f); return this } }
-    const scene = { add: { ellipse: () => ({ setY: vi.fn() }), image: () => image }, textures: { exists: () => true } }
-    return { log, renderer: new TemporarySpriteRenderer(scene as never, 'go', 820) }
+    let hd = false
+    const scene = { add: { ellipse: () => ({ setY: vi.fn() }), image: () => image }, textures: {
+      exists: (key: string) => hd || !key.startsWith('hd-'), get: () => ({ frameTotal: 1 }), getFrame: () => ({ name: 0, height: 256 }),
+    } }
+    return { log, renderer: new TemporarySpriteRenderer(scene as never, 'go', 820), loadHd: () => { hd = true } }
   }
+
+  it('switches to an HD version without changing the position or idle frame', () => {
+    const { renderer, loadHd } = fake('go-idle')
+    const fighter = new CombatWorld().getFighter('PLAYER')
+    renderer.update(fighter, 6)
+    const compact = renderer.pose(fighter)
+    loadHd()
+    renderer.update(fighter, 6)
+    expect(renderer.pose(fighter)).toMatchObject({ ...compact, key: 'hd-go-idle' })
+    expect([renderer.x, renderer.y]).toEqual([fighter.x, fighter.y])
+  })
+
+  it('applies the hop to the image without shifting the collision pose', () => {
+    const { log, renderer } = fake('go-idle')
+    const fighter = { ...new CombatWorld().getFighter('PLAYER'), state: 'ATTACK', attack: 'HEAVY_PUNCH', attackPhase: 'ACTIVE', attackTicks: 1, lungeProgress: 0 } as const
+    renderer.update(fighter, 5)
+    const pose = renderer.pose(fighter)
+    const peak = { ...fighter, lungeProgress: 0.5 }
+    renderer.update(peak, 6)
+    expect(log.ys.at(-1)).toBe(-60)
+    expect([renderer.x, renderer.y, fighter.grounded]).toEqual([fighter.x, fighter.y, true])
+    expect(renderer.pose(peak)).toEqual(pose)
+    renderer.update({ ...peak, grounded: false, y: fighter.y - 100 }, 7)
+    expect(log.ys.at(-1), 'an air punch already off the ground gets no extra hop').toBeCloseTo(0)
+  })
 
   it('shows a steady translucent body, not a blink, while invulnerable', () => {
     const { log, renderer } = fake('go-idle')

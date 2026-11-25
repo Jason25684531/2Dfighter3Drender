@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CombatWorld, DEFAULT_COMBAT_CONFIG } from '../../combat/CombatWorld'
 import { spriteFrameFor } from './TemporarySpriteManifest'
-import { contactWidth, dilate, touchContact, silhouetteContact, type Mask, type Placement } from './SpriteHitTest'
+import { contactWidth, createSpriteHitTest, dilate, peakFrame, touchContact, silhouetteContact, type Mask, type Placement } from './SpriteHitTest'
 import { HIT_TUNING, reachFor } from '../../config/hitTuning'
 
 // 10×10 實心方塊，錨點在底部中央：world 佔 [x-5, x+5]。
@@ -9,6 +9,26 @@ const block: Mask = { width: 10, height: 10, solid: new Uint8Array(100).fill(1) 
 const at = (x: number, dir: 1 | -1 = 1, mask = block): Placement => ({ mask, x, y: 0, dir, scale: 1, originY: 1 })
 
 describe('SpriteHitTest', () => {
+  it('finds a silhouette and peak frame after the texture becomes available', () => {
+    let loaded = false
+    const pose = () => ({ key: 'late-sprite', frame: 0, scale: 1, originY: 1 })
+    const frame = { cutX: 0, cutY: 0, cutWidth: 10, cutHeight: 10, source: { image: {} }, texture: { key: 'late-sprite' } }
+    const scene = { textures: { exists: () => loaded, get: () => ({ frameTotal: loaded ? 2 : 1 }), getFrame: () => frame } } as never
+    const hit = createSpriteHitTest(scene, { PLAYER: { pose }, ENEMY: { pose } } as never, () => undefined)
+    const fighter = new CombatWorld().getFighter('PLAYER')
+    const opponent = { ...fighter, id: 'ENEMY' as const, facing: 'LEFT' as const, x: fighter.x + 8 }
+    expect(hit(fighter, opponent)).toBeUndefined()
+    expect(peakFrame(scene, pose().key)).toBeUndefined()
+    loaded = true
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8Array(400).fill(255) }) }) }) })
+    try {
+      expect(hit(fighter, opponent)).toMatchObject({ x: expect.any(Number), y: expect.any(Number) })
+      expect(peakFrame(scene, pose().key)).toBe(0)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('hits within 5 px of the outline and misses beyond it', () => {
     // 間隙 = (dx - 5) - 5；外推 5 → dx ≤ 15 前命中。
     expect(silhouetteContact(at(0), at(14, -1), 5)).not.toBeNull()
@@ -42,6 +62,15 @@ describe('SpriteHitTest', () => {
   it('mirrors with facing and pads dilation past the frame edge', () => {
     expect(silhouetteContact(at(0, -1), at(-14))).not.toBeNull()
     expect(dilate(block, 2)).toMatchObject({ width: 14, height: 14 })
+  })
+  it('expands each solid pixel by the same radius in both directions', () => {
+    const expanded = dilate({ width: 3, height: 2, solid: Uint8Array.of(1, 0, 0, 0, 0, 1) }, 1)
+    expect([...expanded.solid]).toEqual([
+      1, 1, 1, 0, 0,
+      1, 1, 1, 1, 1,
+      1, 1, 1, 1, 1,
+      0, 0, 1, 1, 1,
+    ])
   })
   it('lets the combat world use the silhouette verdict and falls back to AABB when unknown', () => {
     const run = (verdict: { x: number; y: number } | null | undefined) => {

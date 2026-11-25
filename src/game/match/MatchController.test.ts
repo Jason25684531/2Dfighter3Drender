@@ -9,6 +9,29 @@ const neutral: FighterIntent = { moveX: 0, jumpPressed: false, attackPressed: fa
 const closeConfig = (damage = 10): CombatConfig => ({ arenaWidth: 1920, floorY: 820, fighterWidth: 120, fighterHeight: 220, walkSpeed: 18, jumpVelocity: -34, gravity: 3, maxHp: 100, attack: { startupTicks: 3, activeTicks: 2, recoveryTicks: 5, damage, hitStunTicks: 6, hitboxOffset: 90, hitboxWidth: 90, hitboxHeight: 80 }, initialPositions: { PLAYER: 560, ENEMY: 640 } })
 
 describe('EnemyAI and MatchController', () => {
+  it('records a double KO as a drawn round', () => {
+    const match = new MatchController(closeConfig(100))
+    const punch = { ...neutral, attackPressed: true }
+    match.start()
+    match.tick(punch, punch)
+    for (let i = 0; i < 3; i++) match.tick(neutral, neutral)
+    expect(match.getRoundSummaries()).toMatchObject([{ winner: null, finishReason: 'KO', playerHP: 0, enemyHP: 0 }])
+    expect(match.getSnapshot()).toMatchObject({ playerRoundWins: 0, enemyRoundWins: 0 })
+  })
+
+  it('buffers a second-player attack during hit stop', () => {
+    const config = { ...closeConfig(), inputBufferTicks: 3 }
+    Object.assign(config.attack, { hitFreeze: 3, hitStunTicks: 1 })
+    const match = new MatchController(config)
+    match.start()
+    match.tick({ ...neutral, attackPressed: true }, neutral)
+    for (let i = 0; i < 3; i++) match.tick(neutral, neutral)
+    expect(match.world.isFrozen()).toBe(true)
+    match.tick(neutral, { ...neutral, attackPressed: true, attack: 'HEAVY_KICK' })
+    for (let i = 0; i < 3; i++) match.tick(neutral, neutral)
+    expect(match.world.getFighter('ENEMY')).toMatchObject({ attackPhase: 'STARTUP', attack: 'HEAVY_KICK' })
+  })
+
   it('approaches, attacks, guards deterministically, and respects restricted state', () => {
     const distant = new CombatWorld(); const ai = new EnemyAI(); expect(ai.getIntent(distant.getSnapshot()).moveX).toBe(-1)
     const close = new CombatWorld(closeConfig())

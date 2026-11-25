@@ -77,6 +77,8 @@ export class BattleHud extends Phaser.GameObjects.Container {
     this.portrait('p2')
   }
 
+  usePortrait(side: Side, sprite: SpriteId): void { this.pendingPortraits[side] = sprite }
+
   private portrait(side: Side): void {
     const sprite = this.pendingPortraits[side]
     if (!sprite) return

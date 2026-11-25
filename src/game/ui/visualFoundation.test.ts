@@ -40,8 +40,6 @@ describe('visual foundation', () => {
     expect(uiTokens.motionMs.focus).toBeLessThanOrEqual(160)
     expect(uiTokens.motionMs.enter).toBeGreaterThanOrEqual(150)
     expect(uiTokens.motionMs.enter).toBeLessThanOrEqual(250)
-    expect(uiTokens.backdrop.empty).toBeGreaterThanOrEqual(0.45)
-    expect(uiTokens.backdrop.empty).toBeLessThanOrEqual(0.6)
     expect(uiTokens.shadowBlur.impact).toBeGreaterThan(uiTokens.shadowBlur.focal)
     expect(uiTokens.textStroke.impact).toBeGreaterThan(uiTokens.textStroke.announcer)
     expect(uiTokens.colors.playerPrimary).not.toBe(uiTokens.colors.systemBlue)

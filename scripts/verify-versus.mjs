@@ -33,17 +33,19 @@ try {
   // 2 2P 以新確認鍵 L 加入，Enter 不再加入
   await key('Enter'); await waitState('P1'); await page.waitForTimeout(600)
   await key('Enter'); assert.equal(await s((s) => s.p1Model.player('P2').joined), false)
-  assert.ok((await texts()).some((t) => t.includes('PRESS L TO JOIN')))
+  assert.match(await s(s => s.p1View.keysP2.text), /L 加入/)
   await key('l'); assert.equal(await s((s) => s.p1Model.player('P2').joined), true)
   await key('ArrowRight'); await key('ArrowRight'); await key('l'); await key('f')
   assert.ok((await texts()).some((t) => t.includes('1P VS 2P')))
-  await waitState('P2'); await key('Enter'); await waitState('P3'); await key('Enter'); await waitState('P4')
+  await waitState('P2'); await key('Enter'); await waitState('P3')
+  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').current?.ready)
+  await key('Enter'); await waitState('P4')
   check('2P 按改過的確認鍵 L 加入（Enter 無效），提示顯示 L；雙人鎖定進入戰鬥')
 
   // 3 2P 操作 ENEMY，AI 不被呼叫
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').flow.match.getSnapshot().matchState === 'FIGHTING', null, { timeout: 15000 })
   await s((s) => { window.__aiCalls = 0; const ai = s.flow.match.ai, get = ai.getIntent.bind(ai); ai.getIntent = (...args) => { window.__aiCalls += 1; return get(...args) } })
-  assert.ok((await texts()).includes('2P')); assert.ok(!(await texts()).some((t) => /CPU/.test(t)))
+  assert.ok((await texts()).includes('P2')); assert.ok(!(await texts()).some((t) => /CPU/.test(t)))
   const x0 = await s((s) => s.flow.match.getSnapshot().world.fighters.ENEMY.x)
   await page.keyboard.down('ArrowLeft'); await page.waitForTimeout(500); await page.keyboard.up('ArrowLeft')
   const x1 = await s((s) => s.flow.match.getSnapshot().world.fighters.ENEMY.x)

@@ -140,6 +140,14 @@ def test_cancel_interrupts_only_the_running_prompt_and_dequeues_it(client, monke
     assert [path for path, _ in calls] == ['/queue'], "another player's running job is never interrupted"
 
 
+def test_completed_generation_with_missing_assets_fails_permanently(client, monkeypatch, tmp_path):
+    fake_comfy(monkeypatch, tmp_path, UI_WORKFLOW)
+    job = client.post('/api/v1/generation', json={'name': 'Missing', 'template': 3, 'photo': PHOTO}).json()['job']
+    response = client.get('/api/v1/generation/' + job)
+    assert response.status_code == 422
+    assert response.json()['error']['code'] == 'GENERATION_ASSET_INVALID'
+
+
 def test_delete_removes_only_a_generated_character_folder(client, monkeypatch, tmp_path):
     monkeypatch.setattr(generation, 'OUTPUT', tmp_path)
     root = tmp_path / 'taskforce_2028_ftg'
@@ -156,3 +164,22 @@ def test_delete_removes_only_a_generated_character_folder(client, monkeypatch, t
     assert (root / 'not_a_character' / 'notes.txt').exists()
     assert client.delete('/api/v1/generation/assets/..%2F..%2Fsecret').status_code == 404
     assert client.delete('/api/v1/generation/assets/.hidden').status_code == 404
+
+
+def test_thumb_is_the_first_idle_cell_scaled_to_256(client, monkeypatch, tmp_path):
+    from io import BytesIO
+    from PIL import Image
+
+    monkeypatch.setattr(generation, 'OUTPUT', tmp_path)
+    folder = tmp_path / 'taskforce_2028_ftg' / 'Al_S1AW'
+    write_output(folder, 'Al', [action('02', 'Idle')])
+    sheet = Image.new('RGBA', (4096, 2048))
+    sheet.paste((255, 0, 0, 255), (0, 0, 1024, 1024))
+    sheet.save(folder / 'Sprite_Sheet_reference_aligned' / '02_Idle.png')
+
+    response = client.get('/api/v1/generation/assets/Al_S1AW/thumb.png')
+    assert response.status_code == 200 and response.headers['content-type'] == 'image/png'
+    thumb = Image.open(BytesIO(response.content))
+    assert thumb.size == (256, 256)
+    assert thumb.getpixel((128, 128)) == (255, 0, 0, 255), 'only frame 0 of the idle sheet'
+    assert client.get('/api/v1/generation/assets/Missing_S1AW/thumb.png').status_code == 404

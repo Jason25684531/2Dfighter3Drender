@@ -37,7 +37,7 @@ export const uiTokens = {
     shadow: 0x000000,
   },
   opacity: { panel: 0.94, overlay: 0.78, hintBar: 0.82, vignette: 0.42, inactive: 0.78 },
-  backdrop: { empty: 0.56, content: 0.58, battle: 0.16, presentation: 0.22, result: 0.7, end: 0.64, impact: 0.5 },
+  backdrop: { content: 0.58, battle: 0.16, presentation: 0.22, result: 0.7, end: 0.64, impact: 0.5 },
   shadowBlur: { subtle: 18, focal: 24, impact: 34 },
   textStroke: { standard: 8, result: 10, badge: 5, announcer: 12, impact: 25 },
   focusScale: 1.06,

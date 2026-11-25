@@ -1,12 +1,13 @@
 import Phaser from 'phaser'
 import type { OwnedUiAction, PlayerSlotId, UIAction } from '../../input/InputManager'
 import { keyLabel, loadProfiles, menuKeys, SYSTEM_BACK_KEY } from '../../input/ControlProfile'
-import { GRID_COLUMNS, NICKNAME_MAX, sectionOf, selectSectionTitles, type P1SelectionModel, type SelectFeedback, type Slot } from '../../select/P1SelectionModel'
+import { NICKNAME_MAX, sectionOf, selectSectionTitles, type P1SelectionModel, type SelectFeedback, type Slot } from '../../select/P1SelectionModel'
 import { ActionButton, AngularPanel, hintBar } from '../VisualComponents'
 import { spriteDisplayHeight, spriteOriginY, spriteTextureFrame, spriteTextureKey, type SpriteId } from '../animation/TemporarySpriteManifest'
 import { headKey } from './headCrop'
-import { PAD_SYSTEM, padLabel } from '../../input/GamepadProfile'
+import { loadPadProfiles, PAD_SYSTEM, padLabel } from '../../input/GamepadProfile'
 import { isSheetSprite } from '../animation/SheetSpriteManifest'
+import { drawFrame } from '../animation/SpriteHitTest'
 import { colorHex, reducedMotion, uiTokens, type UiColorToken } from '../tokens/uiTokens'
 import { hudDisplay, hudLabel, typography } from '../tokens/typography'
 import { stopOwnedTweens } from '../tweens'
@@ -48,11 +49,7 @@ const identity = {
 const pad = (index: number): string => String(index).padStart(2, '0')
 // 拍照／確認照片共用的取景框（16:9，全幅不裁切）；暱稱頁不佔用。
 const VIEWFINDER = { x: 960, y: 590, width: 800, height: 450 }
-// 第三排名錄沿用設計稿的格距，保留完整 30 格容量。
-const cellRect = (index: number) => {
-  const cell = layout.selectCells[index - 1] ?? layout.selectCells[index - 1 - GRID_COLUMNS]
-  return { ...cell, y: cell.y + (index > layout.selectCells.length ? 98 : 0) }
-}
+const cellRect = (index: number) => layout.selectCells[index - 1]
 const cellCenter = (index: number): { x: number; y: number } => {
   const { x, y, w, h } = cellRect(index)
   return { x: x + w / 2, y: y + h / 2 }
@@ -78,7 +75,7 @@ function fitPreview(image: Phaser.GameObjects.Sprite, left: boolean, parentX: nu
   if (!probe) return
   const frames = image.anims.currentAnim?.frames.map(({ frame }) => frame) ?? [image.frame]
   for (const frame of frames) {
-    probe.drawImage(frame.source.image as CanvasImageSource, frame.cutX, frame.cutY, frame.cutWidth, frame.cutHeight, 0, 0, n, n)
+    drawFrame(probe, frame, n, n)
   }
   const pixels = probe.getImageData(0, 0, n, n).data
   let minX = n, minY = n, maxX = 0, maxY = 0
@@ -144,8 +141,8 @@ class HeroPreview extends Phaser.GameObjects.Container {
   show(slot: Slot | undefined, stamp: 'READY' | 'LOCKED' | 'CPU' | undefined, nickname = '', dim = false): void {
     // 兩側全身放大約 5 倍：原圖待機（AppScene 選到時載入）到了就換，精簡版只當載入前的替身。
     const compact = slot?.entry?.spriteId, sprite: SpriteId | undefined = compact && this.scene.textures.exists(`hd-${compact}-idle`) ? `hd-${compact}` : compact
-    const texture = slot?.entry?.heroTextureKey ?? (sprite && spriteTextureKey(sprite, 'idle'))
-    const key = `${slot?.index}|${stamp}|${nickname}|${dim}|${sprite}|${slot?.entry?.type}|${slot?.entry?.heroTextureKey}|${Boolean(texture && this.scene.textures.exists(texture))}`
+    const texture = sprite && spriteTextureKey(sprite, 'idle')
+    const key = `${slot?.index}|${stamp}|${nickname}|${dim}|${sprite}|${slot?.entry?.type}|${Boolean(texture && this.scene.textures.exists(texture))}`
     if (key === this.key) return
     const relock = Boolean(stamp) && this.key.split('|')[1] === 'undefined'
     this.key = key
@@ -156,13 +153,13 @@ class HeroPreview extends Phaser.GameObjects.Container {
     this.ring?.setY(slot ? previewFloor - this.ring.height / 2 : layout.select['ring-p2'].y)
     this.setAlpha(dim ? 0.4 : 1)
     const body = slot?.type === 'BODY_TEMPLATE'
-    if (texture && this.scene.textures.exists(texture)) {
-      const image = this.scene.add.sprite(0, 0, texture, slot?.entry?.heroTextureKey ? undefined : spriteTextureFrame(sprite)).setOrigin(0.5, slot?.entry?.heroTextureKey ? 1 : sprite ? spriteOriginY(sprite) : 1).setFlipX(this.owner === 'P2')
-      if (isSheetSprite(sprite) && !body && !slot?.entry?.heroTextureKey && !reducedMotion && this.scene.anims.exists(`${sprite}-idle`)) image.play(`${sprite}-idle`)
-      image.setScale(p1.hero.height * (this.mainGrid ? 0.9 : 1) / image.height * (slot?.entry?.heroTextureKey ? 1 : sprite ? spriteDisplayHeight(sprite) / 520 : 1))
+    if (sprite && texture && this.scene.textures.exists(texture)) {
+      const image = this.scene.add.sprite(0, 0, texture, spriteTextureFrame(sprite)).setOrigin(0.5, spriteOriginY(sprite)).setFlipX(this.owner === 'P2')
+      if (isSheetSprite(sprite) && !body && !reducedMotion && this.scene.anims.exists(`${sprite}-idle`)) image.play(`${sprite}-idle`)
+      image.setScale(p1.hero.height * (this.mainGrid ? 0.9 : 1) / image.height * spriteDisplayHeight(sprite) / 520)
       if (this.mainGrid) fitPreview(image, this.owner === 'P1', this.x, this.y)
       // Body 只顯示身形剪影（暫用替身 sprite 的輪廓），不冒充已生成角色。
-      if (body && !slot?.entry?.heroTextureKey) { image.setTintFill(colors.textPrimary).setAlpha(0.5); glowOn(image, colors.resultGold, 3) }
+      if (body) { image.setTintFill(colors.textPrimary).setAlpha(0.5); glowOn(image, colors.resultGold, 3) }
       else glowOn(image, id.main)
       if (relock && !body && !reducedMotion) { image.setTintFill(colors.textPrimary); this.flash = this.scene.time.delayedCall(60, () => image.active && image.clearTint()) }
       this.figure = image
@@ -620,9 +617,10 @@ export class P1SelectView {
       const cameraNote = label(scene, VIEWFINDER.x, VIEWFINDER.y, 'CAMERA CONNECTING · 相機連線中（請允許使用相機）', 'systemBlue', type.body).setOrigin(0.5)
       root.add(cameraNote); this.startCamera(owner, cameraNote, bandText)
       root.add(label(scene, 960, 840, 'ALIGN YOUR FACE · 把臉對準框裡，正面直視鏡頭', 'textPrimary', type.body).setOrigin(0.5))
-      button('BACK', `${id.back} · 返回上一頁`, 660, colors.panelRaised, 'BACK', 260)
-      this.primary = button('TAKE PHOTO', `${id.confirm} / ENTER / □ · 拍照`, 1260, id.main, 'CONFIRM', 260).setEnabled(!player.faceGenUsed)
-      const skip = new ActionButton(scene, 'SKIP PHOTO', 260, 84, colors.panelRaised, `${keyLabel(loadProfiles()[owner].LIGHT_KICK)} · 跳過拍照`).setPosition(960, 940)
+      const pad = loadPadProfiles()[owner]
+      button('BACK', `${id.back} / ${padLabel(PAD_SYSTEM.BACK)} · 返回上一頁`, 660, colors.panelRaised, 'BACK', 260)
+      this.primary = button('TAKE PHOTO', `${id.confirm} / ENTER / ${padLabel(pad.LIGHT_KICK)} ${padLabel(pad.LIGHT_PUNCH)} · 拍照`, 1260, id.main, 'CONFIRM', 260).setEnabled(!player.faceGenUsed)
+      const skip = new ActionButton(scene, 'SKIP PHOTO', 260, 84, colors.panelRaised, `${keyLabel(loadProfiles()[owner].LIGHT_KICK)} / ${padLabel(pad.HEAVY_KICK)} · 跳過拍照`).setPosition(960, 940)
       skip.on('pointerup', () => this.hooks.onSkip?.()); root.add(skip)
       this.nameHint = label(scene, 960, 876, player.faceGenUsed ? FACE_USED_HINT : '', 'textSecondary').setOrigin(0.5).setVisible(Boolean(player.faceGenUsed)); root.add(this.nameHint)
     } else if (model.phase === 'REVIEW') {

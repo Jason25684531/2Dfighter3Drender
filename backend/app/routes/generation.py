@@ -4,12 +4,15 @@ import json
 import os
 import re
 import shutil
+from functools import lru_cache
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+from PIL import Image
 from pydantic import BaseModel, Field
 
 from app.errors import ApiError
@@ -141,7 +144,7 @@ def delete_generation_asset(asset_id: str):
     folder = asset_folder(asset_id)
     if not (folder / 'manifest' / 'game_manifest.json').is_file():
         raise ApiError('NOT_FOUND', 404, 'Character asset not found')
-    # ponytail: does not check for a still-running generation into this folder; ComfyUI recreates it if one finishes later.
+    # ponytail: check and cancel jobs targeting this folder if players can delete a character while regenerating it.
     shutil.rmtree(folder)
 
 
@@ -151,6 +154,26 @@ def generation_sheet(asset_id: str, filename: str):
     if not re.fullmatch(r'[A-Za-z0-9_]+\.png', filename) or not path.is_file():
         raise ApiError('NOT_FOUND', 404, 'Sheet not found')
     return FileResponse(path, media_type='image/png')
+
+
+@lru_cache(maxsize=64)
+def idle_thumb(path: Path, cell: int, modified: float) -> bytes:
+    with Image.open(path) as sheet:
+        frame = sheet.crop((0, 0, cell, cell)).resize((256, 256), Image.Resampling.LANCZOS)
+    buffer = BytesIO()
+    frame.save(buffer, 'PNG')
+    return buffer.getvalue()
+
+
+@router.get('/generation/assets/{asset_id}/thumb.png')
+def generation_thumb(asset_id: str):
+    """Frame 0 of the idle sheet at 256px: the select grid only needs a head, not the 4096px sheet."""
+    try:
+        idle = next(sheet for action, sheet in read_asset(asset_id)['actions'].items() if action.startswith('02_'))
+        path = asset_folder(asset_id) / 'Sprite_Sheet_reference_aligned' / idle['filename']
+        return Response(idle_thumb(path, idle['cellSize'], path.stat().st_mtime), media_type='image/png')
+    except (OSError, ValueError, KeyError, TypeError, StopIteration) as error:
+        raise ApiError('NOT_FOUND', 404, 'Character asset not found') from error
 
 
 @router.delete('/generation/{job}', status_code=204)
@@ -188,6 +211,9 @@ async def generation_status(job: str):
             return {'status': 'failed'}
         if not status.get('completed'):
             return {'status': 'processing'}
-        return {'status': 'ready', **read_asset(asset_id)}
     except (OSError, KeyError, ValueError, httpx.HTTPError) as error:
         raise ApiError('GENERATION_UNAVAILABLE', 502, 'ComfyUI result unavailable') from error
+    try:
+        return {'status': 'ready', **read_asset(asset_id)}
+    except (OSError, KeyError, ValueError, TypeError) as error:
+        raise ApiError('GENERATION_ASSET_INVALID', 422, 'Completed character assets are missing or invalid') from error

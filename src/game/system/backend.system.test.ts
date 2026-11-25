@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ApiClient } from '../api/ApiClient'
 import { ExperienceContext } from '../app/ExperienceContext'
 import { ExperiencePersistence } from '../app/ExperiencePersistence'
+import { resolveMatchResult } from '../match/ResultResolver'
 
 const api = new ApiClient({ baseUrl: import.meta.env.VITE_SYSTEM_API_BASE_URL, timeoutMs: 2000 })
 
@@ -18,9 +19,11 @@ describe('D8 backend system flow', () => {
     const firstFinished = await api.finishMatch(first.id, { outcome: 'WIN', finish_reason: 'KO', player_round_wins: 2, enemy_round_wins: 0, remaining_hp: 50, max_combo: 3, client_score: 1850, client_title: 'COMBO CONTENDER', finish_request_id: `${suffix}:finish:1` })
     expect(firstFinished.status).toBe('FINISHED')
 
-    const replay = await api.createMatch({ session_id: session.id, client_request_id: `${suffix}:match:2` })
+    const replay = await api.createMatch({ session_id: session.id, client_request_id: `${suffix}:match:2`, difficulty: 'HELL' })
     expect(replay.match_number).toBe(2)
-    await api.finishMatch(replay.id, { outcome: 'WIN', finish_reason: 'KO', player_round_wins: 2, enemy_round_wins: 0, remaining_hp: 80, max_combo: 3, client_score: 1880, client_title: 'UNTOUCHABLE', finish_request_id: `${suffix}:finish:2` })
+    const result = resolveMatchResult({ winner: 'PLAYER', finishReason: 'KO', playerRoundWins: 2, enemyRoundWins: 0, remainingPlayerHP: 80, maxPlayerCombo: 3 }, 'HELL')
+    const stored = await api.finishMatch(replay.id, { outcome: result.outcome, finish_reason: result.finishReason, player_round_wins: result.playerRoundWins, enemy_round_wins: result.enemyRoundWins, remaining_hp: result.remainingPlayerHP, max_combo: result.maxPlayerCombo, client_score: result.score, client_title: result.title, finish_request_id: `${suffix}:finish:2` })
+    expect([stored.score, stored.title]).toEqual([result.score, result.title])
     const entries = await api.leaderboard()
     expect(entries.filter((entry) => entry.session_id === session.id)).toHaveLength(1)
     expect(entries.find((entry) => entry.session_id === session.id)?.match_id).toBe(replay.id)

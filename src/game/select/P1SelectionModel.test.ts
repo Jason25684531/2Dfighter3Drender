@@ -56,17 +56,17 @@ describe('P1 selection model', () => {
       model.slot(5).status = status; expect(model.input('P1', 'CONFIRM')).toBe('REJECTED'); expect(model.player('P1').locked).toBeUndefined()
     }
   })
-  it('lays out 40 honest slots: 4 body templates, 6 officers, the rest empty', () => {
+  it('lays out 30 honest slots: 4 body templates, 6 officers, the rest empty', () => {
     const { slots } = new P1SelectionModel()
-    expect(slots).toHaveLength(40)
+    expect(slots).toHaveLength(30)
     expect(slots.slice(0, 4).map((slot) => slot.entry?.displayName)).toEqual(['BODY 01', 'BODY 02', 'BODY 03', 'BODY 04'])
     expect(slots.slice(4, 10).map((slot) => slot.entry?.displayName)).toEqual(['GO', 'SE7EN', 'Joneey', 'YG', 'Tony', 'Chris'])
     expect(slots.slice(10).every((slot) => slot.type === 'EMPTY' && !slot.entry)).toBe(true)
     expect(new P1SelectionModel([]).slots.slice(0, 4).map(slot => slot.entry?.id)).toEqual(['body-01', 'body-02', 'body-03', 'body-04'])
   })
-  it('splits the grid into CUSTOMIZE 01–04, OFFICERS 05–10, ROSTER 11–40 with counts', () => {
-    expect([1, 4, 5, 10, 11, 40].map(sectionOf)).toEqual(['CUSTOMIZE', 'CUSTOMIZE', 'OFFICERS', 'OFFICERS', 'ROSTER', 'ROSTER'])
-    expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 6, total: 6 }, ROSTER: { used: 0, total: 30 } })
+  it('splits the grid into CUSTOMIZE 01–04, OFFICERS 05–10, ROSTER 11–30 with counts', () => {
+    expect([1, 4, 5, 10, 11, 30].map(sectionOf)).toEqual(['CUSTOMIZE', 'CUSTOMIZE', 'OFFICERS', 'OFFICERS', 'ROSTER', 'ROSTER'])
+    expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 6, total: 6 }, ROSTER: { used: 0, total: 20 } })
   })
   it('displays four sections and counts the occupied roster slots', () => {
     const guests: CharacterEntry[] = Array.from({ length: 11 }, (_, i) => ({ id: `guest-${i}`, displayName: `Guest ${i}`, type: 'CUSTOM', status: 'READY' }))
@@ -74,7 +74,7 @@ describe('P1 selection model', () => {
       body: '化身鬥士 ×4 ｜ 拍照換臉',
       saga: 'ROG SAGA 英雄 ×2',
       guest: '特邀鬥士 ×4 ｜ 直接參戰',
-      roster: '參戰者名錄 ｜ FIGHTER ROSTER ｜ 11 / 30',
+      roster: '參戰者名錄 ｜ FIGHTER ROSTER ｜ 11 / 20',
     })
   })
   it('puts generated characters in ROSTER and overflows extra featured characters after OFFICERS', () => {
@@ -90,10 +90,15 @@ describe('P1 selection model', () => {
     const model = new P1SelectionModel([...bodyTemplates, ...Object.values(testCharacterManifest), ...generated])
     expect(model.slots.slice(10, 12).map(({ entry }) => entry?.id)).toEqual(['generated-one', 'generated-two'])
   })
+  it('shows the newest 20 generated characters when more are stored (oldest first from the backend)', () => {
+    const generated: CharacterEntry[] = Array.from({ length: 25 }, (_, i) => ({ id: `generated-${i}`, displayName: `${i}`, type: 'CUSTOM', status: 'READY' }))
+    const roster = buildSlots(generated).slice(10).map(({ entry }) => entry?.id)
+    expect(roster).toEqual(generated.slice(5).map(({ id }) => id))
+  })
   it('wraps row-major horizontally and column-wise vertically', () => {
-    expect(moveSlot(5, 'NAV_DOWN')).toBe(15); expect(moveSlot(17, 'NAV_UP')).toBe(7); expect(moveSlot(7, 'NAV_UP')).toBe(37)
-    expect(moveSlot(35, 'NAV_DOWN')).toBe(5); expect(moveSlot(3, 'NAV_UP')).toBe(33)
-    expect(moveSlot(10, 'NAV_RIGHT')).toBe(11); expect(moveSlot(40, 'NAV_RIGHT')).toBe(1); expect(moveSlot(1, 'NAV_LEFT')).toBe(40)
+    expect(moveSlot(5, 'NAV_DOWN')).toBe(15); expect(moveSlot(17, 'NAV_UP')).toBe(7); expect(moveSlot(7, 'NAV_UP')).toBe(27)
+    expect(moveSlot(25, 'NAV_DOWN')).toBe(5); expect(moveSlot(3, 'NAV_UP')).toBe(23)
+    expect(moveSlot(10, 'NAV_RIGHT')).toBe(11); expect(moveSlot(30, 'NAV_RIGHT')).toBe(1); expect(moveSlot(1, 'NAV_LEFT')).toBe(30)
   })
   it('keeps cursors independent, rejects empty slots, and requires an explicit 2P join', () => {
     const model = new P1SelectionModel()
@@ -110,6 +115,13 @@ describe('P1 selection model', () => {
     expect(model.heroSlot('P1')?.index).toBe(5); expect(model.player('P1').cursor).toBe(5)
     model.input('P1', 'BACK'); press(model, 'P1', 'NAV_RIGHT'); expect(model.heroSlot('P1')?.index).toBe(6)
     expect(model.heroSlot('P2')?.index).toBe(6)
+  })
+  it('drops a retaken photo when the player skips the photo step instead', () => {
+    const model = new P1SelectionModel(); model.focus('P1', 2); model.input('P1', 'CONFIRM'); model.setNickname('P1', 'DEMO'); model.input('P1', 'CONFIRM')
+    model.setPhoto('P1', 'data:image/jpeg;base64,x'); model.input('P1', 'CONFIRM'); model.input('P1', 'BACK')
+    expect(model.phase).toBe('CUSTOMIZE')
+    model.skipCustomize()
+    expect(model.player('P1').photo).toBeUndefined()
   })
   it('defaults the CPU opponent to the next officer, never a body template', () => {
     const body = new P1SelectionModel(); body.focus('P1', 2); body.input('P1', 'CONFIRM'); body.setNickname('P1', 'DEMO'); body.input('P1', 'CONFIRM'); body.skipCustomize()

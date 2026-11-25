@@ -1,39 +1,19 @@
 import Phaser from 'phaser'
 import type { FighterSnapshot } from '../../combat/CombatWorld'
+import { lungeFor } from '../../config/hitTuning'
 import { uiTokens } from '../tokens/uiTokens'
 import { presentationSheetFor, resolvePresentation, spriteActionFor, spriteDisplayHeight, spriteFrameFor, spriteOriginY, spriteTextureFrame, spriteTextureKey, type Presentation, type PresentationContext, type SpriteAction, type SpriteId } from './TemporarySpriteManifest'
-import { isSheetSprite } from './SheetSpriteManifest'
-import { crouchFrame, peakFrame } from './SpriteHitTest'
+import { alignedSprites, isSheetSprite } from './SheetSpriteManifest'
+import { crouchFrame, groundOrigin, peakFrame } from './SpriteHitTest'
 
 
 /** 起身無敵：固定半透明，不閃爍。 */
 const INVULNERABLE_ALPHA = 0.6
-const groundOrigins = new WeakMap<Phaser.Textures.Frame, number>()
-
-function groundOrigin(frame: Phaser.Textures.Frame, fallback: number): number {
-  if (!frame.source?.image) return fallback
-  const cached = groundOrigins.get(frame)
-  if (cached !== undefined) return cached
-  const width = 128, height = 256
-  const probe = Object.assign(document.createElement('canvas'), { width, height }).getContext('2d', { willReadFrequently: true })
-  if (!probe) return fallback
-  probe.drawImage(frame.source.image as CanvasImageSource, frame.cutX, frame.cutY, frame.cutWidth, frame.cutHeight, 0, 0, width, height)
-  const pixels = probe.getImageData(0, 0, width, height).data
-  for (let y = height - 1; y >= 0; y--) {
-    let solid = 0
-    for (let x = 0; x < width; x++) if (pixels[(y * width + x) * 4 + 3] > 32) solid++
-    if (solid < 2) continue
-    const origin = (y + 1) / height
-    groundOrigins.set(frame, origin)
-    return origin
-  }
-  groundOrigins.set(frame, fallback)
-  return fallback
-}
+export type SpritePose = { key: string; frame: string | number; scale: number; originY: number }
 
 export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private readonly shadow: Phaser.GameObjects.Ellipse
-  private readonly image?: Phaser.GameObjects.Image
+  private image?: Phaser.GameObjects.Image
   private action?: SpriteAction
   private fighterState?: FighterSnapshot['state']
   /** 目前播放的呈現語意（sheet 角色）；攻擊期間鎖定。 */
@@ -44,30 +24,44 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
   private frameFloor = 0
   private attackId = 0
   private lastTick?: number
-  private previousPosition = { x: 0, y: 0 }
-  private currentPosition = { x: 0, y: 0 }
+  private previousPosition = { x: 0, y: 0, lift: 0 }
+  private currentPosition = { x: 0, y: 0, lift: 0 }
   private direction = 1
 
-  constructor(scene: Phaser.Scene, readonly spriteId: SpriteId | undefined, private readonly floorY: number) {
+  constructor(scene: Phaser.Scene, public spriteId: SpriteId | undefined, private readonly floorY: number) {
     super(scene, 0, 0)
     this.shadow = scene.add.ellipse(0, 5, 280, 42, uiTokens.colors.shadow, 0.48)
     this.add(this.shadow)
-    if (spriteId && scene.textures.exists(spriteTextureKey(spriteId, 'idle'))) {
-      const key = spriteTextureKey(spriteId, 'idle')
+    this.ensureImage()
+  }
+
+  private ensureImage(): void {
+    const { scene, spriteId } = this
+    if (!this.image && spriteId) {
+      const key = this.textureKey(spriteId, 'idle')
+      if (!scene.textures.exists(key)) return
       this.image = scene.add.image(0, 0, key, spriteTextureFrame(spriteId)).setOrigin(0.5, spriteOriginY(spriteId))
       this.image.setScale(spriteDisplayHeight(spriteId) / this.image.height)
       this.add(this.image)
     }
   }
 
+  private textureKey(id: SpriteId, action: SpriteAction, frame = 0, sheet?: string): string {
+    const key = sheet ? `${id}-${sheet}` : spriteTextureKey(id, action, frame)
+    return id in alignedSprites && this.scene.textures.exists(`hd-${key}`) ? `hd-${key}` : key
+  }
+
   update(fighter: FighterSnapshot, tick: number, context?: PresentationContext): void {
-    const position = { x: fighter.x, y: fighter.y }
+    const action = spriteActionFor(fighter, context)
+    const progress = action === 'attack' ? fighter.lungeProgress : undefined, hop = lungeFor(this.spriteId)?.[fighter.attack]?.hop ?? 0
+    const lift = progress === undefined || progress === 1 || !fighter.grounded ? 0 :Math.sin(Math.PI * progress) * hop
+    const position = { x: fighter.x, y: fighter.y, lift }
     this.previousPosition = tick === (this.lastTick ?? -2) + 1 ? this.currentPosition : position
     this.currentPosition = position; this.lastTick = tick; this.direction = fighter.facing === 'LEFT' ? -1 : 1
+    this.ensureImage()
     this.renderAt(1)
     if (!this.image || !this.spriteId) return
     this.image.setAlpha(fighter.invulnerableTicks > 0 ? INVULNERABLE_ALPHA : 1)
-    const action = spriteActionFor(fighter, context)
     // 招式在新 attackId 出現時鎖定，攻擊中途不因放開蹲鍵等而換圖。
     const presentation = !isSheetSprite(this.spriteId) ? undefined : action === 'attack' && fighter.attackId === this.attackId && this.action === 'attack' ? this.presentation : resolvePresentation(fighter, context)
     if (action !== this.action || presentation !== this.presentation || fighter.state !== this.fighterState || (action === 'attack' && fighter.attackId !== this.attackId) || tick < this.actionStartTick) {
@@ -76,40 +70,51 @@ export class TemporarySpriteRenderer extends Phaser.GameObjects.Container {
     }
     const sheet = presentation && presentationSheetFor(this.spriteId, presentation)
     const frame = this.shownFrame = Math.max(this.frameFloor, spriteFrameFor(fighter, action, tick - this.actionStartTick, this.spriteId, this.peak(action, sheet), sheet))
-    const key = sheet ? `${this.spriteId}-${sheet}` : spriteTextureKey(this.spriteId, action, frame)
+    const key = this.textureKey(this.spriteId, action, frame, sheet)
     const textureFrame = spriteTextureFrame(this.spriteId, frame)
     if (this.scene.textures.exists(key) && (this.image.texture.key !== key || (textureFrame !== undefined && String(this.image.frame.name) !== String(textureFrame)))) this.image.setTexture(key, textureFrame).setScale(spriteDisplayHeight(this.spriteId) / this.image.height)
-    this.image.setOrigin(0.5, this.originFor(this.image.frame, fighter.grounded))
+    this.image.setOrigin(0.5, this.originFor(this.image.frame, fighter.grounded && progress === undefined))
   }
 
   private originFor(frame: Phaser.Textures.Frame, grounded: boolean): number {
     const fallback = spriteOriginY(this.spriteId!)
     if (grounded) return groundOrigin(frame, fallback)
-    const idle = this.scene.textures.getFrame(spriteTextureKey(this.spriteId!, 'idle'), spriteTextureFrame(this.spriteId))
+    const idle = this.scene.textures.getFrame(this.textureKey(this.spriteId!, 'idle'), spriteTextureFrame(this.spriteId))
     return idle ? groundOrigin(idle, fallback) : fallback
   }
 
   private peak(action: SpriteAction, sheet?: string): number | undefined {
     if (!sheet) return undefined
+    // The compact and full-size sheets share the same frame indices.
     const key = `${this.spriteId}-${sheet}`
     return action === 'attack' ? peakFrame(this.scene, key) : action === 'guard' && sheet === 'crouch' ? crouchFrame(this.scene, key) : undefined
   }
 
   /** 命中判定用：攻擊中依 snapshot 算當下影格（與 update 同規則，招式鎖定），其餘用目前顯示的影格。 */
-  pose(fighter: FighterSnapshot, context?: PresentationContext): { key: string; frame: string | number; scale: number; originY: number } | undefined {
+  pose(fighter: FighterSnapshot, context?: PresentationContext): SpritePose | undefined {
     const { image, spriteId: id } = this
     if (!image || !id) return undefined
     if (spriteActionFor(fighter, context) !== 'attack') return { key: image.texture.key, frame: image.frame.name, scale: spriteDisplayHeight(id) / image.height, originY: this.originFor(image.frame, fighter.grounded) }
     const presentation = !isSheetSprite(id) ? undefined : fighter.attackId === this.attackId && this.action === 'attack' ? this.presentation : resolvePresentation(fighter, context)
     const sheet = presentation && presentationSheetFor(this.spriteId, presentation), frame = spriteFrameFor(fighter, 'attack', 0, id, this.peak('attack', sheet), sheet)
-    const key = sheet ? `${id}-${sheet}` : spriteTextureKey(id, 'attack', frame), name = spriteTextureFrame(id, frame) ?? image.frame.name
+    const key = this.textureKey(id, 'attack', frame, sheet), name = spriteTextureFrame(id, frame) ?? image.frame.name
     const textureFrame = this.scene.textures.getFrame(key, name)
-    return { key, frame: name, scale: spriteDisplayHeight(id) / (textureFrame?.height ?? image.height), originY: this.originFor(textureFrame ?? image.frame, fighter.grounded) }
+    return { key, frame: name, scale: spriteDisplayHeight(id) / (textureFrame?.height ?? image.height), originY: this.originFor(textureFrame ?? image.frame, fighter.grounded && fighter.lungeProgress === undefined) }
+  }
+
+  idlePose(): SpritePose | undefined {
+    const id = this.spriteId
+    if (!id) return undefined
+    const key = this.textureKey(id, 'idle')
+    if (!this.scene.textures.exists(key)) return undefined
+    const frame = this.scene.textures.getFrame(key, spriteTextureFrame(id))
+    return { key, frame: frame.name, scale: spriteDisplayHeight(id) / frame.height, originY: groundOrigin(frame, spriteOriginY(id)) }
   }
 
   renderAt(alpha: number): void {
     const lerp = (key: keyof typeof this.currentPosition): number => this.previousPosition[key] + (this.currentPosition[key] - this.previousPosition[key]) * alpha
     this.setPosition(lerp('x'), lerp('y')); this.setScale(this.direction, 1)
+    this.image?.setY(-lerp('lift'))
     this.shadow.setY(this.floorY - this.y + 5)
   }
   /** 受擊閃白：整隻染白 ms 毫秒。 */

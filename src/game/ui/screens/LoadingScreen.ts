@@ -1,6 +1,6 @@
 import type Phaser from 'phaser'
 import { AppState } from '../../state/AppState'
-import type { InputManager } from '../../input/InputManager'
+import type { InputManager, PlayerSlotId } from '../../input/InputManager'
 import { keyLabel, type CombatAction, type ControlProfiles } from '../../input/ControlProfile'
 import { padLabel, type PadProfiles } from '../../input/GamepadProfile'
 import { faceKey, type GenerationJobs } from '../../app/GenerationJobs'
@@ -8,13 +8,14 @@ import { intentFromInput, type CombatEvent } from '../../combat/CombatWorld'
 import { MatchController, ROUND_TICKS } from '../../match/MatchController'
 import { practiceTick } from '../../match/practice'
 import { FIXED_STEP_MS, type GameClock } from '../../time/GameClock'
-import type { PresentationContext } from '../animation/TemporarySpriteManifest'
+import type { PresentationContext, SpriteId } from '../animation/TemporarySpriteManifest'
 import { BattleView } from '../battle/BattleView'
 import { ActionButton, AngularPanel, KeyCap } from '../VisualComponents'
 import { colorHex, reducedMotion, uiTokens } from '../tokens/uiTokens'
 import { typography } from '../tokens/typography'
 import { LOADING_TITLE, loadingStatus } from '../ViewModels'
 import { resolveStageAsset } from '../assets/TestAssetManifest'
+import { alignedAnimations, alignedSprites } from '../animation/SheetSpriteManifest'
 import { ArenaScreen, type Matchup, type ScreenContext } from './ScreenView'
 
 export type LoadingOptions = { matchup: Matchup; controls: ControlProfiles; pads: PadProfiles; input: InputManager; clock: GameClock; jobs: GenerationJobs; retry: () => boolean }
@@ -30,6 +31,7 @@ export class LoadingScreen extends ArenaScreen {
   private readonly enemyContext: PresentationContext = {}
   private promptDevice?: string
   private readonly button: ActionButton
+  private readonly skipButton: ActionButton
   private readonly title: Phaser.GameObjects.Text
   private readonly bar: Phaser.GameObjects.Rectangle
   private readonly percent: Phaser.GameObjects.Text
@@ -65,8 +67,13 @@ export class LoadingScreen extends ArenaScreen {
     this.button = new ActionButton(scene, 'FIGHT!', 300, 92, colors.playerPrimary, `${keyLabel(controls.P1.LIGHT_PUNCH)} / ENTER / ${padLabel(pads.P1.LIGHT_KICK)}`).setPosition(165, 0).setEnabled(false)
     const fight = (): void => { if (!options.retry() && this.ready) ctx.go(AppState.BATTLE) }
     this.button.on('pointerup', fight)
-    loading.add([this.title, scene.add.rectangle(-315, 15, 300, 12, colors.background0).setOrigin(0, 0.5), this.bar, this.percent, this.button]); root.add(loading)
+    this.skipButton = new ActionButton(scene, '略過生成', 172, 44, colors.panel).setPosition(-110, 44).setEnabled(false).setVisible(false)
+    this.skipButton.label.setFontFamily(uiTokens.fonts.zh).setFontSize(22)
+    const skip = (): void => { if (options.jobs.skipFailed()) ctx.go(AppState.BATTLE) }
+    this.skipButton.on('pointerup', skip)
+    loading.add([this.title, scene.add.rectangle(-315, 15, 300, 12, colors.background0).setOrigin(0, 0.5), this.bar, this.percent, this.button, this.skipButton]); root.add(loading)
     this.focusable('loading', 'loading-fight', this.button, fight, false)
+    this.focusable('loading', 'loading-skip-generation', this.skipButton, skip, false)
     this.refresh()
   }
 
@@ -86,20 +93,34 @@ export class LoadingScreen extends ArenaScreen {
 
   destroy(): void { this.unsubscribe(); this.view.destroy(); super.destroy() }
 
+  useGeneratedSprite(owner: PlayerSlotId, sprite: SpriteId): void { this.view.setSprite(owner === 'P1' ? 'PLAYER' : 'ENEMY', sprite) }
+  get canSkipGeneration(): boolean { return this.options.jobs.canSkip }
+
+  /** 本場兩位角色的原圖圖集已上傳幾成；圖集用 fetch 載入、不經 Phaser loader，所以直接數貼圖。 */
+  private assetProgress(): number {
+    const { playerSprite, enemySprite } = this.options.matchup
+    const keys = [playerSprite, enemySprite].flatMap((sprite) => sprite ? alignedAnimations.map(({ key }) => `${sprite in alignedSprites ? `hd-${sprite}` : sprite}-${key}`) : [])
+    return keys.length ? keys.filter((key) => this.scene.textures.exists(key)).length / keys.length : 1
+  }
+
   private refresh(): void {
     const { scene, options: { jobs } } = this
     // 生成中在狀態列左側顯示拍攝頭像（只顯示 1P；2P 的生成狀態併在同一條狀態）。
     if (!this.face && jobs.has('P1') && scene.textures.exists(faceKey('P1'))) { this.face = scene.add.image(1130, 985, faceKey('P1')).setDisplaySize(80, 80); this.root.add(this.face) }
-    const boot = scene.scene.get('BootScene').load
     const generationFailed = jobs.failed, assetFailed = jobs.assets === 'failed', generating = jobs.generating
-    const busy = boot.isLoading() || scene.load.isLoading() || generating || jobs.assets === 'idle' || jobs.assets === 'loading'
-    const progress = busy ? (scene.load.isLoading() ? scene.load.progress : boot.progress) : 1
+    const busy = generating || jobs.assets === 'idle' || jobs.assets === 'loading'
+    const progress = busy ? this.assetProgress() : 1
     this.bar.setScale(generating ? 0.5 : progress, 1)
-    this.percent.setText(generationFailed ? '生成失敗 · 可重試' : assetFailed ? '載入失敗 · 可重試' : generating ? '角色生成中 · 先練習' : busy ? Math.round(progress * 100) + '%' : 'READY · 可開戰')
+    this.percent.setText(generationFailed ? '生成失敗' : assetFailed ? '載入失敗 · 可重試' : generating ? '角色生成中 · 先練習' : busy ? Math.round(progress * 100) + '%' : 'READY · 可開戰')
     this.button.label.setText(generationFailed || assetFailed ? 'RETRY · 重試' : 'FIGHT!')
     const status = LOADING_TITLE[loadingStatus({ busy, generating, failed: generationFailed || assetFailed })]
     this.title.setText(status.text).setColor(colorHex(status.color))
     const ready = !busy && !generationFailed && !assetFailed
+    const canSkip = this.canSkipGeneration && !busy
+    if (this.skipButton.visible !== canSkip) {
+      this.skipButton.setVisible(canSkip).setEnabled(canSkip)
+      this.ctx.ui.focus.setEnabled('loading', 'loading-skip-generation', canSkip)
+    }
     // 失敗時按鈕仍可按（＝重試），只有忙碌中停用。
     if (this.ready !== ready || this.button.input?.enabled !== !busy) {
       this.ready = ready; this.button.setEnabled(!busy); this.ctx.ui.focus.setEnabled('loading', 'loading-fight', !busy)

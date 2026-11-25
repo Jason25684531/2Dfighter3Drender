@@ -86,8 +86,15 @@ try {
   check('算圖進行中：選角 BACK／Esc、選場景 Esc、練習 Esc 都被擋下並顯示提示，狀態不變')
   generation = 'failed'
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').jobs.failed === true, null, { timeout: 20000 })
-  await key('Escape'); await waitState('P0')
-  check('算圖失敗後放行：Esc 可回主畫面（機台不會卡死）')
+  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').jobs.assets === 'ready')
+  await key('Enter')
+  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').jobs.generating)
+  await page.waitForFunction(() => window.__game.scene.getScene('AppScene').jobs.failed)
+  await key('ArrowDown')
+  assert.equal(await s(s => s.ui.focus.current()), 'loading-skip-generation')
+  await key('Enter'); await waitState('P4')
+  assert.equal(await s(s => s.current.view.player.spriteId), 's3ww')
+  check('算圖失敗後可重試，也可略過生成並以暫用身形開戰')
   await home()
 
   // 5 2P：兩人各自暱稱頁 → 拍照頁；2P 不能與 1P 同名；2P 返回只影響自己
