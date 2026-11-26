@@ -8,7 +8,7 @@ import { API_BASE } from './ApiClient'
 
 const base = API_BASE
 type Sheet = { filename: string; frames: number; cellSize: number }
-type Asset = { id: string; displayName: string; fps: number; actions: Record<string, Sheet> }
+type Asset = { id: string; displayName: string; fps: number; actions: Record<string, Sheet>; slot?: number }
 type Status = { status: 'processing' | 'failed' } | ({ status: 'ready' } & Asset)
 
 async function request<T>(url: string, signal: AbortSignal, body?: unknown): Promise<T> {
@@ -149,6 +149,12 @@ export async function loadHeads(scene: Phaser.Scene, entries: CharacterEntry[], 
 /** 重新生成或刪除後讓該角色的頭像重做。 */
 export function dropHead(scene: Phaser.Scene, spriteId: string): void { headsFromOriginals.delete(spriteId); scene.textures.remove(headKey(spriteId)) }
 
+/** 清空暫存區（16–30）的所有生成角色；後端搬到 taskforce_2028_ftg_cleared 封存，固定角色 11–15 不是生成素材，不受影響。 */
+export async function clearGeneratedCharacters(): Promise<void> {
+  const response = await fetch(`${base}/generation/assets`, { method: 'DELETE' })
+  if (!response.ok) throw new Error(`Clear failed (${response.status})`)
+}
+
 /** 永久刪除一個已生成角色的素材資料夾（後端只刪有 game_manifest 的資料夾）。 */
 export async function deleteGeneratedCharacter(generationId: string): Promise<void> {
   const response = await fetch(`${base}/generation/assets/${encodeURIComponent(generationId)}`, { method: 'DELETE' })
@@ -157,8 +163,9 @@ export async function deleteGeneratedCharacter(generationId: string): Promise<vo
 
 export async function listGeneratedCharacters(): Promise<CharacterEntry[]> {
   try {
-    const assets = await request<Asset[]>(`${base}/generation/assets`, new AbortController().signal)
-    return assets.map(asset => ({ id: `generated-${asset.id}`, generationId: asset.id, displayName: asset.displayName, type: 'CUSTOM', status: 'READY', spriteId: `generated-${asset.id}` as const }))
+    // 後端連上卻不回應時，10 秒後當作沒有生成角色，選角畫面才不會一直停在載入中。
+    const assets = await request<Asset[]>(`${base}/generation/assets`, AbortSignal.timeout(10_000))
+    return assets.map(asset => ({ id: `generated-${asset.id}`, generationId: asset.id, displayName: asset.displayName, type: 'CUSTOM', status: 'READY', spriteId: `generated-${asset.id}` as const, slot: asset.slot }))
   } catch { return [] }
 }
 

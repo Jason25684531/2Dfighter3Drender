@@ -32,4 +32,15 @@ describe('GenerationJobs.locked', () => {
     queue.start('P2', 'TWO', 2, 'photo'); generate.reject(); await Promise.resolve(); await Promise.resolve()
     expect(queue.failed).toBe(true); expect(queue.locked).toBe(false)
   })
+
+  it('names the player whose face the waiting screen shows: 1P while it generates, then 2P once 1P is done', async () => {
+    const queue = jobs()
+    queue.start('P1', 'ONE', 1, 'photo'); const finishP1 = generate.resolve
+    queue.start('P2', 'TWO', 2, 'photo'); const finishP2 = generate.resolve
+    expect(queue.generatingOwner).toBe('P1')
+    finishP1('one'); await Promise.resolve(); await Promise.resolve()
+    expect(queue.generatingOwner).toBe('P2')
+    finishP2('two'); await Promise.resolve(); await Promise.resolve()
+    expect(queue.generatingOwner).toBeUndefined()
+  })
 })

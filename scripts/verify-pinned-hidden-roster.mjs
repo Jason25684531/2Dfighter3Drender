@@ -1,4 +1,4 @@
-// 固定玩家格（HW／HSI／JF／Grace＋保留空位）與隱藏角色 Jeansen（P0 連按三次 L1）的瀏覽器驗證；假手把，後端離線。
+// 固定玩家格（HW／HSI／JF／Grace／AK）與隱藏角色 Jeansen（P0 連按三次 L1，拳帶 ROG OVERDRIVE 特效）的瀏覽器驗證；假手把，後端離線。
 // 先啟動 Vite（http://127.0.0.1:5189）。結束碼：0 通過、1 失敗、2 SKIPPED（找不到 Playwright 或 Chrome）。
 import assert from 'node:assert/strict'
 import { access, mkdir } from 'node:fs/promises'
@@ -39,14 +39,14 @@ await tap(L1); await tap(L1)
 assert.equal(await s((s) => s.secretUnlocked), true); check('P0 1.2 秒內連按三次 L1 解鎖隱藏角色')
 await toSelect()
 const unlocked = await names()
-assert.deepEqual(unlocked.slice(10, 15), [[11, 'HW', true], [12, 'HSI', true], [13, 'JF', true], [14, 'Grace', true], [15, null, true]])
+assert.deepEqual(unlocked.slice(10, 15), [[11, 'HW', true], [12, 'HSI', true], [13, 'JF', true], [14, 'Grace', true], [15, 'AK', true]])
 assert.equal(unlocked.filter(([, , pinned]) => pinned).length, 5)
 assert.deepEqual(unlocked[30], [31, 'Jeansen', false])
-check('選角：11–14 為 HW／HSI／JF／Grace、15 為保留空位（5 格皆有固定框）、第 31 格為 Jeansen')
+check('選角：11–15 為 HW／HSI／JF／Grace／AK（5 格皆有固定框）、第 31 格為 Jeansen')
 await s((s) => { s.p1Model.focus('P1', 30); s.p1View.sync() }); await frames()
 await tap(15)
 assert.equal(await s((s) => s.p1Model.player('P1').cursor), 31); check('第 30 格按右進入第 31 格')
-await page.waitForFunction(() => ['hw', 'hsi', 'jf', 'grace', 'jeansen'].every((id) => window.__game.scene.getScene('AppScene').textures.exists(`head-${id}`) || window.__game.scene.getScene('AppScene').textures.exists(`${id}-head`)), null, { timeout: 15000 }).catch(() => undefined)
+await page.waitForFunction(() => ['hw', 'hsi', 'jf', 'grace', 'ak', 'jeansen'].every((id) => window.__game.scene.getScene('AppScene').textures.exists(`head-${id}`) || window.__game.scene.getScene('AppScene').textures.exists(`${id}-head`)), null, { timeout: 15000 }).catch(() => undefined)
 await page.waitForTimeout(800)
 await page.screenshot({ path: `${out}/select-unlocked.png` })
 
@@ -62,12 +62,18 @@ async function battle(index, label) {
   await page.screenshot({ path: `${out}/p3-${label}.png` })
   await tap(CROSS)
   await page.waitForFunction(() => window.__game.scene.getScene('AppScene').flow.match.getSnapshot().matchState === 'FIGHTING', null, { timeout: 20000 })
-  await s((s) => { window.__attacks = 0; s.flow.match.world.subscribe((e) => { if (e.type === 'ATTACK_STARTED' && e.attacker === 'PLAYER') window.__attacks += 1 }) })
+  await s((s) => { window.__attacks = 0; window.__moves = []; s.flow.match.world.subscribe((e) => { if (e.type === 'ATTACK_STARTED' && e.attacker === 'PLAYER') { window.__attacks += 1; window.__moves.push(e.attack) } }) })
   const sprite = await s((s) => s.playerSpriteId())
   const keys = new Set()
-  for (const button of [2, 3, 0, 1]) { await tap(button); for (let i = 0; i < 20; i += 1) { await frames(1); keys.add(await s((s) => { const all = []; const walk = (o) => { if (o.texture?.key) all.push(o.texture.key); (o.list ?? []).forEach(walk) }; s.children.list.forEach(walk); return all.filter((k) => /-(idle|attack|punch|kick|walk|jump|crouch|block|prone|intro)/.test(k)).join(',') })) } }
+  for (const button of [2, 3, 0, 1]) {
+    await page.waitForFunction(() => { const f = window.__game.scene.getScene('AppScene').flow.match.world.getFighter('PLAYER'); return f.attackPhase === 'NONE' && (f.state === 'IDLE' || f.state === 'WALK') }, null, { timeout: 15000 })
+    await tap(button); for (let i = 0; i < 20; i += 1) { await frames(1); keys.add(await s((s) => { const all = []; const walk = (o) => { if (o.texture?.key) all.push(o.texture.key); (o.list ?? []).forEach(walk) }; s.children.list.forEach(walk); return all.filter((k) => /-(idle|attack|punch|kick|walk|jump|crouch|block|prone|intro)/.test(k) || k === 'fx-overdrive' || k === 'fx-explosion').join(',') })) } }
   const played = [...new Set([...keys].join(',').split(','))].filter((k) => k.replace(/^hd-/, '').startsWith(sprite + '-'))
   assert.ok(await page.evaluate(() => window.__attacks) >= 2, `${label} attacks`)
+  const overdrive = [...keys].some((k) => k.includes('fx-overdrive')), explosion = [...keys].some((k) => k.includes('fx-explosion'))
+  assert.equal(overdrive, label === 'Jeansen', `${label} ROG OVERDRIVE 只屬於 Jeansen 的踢`)
+  assert.equal(explosion, label === 'Jeansen', `${label} 爆炸特效只屬於 Jeansen 的重拳（本場出招：${await page.evaluate(() => window.__moves.join(','))}）`)
+  if (overdrive && explosion) check('Jeansen 踢擊觸發 ROG OVERDRIVE、重拳觸發爆炸特效')
   assert.ok(played.length >= 3, `${label} 播放的貼圖 ${played}`)
   await page.screenshot({ path: `${out}/battle-${sprite}.png` })
   check(`${label}（${sprite}）可上場對戰：出招 ${await page.evaluate(() => window.__attacks)} 次，播放 ${played.length} 種動作貼圖 ${played.join(' ')}`)
@@ -81,7 +87,7 @@ assert.equal(await s((s) => s.secretUnlocked), false); check('回到主畫面後
 await toSelect()
 assert.equal((await names()).length, 30); check('清除後再進選角只剩 30 格')
 
-for (const [index, label] of [[11, 'HW'], [12, 'HSI'], [13, 'JF'], [14, 'Grace']]) {
+for (const [index, label] of [[11, 'HW'], [12, 'HSI'], [13, 'JF'], [14, 'Grace'], [15, 'AK']]) {
   await boot(); await toSelect(); await battle(index, label)
 }
 assert.deepEqual(errors, [], errors.join('\n'))

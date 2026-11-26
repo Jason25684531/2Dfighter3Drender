@@ -11,7 +11,7 @@ export const testStageManifest: Record<StageId, { id: StageId; label: string; ur
 export type SlotType = 'BODY_TEMPLATE' | 'FEATURED' | 'CUSTOM' | 'EMPTY'
 export type SlotStatus = 'AVAILABLE' | 'PROCESSING' | 'READY' | 'FAILED'
 /** roster：PINNED＝玩家區固定格（不隨生成輪替）；HIDDEN＝P0 連按三次 L1 才出現的第 31 格。 */
-export type CharacterEntry = { id: string; displayName: string; type: Exclude<SlotType, 'EMPTY'>; status: SlotStatus; spriteId?: SpriteId; bodyTemplateId?: string; generationId?: string; roster?: 'PINNED' | 'HIDDEN' }
+export type CharacterEntry = { id: string; displayName: string; type: Exclude<SlotType, 'EMPTY'>; status: SlotStatus; spriteId?: SpriteId; bodyTemplateId?: string; generationId?: string; roster?: 'PINNED' | 'HIDDEN'; slot?: number }
 
 // 長官區 05–10，依序填格：GO、SE7EN、Joneey、YG、Tony、Chris。
 export const testCharacterManifest = {
@@ -28,9 +28,9 @@ export const testCharacterManifest = {
 const bodySprites: readonly SpriteId[] = ['s1aw', 's2am', 's2lw', 's3ww']
 export const bodyTemplates: readonly CharacterEntry[] = bodySprites.map((spriteId, i) => ({ id: `body-0${i + 1}`, displayName: `BODY 0${i + 1}`, type: 'BODY_TEMPLATE', status: 'AVAILABLE', spriteId, bodyTemplateId: `body-0${i + 1}` }))
 
-// 玩家區 11–15 固定：HW、HSI、JF、Grace，第 15 格保留給稍後匯入的第 5 位（到時加一筆即可）。
+// 玩家區 11–15 固定：HW、HSI、JF、Grace、AK。
 const pinned = (displayName: string, spriteId: SpriteId): CharacterEntry => ({ id: `pinned-${spriteId}`, displayName, type: 'CUSTOM', status: 'AVAILABLE', spriteId, roster: 'PINNED' })
-export const pinnedPlayers: readonly CharacterEntry[] = [pinned('HW', 'hw'), pinned('HSI', 'hsi'), pinned('JF', 'jf'), pinned('Grace', 'grace')]
+export const pinnedPlayers: readonly CharacterEntry[] = [pinned('HW', 'hw'), pinned('HSI', 'hsi'), pinned('JF', 'jf'), pinned('Grace', 'grace'), pinned('AK', 'ak')]
 export const hiddenCharacter: CharacterEntry = { id: 'hidden-jeansen', displayName: 'Jeansen', type: 'CUSTOM', status: 'AVAILABLE', spriteId: 'jeansen', roster: 'HIDDEN' }
 
 export const characterEntries = (): CharacterEntry[] => [...bodyTemplates, ...Object.values(testCharacterManifest), ...pinnedPlayers]

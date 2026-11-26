@@ -18,7 +18,7 @@ import { endViewModel, leaderboardPanelModel, resultViewModel } from '../ui/View
 import { characterEntries, characterEntry, hiddenCharacter, resolveStageAsset, stageTextureKey, testCharacterManifest, type CharacterEntry, type StageId } from '../ui/assets/TestAssetManifest'
 import type { PresentationContext, SpriteId } from '../ui/animation/TemporarySpriteManifest'
 import { alignedSprites, type AlignedSpriteId } from '../ui/animation/SheetSpriteManifest'
-import { deleteGeneratedCharacter, dropGeneratedTextures, dropHead, loadHdSprite, loadHeads } from '../api/CharacterGeneration'
+import { clearGeneratedCharacters, deleteGeneratedCharacter, dropGeneratedTextures, dropHead, loadHdSprite, loadHeads } from '../api/CharacterGeneration'
 import { loadProfiles, saveProfiles } from '../input/ControlProfile'
 import { ControlsPanel } from '../ui/controls/ControlsPanel'
 import { loadPadProfiles, PAD_SYSTEM, padLabel, savePadProfiles, type PadProfiles } from '../input/GamepadProfile'
@@ -152,7 +152,12 @@ export class AppScene extends Phaser.Scene {
       this.flow.tick(intentFromInput(input), intentFromInput(p2))
       if (this.appStateMachine.getCurrentState() === AppState.BATTLE) this.current?.tick()
     })
-    this.uiUnsubscribers.push(this.ui.events.on('SUBSTATE_CHANGED', ({ screen }) => { if (screen === AppState.BATTLE && this.current instanceof BattleScreen) return; this.render(this.appStateMachine.getCurrentState()) }))
+    // 只重建正在顯示的那個畫面：後端存好成績時 RESULT 的 substate 會在 P5 播放中改變（RESULT／END 由 onResultStored 重繪），離開畫面時舊 substate 也會被重設。
+    this.uiUnsubscribers.push(this.ui.events.on('SUBSTATE_CHANGED', ({ screen }) => {
+      const state = this.appStateMachine.getCurrentState()
+      if (screen !== state || screen === AppState.RESULT || (screen === AppState.BATTLE && this.current instanceof BattleScreen)) return
+      this.render(state)
+    }))
     this.uiUnsubscribers.push(this.ui.events.on('OVERLAY_CHANGED', ({ open }) => {
       if (this.appStateMachine.getCurrentState() !== AppState.BATTLE) { this.render(this.appStateMachine.getCurrentState()); return }
       if (open) { this.clock.pause(); this.anims.pauseAll() } else { this.clock.resume(); this.anims.resumeAll() }
@@ -262,7 +267,8 @@ export class AppScene extends Phaser.Scene {
     const ctx = this.screenContext
     const screens: Record<AppStateValue, () => ScreenView> = {
       [AppState.IDLE]: () => new HomeScreen(ctx, root, `${this.padConfirm()} 確認 · ↑ ↓ 切換 · ${padLabel(PAD_SYSTEM.CONTROLS)} 操作設定`, () => this.openBoard(), () => this.openControls()),
-      [AppState.READY]: () => new SelectScreen(ctx, root, this.jobs.entriesReady ? (parent) => this.createP1View(parent) : undefined),
+      // 名冊已建好時，刪除／清除後重新讀名冊的期間照常重建畫面，不退回「載入中」。
+      [AppState.READY]: () => new SelectScreen(ctx, root, this.jobs.entriesReady || this.p1Model ? (parent) => this.createP1View(parent) : undefined),
       [AppState.SETUP]: () => new StageSelectScreen(ctx, root, this.selectedStageId, this.stepTotal(), (id) => this.selectStage(id), () => this.confirmStage()),
       [AppState.LOADING]: () => new LoadingScreen(ctx, root, { matchup: this.matchup(), pads: this.padProfiles, input: this.inputManager, clock: this.clock, jobs: this.jobs, retry: () => this.jobs.retry(this.selectedCharacterIds(), this.selectedRosterSprites()) }),
       [AppState.BATTLE]: () => new BattleScreen(ctx, root, this.matchup(), this.flow, { input: this.inputManager, clock: this.clock, takeEvents: () => this.tickEvents.splice(0), playerContext: this.playerContext, enemyContext: this.enemyContext }),
@@ -325,6 +331,7 @@ export class AppScene extends Phaser.Scene {
       offline: this.p1Offline || this.persistence?.lastLeaderboardOk === false,
       onInput: (owner, action) => this.p1Input(owner, action),
       onDelete: (index) => this.requestDelete(index),
+      onClearRoster: () => this.requestClearRoster(),
       onFocus: (owner, index) => { if (this.p1Model?.focus(owner, index)) { this.p1View?.sync(); void this.loadRosterPreview(index) } },
       onNickname: (owner, name) => { this.p1Model?.setNickname(owner, name); this.lastActivity = this.time.now },
       onSkip: () => { this.p1Model?.skipCustomize(); this.syncP1() },
@@ -383,6 +390,26 @@ export class AppScene extends Phaser.Scene {
     ;(['P1', 'P2'] as const).forEach((owner, i) => this.p1Model?.focus(owner, Math.min(cursors[i], Math.max(...this.p1Model.slots.filter((slot) => slot.entry).map((slot) => slot.index)))))
     this.syncP1()
   }
+  /** 清除暫存區：只在選角總覽、沒人鎖定生成角色、沒有算圖中時可用；固定角色 11–15 與長官不是生成素材，不會被清。 */
+  private requestClearRoster(): void {
+    const model = this.p1Model
+    if (!model || model.phase !== 'GRID' || this.p1View?.exitOpen || this.jobs.generating) return
+    if ((['P1', 'P2'] as const).some((owner) => { const locked = model.player(owner).locked; return locked !== undefined && model.slot(locked).entry?.generationId })) return
+    const count = model.slots.filter((slot) => slot.entry?.generationId).length
+    this.p1View?.confirmExit(() => { void this.clearRoster() }, 'CLEAR ROSTER? · 清除暫存玩家？', `清除 16–30 的 ${count} 位生成角色（含未顯示的舊角色），01–15 不受影響`)
+  }
+  private async clearRoster(): Promise<void> {
+    const model = this.p1Model
+    await clearGeneratedCharacters().catch(() => undefined)
+    const sprites = this.jobs.entries.flatMap((entry) => entry.spriteId ? [entry.spriteId] : [])
+    await this.jobs.refreshEntries()
+    if (this.appStateMachine.getCurrentState() !== AppState.READY || this.p1Model !== model || model?.phase !== 'GRID') return
+    sprites.forEach((sprite) => { dropGeneratedTextures(this, sprite); dropHead(this, sprite) })
+    const cursors = (['P1', 'P2'] as const).map((owner) => model.player(owner).cursor)
+    this.p1Model = undefined; this.render(AppState.READY)
+    ;(['P1', 'P2'] as const).forEach((owner, i) => this.p1Model?.focus(owner, Math.min(cursors[i], 15)))
+    this.syncP1()
+  }
   private async refreshGeneratedEntries(): Promise<void> {
     await this.jobs.refreshEntries()
     if (this.appStateMachine.getCurrentState() === AppState.READY && !this.p1Model) this.render(AppState.READY)
@@ -402,7 +429,7 @@ export class AppScene extends Phaser.Scene {
   /** Customize 各步驟是 P1 substate：切換時整頁重建，其餘只同步常駐物件。 */
   private syncP1(): void {
     const phase: P1Phase = this.p1Model?.phase ?? 'GRID'
-    const substate = phase === 'GRID' || phase === 'OPPONENT' || phase === 'DIFFICULTY' || phase === 'ALL_READY' ? 'READY' : phase === 'FAILED' ? 'FALLBACK' : phase
+    const substate = phase === 'GRID' || phase === 'OPPONENT' || phase === 'DIFFICULTY' || phase === 'ALL_READY' ? 'READY' : phase
     if (!this.ui.substates.set(AppState.READY, substate)) this.p1View?.sync()
   }
   /** 選角／載入階段、已送出算圖：不可回上一頁或主選單。其餘畫面（對戰、結算）不受影響。 */
@@ -452,7 +479,7 @@ export class AppScene extends Phaser.Scene {
     const state = this.appStateMachine.getCurrentState(), idle = now - this.lastActivity, { idleMs } = uiTokens.p1
     if (state === AppState.IDLE) { if (!this.attract && !this.controlsPanel && !this.boardPanel && idle >= idleMs.attract) this.playAttract(); return }
     const phase = this.p1Model?.phase
-    const limit = state === AppState.READY ? phase === 'GRID' || phase === 'OPPONENT' || phase === 'DIFFICULTY' ? idleMs.select : phase === 'NAME' || phase === 'CUSTOMIZE' || phase === 'REVIEW' || phase === 'FAILED' ? idleMs.customize : 0 : 0
+    const limit = state === AppState.READY ? phase === 'GRID' || phase === 'OPPONENT' || phase === 'DIFFICULTY' ? idleMs.select : phase === 'NAME' || phase === 'CUSTOMIZE' || phase === 'REVIEW' ? idleMs.customize : 0 : 0
     if (!limit) { this.idleLabel?.setText(''); return }
     if (!this.idleLabel) { this.idleLabel = this.add.text(960, 42, '', { ...typography.note, fontSize: uiTokens.type.label, color: colorHex('resultGold') }).setOrigin(0.5); this.screen?.add(this.idleLabel) }
     this.idleLabel.setText(idle >= limit - 10000 ? `閒置倒數 ${Math.max(0, Math.ceil((limit - idle) / 1000))}s · 操作以繼續` : '')
@@ -471,9 +498,8 @@ export class AppScene extends Phaser.Scene {
   private confirmStage(): void {
     this.persistence?.context.set({ selectedStageId: this.selectedStageId })
     if (!this.appStateMachine.transitionTo(AppState.LOADING)) return
-    const screen = this.current
     this.time.delayedCall(uiTokens.motionMs.enter, () => {
-      if (this.current !== screen) return
+      if (this.appStateMachine.getCurrentState() !== AppState.LOADING) return
       this.applyFaces()
       void this.jobs.loadSelected(this.selectedCharacterIds(), this.selectedRosterSprites())
     })

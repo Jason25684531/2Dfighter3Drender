@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { STAGE_TUNING } from '../config/stageTuning'
-import { lungeFor } from '../config/hitTuning'
+import { lungeFor, powerFor, reachFor } from '../config/hitTuning'
 import { ATTACK_ACTIONS } from '../input/ControlProfile'
 import { CombatWorld, DEFAULT_COMBAT_CONFIG, KNOCKDOWN, type CombatConfig, type CombatEvent, type FighterIntent } from './CombatWorld'
 
@@ -46,6 +46,13 @@ describe('CombatWorld', () => {
 
   it('gives body 03 (S2LW stand-in and generated template 3) a hopping heavy punch', () => {
     for (const sprite of ['s2lw', 'hd-s2lw', 'generated-Kazu_S1AM'] as const) expect(lungeFor(sprite)?.HEAVY_PUNCH?.hop, sprite).toBeGreaterThan(0)
+  })
+
+  it('gives body 02 (S2AM and generated template 2) the custom short-jab fix: longer light punch reach, sliding jab and lunging heavy punch', () => {
+    for (const sprite of ['s2am', 'hd-s2am', 'generated-Kazu_S2AM'] as const) {
+      expect(reachFor(sprite, 'LIGHT_PUNCH'), sprite).toBe(reachFor('hw', 'LIGHT_PUNCH'))
+      expect(lungeFor(sprite), sprite).toEqual(lungeFor('hw'))
+    }
   })
 
   it('keeps unconfigured and crouched attacks from lunging', () => {
@@ -287,6 +294,18 @@ describe('CombatWorld', () => {
     const before = world.getFighter('PLAYER'); tick(world, { ...neutral, jumpPressed: true }); expect(world.getFighter('PLAYER').grounded).toBe(false); expect(world.getFighter('PLAYER').vy).toBe(-31)
     tick(world, { ...neutral, jumpPressed: true }); expect(world.getFighter('PLAYER').vy).not.toBe(before.vy)
     for (let i = 0; i < 30; i += 1) tick(world); expect(world.getFighter('PLAYER').grounded).toBe(true); expect(world.getFighter('PLAYER').y).toBe(820)
+  })
+
+  it('scales damage by the attacker’s power: Jeansen hits harder than regular fighters', () => {
+    expect(powerFor('jeansen')).toBe(3); expect(powerFor('hd-jeansen')).toBe(powerFor('jeansen'))
+    for (const sprite of ['go', 'hw', 's2am', 'generated-Kazu_S2AM'] as const) expect(powerFor(sprite), sprite).toBe(1)
+    const hit = (power?: Record<'PLAYER' | 'ENEMY', number>) => {
+      const world = new CombatWorld(closeConfig()); world.setPower(power)
+      for (let i = 0; i < 4; i += 1) tick(world, { ...neutral, attackPressed: i === 0 })
+      return 100 - world.getFighter('ENEMY').currentHP
+    }
+    expect(hit()).toBe(10)
+    expect(hit({ PLAYER: 1.5, ENEMY: 1 })).toBe(15)
   })
 
   it('runs startup, active, recovery and one-hit attack lifecycle', () => {

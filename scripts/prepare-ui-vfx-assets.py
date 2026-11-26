@@ -72,6 +72,15 @@ def prepare_attacks():
     return metadata
 
 
+def prepare_overdrive():
+    """Jeansen's effects (kicks: purple ROG OVERDRIVE, heavy punch: gold explosion): Phaser multi-atlas pages copied as-is."""
+    for source, target in (('assest/VFX/rog-overdrive/atlas', 'vfx/rog-overdrive'), ('assest/VFX/1126_explosion/vfx/rog-overdrive/atlas', 'vfx/explosion')):
+        folder = ASSETS / target
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in ('rog-overdrive.json', 'rog-overdrive.png', 'rog-overdrive-2.png', 'rog-overdrive-3.png'):
+            shutil.copyfile(ROOT / source / name, folder / name)
+
+
 def swap_body_portraits(slices):
     """The design draws body 02's face on card 03 and vice versa (game body 02 = S2AM glasses).
 
@@ -167,6 +176,7 @@ def prepare_ui():
 if __name__ == '__main__':
     CHECKS.mkdir(parents=True, exist_ok=True)
     prepare_home()
+    prepare_overdrive()
     attacks = prepare_attacks()
     layout = prepare_ui()
     (ROOT / 'src/game/ui/assets/hudLayout.json').write_text(

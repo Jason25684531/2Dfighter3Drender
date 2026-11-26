@@ -12,19 +12,16 @@ describe('P1 selection model', () => {
     const model = new P1SelectionModel(); model.input('P2', 'CONFIRM')
     model.focus('P1', 1); model.focus('P2', 2); model.input('P1', 'CONFIRM'); model.input('P2', 'CONFIRM')
     model.setNickname('P1', 'Alice'); press(model, 'P1', 'CONFIRM', 'CONFIRM', 'CONFIRM'); model.continueProcessing()
-    expect(model.player('P1').generation).toBe('PROCESSING'); expect(model.owner).toBe('P2')
+    expect(model.isReady('P1')).toBe(true); expect(model.owner).toBe('P2')
     model.setNickname('P2', 'Bob'); model.input('P2', 'CONFIRM'); model.skipCustomize(); expect(model.phase).toBe('ALL_READY'); expect(model.player('P2').photo).toBeUndefined()
   })
-  it('waits for decoded runtime assets and blocks retries after a submitted generation fails', () => {
+  it('holds input while a photo is submitting and blocks a second submission afterwards', () => {
     const model = new P1SelectionModel(); model.focus('P1', 1); model.input('P1', 'CONFIRM'); model.setNickname('P1', 'Kevin')
     press(model, 'P1', 'CONFIRM', 'CONFIRM', 'CONFIRM')
-    for (const state of ['REQUESTING', 'PROCESSING', 'API_READY', 'DOWNLOADING', 'DECODED'] as const) {
-      model.setGenerationState(state); expect(model.isReady('P1')).toBe(false); expect(model.phase).toBe('PROCESSING')
-    }
-    model.setGenerationState('FAILED'); expect(model.phase).toBe('FAILED')
-    model.input('P2', 'CONFIRM'); expect(model.phase).toBe('FAILED')
+    expect(model.phase).toBe('PROCESSING'); expect(model.input('P1', 'BACK')).toBeUndefined(); expect(model.phase).toBe('PROCESSING')
     expect(model.player('P1').faceGenUsed).toBe(true)
-    expect(model.input('P1', 'CONFIRM')).toBe('FACE_GENERATION_USED'); expect(model.phase).toBe('FAILED')
+    model.input('P1', 'BACK'); model.continueProcessing(); press(model, 'P1', 'BACK'); press(model, 'P1', 'CONFIRM')
+    expect(model.phase).toBe('NAME'); press(model, 'P1', 'CONFIRM'); expect(model.input('P1', 'CONFIRM')).toBe('FACE_GENERATION_USED')
   })
   it('consumes one photo submission per participant while allowing unlimited retakes beforehand', () => {
     const model = new P1SelectionModel(); model.input('P2', 'CONFIRM')
@@ -56,19 +53,18 @@ describe('P1 selection model', () => {
       model.slot(5).status = status; expect(model.input('P1', 'CONFIRM')).toBe('REJECTED'); expect(model.player('P1').locked).toBeUndefined()
     }
   })
-  it('lays out 30 honest slots: 4 body templates, 6 officers, 5 pinned players (one reserved), the rest empty', () => {
+  it('lays out 30 honest slots: 4 body templates, 6 officers, 5 pinned players, the rest empty', () => {
     const { slots } = new P1SelectionModel()
     expect(slots).toHaveLength(30)
     expect(slots.slice(0, 4).map((slot) => slot.entry?.displayName)).toEqual(['BODY 01', 'BODY 02', 'BODY 03', 'BODY 04'])
     expect(slots.slice(4, 10).map((slot) => slot.entry?.displayName)).toEqual(['GO', 'SE7EN', 'Joneey', 'YG', 'Tony', 'Chris'])
-    expect(slots.slice(10, 15).map((slot) => [slot.entry?.displayName, slot.pinned])).toEqual([['HW', true], ['HSI', true], ['JF', true], ['Grace', true], [undefined, true]])
-    expect(slots[14].type).toBe('EMPTY')
+    expect(slots.slice(10, 15).map((slot) => [slot.entry?.displayName, slot.pinned])).toEqual([['HW', true], ['HSI', true], ['JF', true], ['Grace', true], ['AK', true]])
     expect(slots.slice(15).every((slot) => slot.type === 'EMPTY' && !slot.entry && !slot.pinned)).toBe(true)
     expect(new P1SelectionModel([]).slots.slice(0, 4).map(slot => slot.entry?.id)).toEqual(['body-01', 'body-02', 'body-03', 'body-04'])
   })
   it('splits the grid into CUSTOMIZE 01–04, OFFICERS 05–10, ROSTER 11–30 with counts', () => {
     expect([1, 4, 5, 10, 11, 30].map(sectionOf)).toEqual(['CUSTOMIZE', 'CUSTOMIZE', 'OFFICERS', 'OFFICERS', 'ROSTER', 'ROSTER'])
-    expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 6, total: 6 }, ROSTER: { used: 4, total: 20 } })
+    expect(sectionCounts(new P1SelectionModel().slots)).toEqual({ CUSTOMIZE: { used: 4, total: 4 }, OFFICERS: { used: 6, total: 6 }, ROSTER: { used: 5, total: 20 } })
   })
   it('displays four sections and counts the occupied roster slots', () => {
     const guests: CharacterEntry[] = Array.from({ length: 11 }, (_, i) => ({ id: `guest-${i}`, displayName: `Guest ${i}`, type: 'CUSTOM', status: 'READY' }))
@@ -92,11 +88,11 @@ describe('P1 selection model', () => {
     const model = new P1SelectionModel([...characterEntries(), ...generated])
     expect(model.slots.slice(15, 17).map(({ entry }) => entry?.id)).toEqual(['generated-one', 'generated-two'])
   })
-  it('rotates only the 15 dynamic slots: the newest 15 generated characters show, pinned players stay', () => {
-    const generated: CharacterEntry[] = Array.from({ length: 25 }, (_, i) => ({ id: `generated-${i}`, displayName: `${i}`, type: 'CUSTOM', status: 'READY' }))
-    const slots = buildSlots([...characterEntries(), ...generated])
-    expect(slots.slice(10, 14).map(({ entry }) => entry?.displayName)).toEqual(['HW', 'HSI', 'JF', 'Grace'])
-    expect(slots.slice(15).map(({ entry }) => entry?.id)).toEqual(generated.slice(10).map(({ id }) => id))
+  it('seats generated players on the roster slot the backend assigned; players without one fill the empty cells in order', () => {
+    const player = (name: string, slot?: number): CharacterEntry => ({ id: `generated-${name}`, displayName: name, type: 'CUSTOM', status: 'READY', slot })
+    const slots = buildSlots([...characterEntries(), player('a', 22), player('b', 16), player('c'), player('d', 30)])
+    expect(slots.slice(15).map(({ entry }) => entry?.displayName)).toEqual(['b', 'c', undefined, undefined, undefined, undefined, 'a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'd'])
+    expect(slots.slice(10, 15).map(({ entry }) => entry?.displayName)).toEqual(['HW', 'HSI', 'JF', 'Grace', 'AK'])
   })
   it('adds the hidden character as slot 31 beside slot 30 only when it is passed in', () => {
     expect(buildSlots()).toHaveLength(30)
@@ -162,8 +158,8 @@ describe('P1 selection model', () => {
   it('rejects own or empty slot as opponent and backs out step by step', () => {
     const model = new P1SelectionModel(); model.input('P1', 'CONFIRM')
     press(model, 'P1', 'NAV_LEFT'); expect(model.input('P1', 'CONFIRM')).toBe('REJECTED'); expect(model.phase).toBe('OPPONENT') // 05 是自己
-    press(model, 'P1', 'NAV_DOWN'); expect(model.input('P1', 'CONFIRM')).toBe('REJECTED') // 15 是空格
-    press(model, 'P1', 'NAV_UP', 'NAV_RIGHT', 'CONFIRM', 'CONFIRM'); expect(model.phase).toBe('ALL_READY')
+    press(model, 'P1', 'NAV_DOWN', 'NAV_DOWN'); expect(model.input('P1', 'CONFIRM')).toBe('REJECTED') // 25 是空格
+    press(model, 'P1', 'NAV_UP', 'NAV_UP', 'NAV_RIGHT', 'CONFIRM', 'CONFIRM'); expect(model.phase).toBe('ALL_READY')
     press(model, 'P1', 'BACK'); expect(model.phase).toBe('DIFFICULTY')
     press(model, 'P1', 'BACK'); expect([model.phase, model.rival?.cursor]).toEqual(['OPPONENT', 6])
     press(model, 'P1', 'BACK'); expect([model.phase, model.rival, model.player('P1').locked]).toEqual(['GRID', undefined, undefined])

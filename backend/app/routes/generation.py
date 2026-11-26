@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+from datetime import datetime
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -135,8 +136,47 @@ async def submit_generation(request: GenerationRequest):
         raise ApiError('GENERATION_UNAVAILABLE', 502, 'ComfyUI submission failed') from error
 
 
+ROSTER_FIRST, ROSTER_SIZE = 16, 15
+
+
+def roster_file() -> Path:
+    return OUTPUT / 'taskforce_2028_ftg' / 'roster.json'
+
+
+def place(roster: dict, asset_id: str) -> None:
+    """First empty slot; when 16–30 are full, overwrite the slot at the pointer (the oldest player) and move the pointer on, wrapping 30 → 16."""
+    slots = roster['slots']
+    if None in slots:
+        slots[slots.index(None)] = asset_id
+    else:
+        slots[roster['next']] = asset_id
+        roster['next'] = (roster['next'] + 1) % ROSTER_SIZE
+
+
+def seat(assets: list[dict]) -> list[dict]:
+    """Keeps each player's slot in roster.json so slots never shift. Without the file (first run, or after clearing) the newest 16 are replayed into an empty roster."""
+    path = roster_file()
+    try:
+        roster = json.loads(path.read_text(encoding='utf-8'))
+        ids = {asset['id'] for asset in assets}
+        roster['slots'] = [slot if slot in ids else None for slot in roster['slots']]
+        new = [asset for asset in assets if asset['updated'] > roster['seen'] and asset['id'] not in roster['slots']]
+    except (OSError, ValueError, KeyError, TypeError):
+        roster, new = {'next': 0, 'slots': [None] * ROSTER_SIZE, 'seen': 0}, assets[-(ROSTER_SIZE + 1):]
+    for asset in new:
+        place(roster, asset['id'])
+    roster['seen'] = max([roster['seen'], *(asset['updated'] for asset in assets)])
+    if path.parent.is_dir():
+        temp = path.with_suffix('.tmp')
+        temp.write_text(json.dumps(roster), encoding='utf-8')
+        temp.replace(path)
+    slot = {asset_id: ROSTER_FIRST + i for i, asset_id in enumerate(roster['slots']) if asset_id}
+    return [{**asset, 'slot': slot[asset['id']]} for asset in assets if asset['id'] in slot]
+
+
 @router.get('/generation/assets')
 def generation_assets():
+    """Only the players seated in roster slots 16–30; older output folders stay on disk."""
     assets = []
     for manifest in (OUTPUT / 'taskforce_2028_ftg').glob('*/manifest/game_manifest.json'):
         try:
@@ -145,7 +185,7 @@ def generation_assets():
             assets.append(asset)
         except (ApiError, OSError, ValueError, KeyError, TypeError):
             continue
-    return sorted(assets, key=lambda asset: (asset['updated'], asset['id']))
+    return seat(sorted(assets, key=lambda asset: (asset['updated'], asset['id'])))
 
 
 @router.get('/generation/assets/{asset_id}')
@@ -164,6 +204,16 @@ def delete_generation_asset(asset_id: str):
         raise ApiError('NOT_FOUND', 404, 'Character asset not found')
     # ponytail: check and cancel jobs targeting this folder if players can delete a character while regenerating it.
     shutil.rmtree(folder)
+
+
+@router.delete('/generation/assets', status_code=204)
+def clear_generation_assets():
+    """Clears the temporary roster (slots 16–30). Folders move to taskforce_2028_ftg_cleared/<time>/ so a mistaken clear can be undone by moving them back."""
+    archive = OUTPUT / 'taskforce_2028_ftg_cleared' / datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    for manifest in (OUTPUT / 'taskforce_2028_ftg').glob('*/manifest/game_manifest.json'):
+        archive.mkdir(parents=True, exist_ok=True)
+        shutil.move(manifest.parent.parent, archive / manifest.parent.parent.name)
+    roster_file().unlink(missing_ok=True)
 
 
 @router.get('/generation/assets/{asset_id}/sheets/{filename}')

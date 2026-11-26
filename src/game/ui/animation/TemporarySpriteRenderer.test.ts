@@ -98,12 +98,12 @@ describe('TemporarySpriteRenderer', () => {
   })
 
   it('draws generated characters at the same battle height as the roster', () => {
-    const create = (id: 's1aw' | 'generated-check') => {
+    const create = (id: 's2am' | 'generated-check') => {
       const image = { height: 1024, texture: { key: `${id}-idle` }, frame: { name: 0, texture: { getFrameNames: () => [] } }, setOrigin() { return this }, setScale: vi.fn(), setTexture() { return this } }
       const scene = { add: { ellipse: () => ({ setY: vi.fn() }), image: () => image }, textures: { exists: () => true } }
       return { image, renderer: new TemporarySpriteRenderer(scene as never, id, 820) }
     }
-    const regular = create('s1aw'), generated = create('generated-check')
+    const regular = create('s2am'), generated = create('generated-check')
     expect(regular.image.setScale).toHaveBeenCalledWith(975 / 1024)
     expect(generated.image.setScale).toHaveBeenCalledWith(975 / 1024)
     expect(generated.renderer.pose(new CombatWorld().getFighter('PLAYER'))?.scale).toBe(975 / 1024)

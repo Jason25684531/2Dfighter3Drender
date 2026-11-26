@@ -184,6 +184,63 @@ def test_delete_removes_only_a_generated_character_folder(client, monkeypatch, t
     assert client.delete('/api/v1/generation/assets/.hidden').status_code == 404
 
 
+def test_clear_moves_every_generated_character_out_of_the_roster_and_keeps_other_output(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(generation, 'OUTPUT', tmp_path)
+    root = tmp_path / 'taskforce_2028_ftg'
+    write_output(root / 'One_S1AW', 'One', [action('02', 'Idle')])
+    write_output(root / 'Two_S2AM', 'Two', [action('02', 'Idle')])
+    (root / 'not_a_character').mkdir()
+
+    assert client.delete('/api/v1/generation/assets').status_code == 204
+    assert client.get('/api/v1/generation/assets').json() == []
+    assert (root / 'not_a_character').exists()
+    archived = sorted(p.parent.parent.name for p in (tmp_path / 'taskforce_2028_ftg_cleared').glob('*/*/manifest/game_manifest.json'))
+    assert archived == ['One_S1AW', 'Two_S2AM'], 'cleared players are archived, not destroyed'
+    assert client.delete('/api/v1/generation/assets').status_code == 204, 'clearing an empty roster is a no-op'
+
+
+def test_roster_slots_fill_16_to_30_then_wrap_to_16_and_stay_put(client, monkeypatch, tmp_path):
+    import os
+    monkeypatch.setattr(generation, 'OUTPUT', tmp_path)
+    root = tmp_path / 'taskforce_2028_ftg'
+
+    def add(name, at):
+        write_output(root / name, name, [action('02', 'Idle')])
+        os.utime(root / name / 'manifest' / 'game_manifest.json', (at, at))
+
+    def slots():
+        return {asset['id']: asset['slot'] for asset in client.get('/api/v1/generation/assets').json()}
+
+    for i in range(37):
+        add(f'Old{i:02d}_S2AM', 1000 + i)
+    first = slots()
+    assert first['Old36_S2AM'] == 16, 'existing roster: the newest lands on 16, as if it arrived when 16–30 were full'
+    assert [first[f'Old{i:02d}_S2AM'] for i in range(22, 36)] == list(range(17, 31))
+    assert len(first) == 15, 'older players stay in the archive of output folders but leave the roster'
+
+    add('New1_S2AM', 2000)
+    after = slots()
+    assert after['New1_S2AM'] == 17 and 'Old22_S2AM' not in after, 'next player overwrites the oldest, slot 17'
+    assert all(after[k] == v for k, v in first.items() if k != 'Old22_S2AM'), 'nobody else moves'
+
+    for i in range(2, 15):
+        add(f'New{i}_S2AM', 2000 + i)
+    assert slots()['New14_S2AM'] == 30
+    add('New15_S2AM', 3000)
+    assert slots()['New15_S2AM'] == 16, 'after 30 the next player goes back to 16'
+
+    add('New3_S2AM', 4000)
+    assert slots()['New3_S2AM'] == 19, 'regenerating a player in the roster keeps their slot'
+
+    assert client.delete('/api/v1/generation/assets/New5_S2AM').status_code == 204
+    add('Hole_S2AM', 5000)
+    assert slots()['Hole_S2AM'] == 21, 'a deleted player leaves a hole that the next player fills'
+
+    assert client.delete('/api/v1/generation/assets').status_code == 204
+    add('Fresh1_S2AM', 6000); add('Fresh2_S2AM', 6001)
+    assert slots() == {'Fresh1_S2AM': 16, 'Fresh2_S2AM': 17}, 'after clearing, players fill from 16 again'
+
+
 def test_thumb_is_the_first_idle_cell_scaled_to_256(client, monkeypatch, tmp_path):
     from io import BytesIO
     from PIL import Image

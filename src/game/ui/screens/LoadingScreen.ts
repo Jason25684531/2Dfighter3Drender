@@ -101,8 +101,12 @@ export class LoadingScreen extends ArenaScreen {
 
   private refresh(): void {
     const { scene, options: { jobs } } = this
-    // 生成中在狀態列左側顯示拍攝頭像（只顯示 1P；2P 的生成狀態併在同一條狀態）。
-    if (!this.face && jobs.has('P1') && scene.textures.exists(faceKey('P1'))) { this.face = scene.add.image(1130, 985, faceKey('P1')).setDisplaySize(80, 80); this.root.add(this.face) }
+    // 生成中在狀態列左側顯示還在生成那位的拍攝頭像：1P 完成後換成 2P；都完成就停在最後一位。
+    const owner = jobs.generatingOwner, key = owner && faceKey(owner)
+    if (key && scene.textures.exists(key) && this.face?.texture.key !== key) {
+      if (this.face) this.face.setTexture(key).setDisplaySize(80, 80)
+      else { this.face = scene.add.image(1130, 985, key).setDisplaySize(80, 80); this.root.add(this.face) }
+    }
     const generationFailed = jobs.failed, assetFailed = jobs.assets === 'failed', generating = jobs.generating
     const busy = generating || jobs.assets === 'idle' || jobs.assets === 'loading'
     const progress = busy ? this.assetProgress() : 1

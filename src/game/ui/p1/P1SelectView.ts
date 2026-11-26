@@ -19,6 +19,8 @@ export type P1ViewHooks = {
   onInput: (owner: PlayerSlotId, action: OwnedUiAction) => void
   /** 右鍵或 R2：請求刪除該格的已生成角色（由 AppScene 判斷能不能刪並確認）。 */
   onDelete?: (index: number) => void
+  /** 名錄標題列的「清除暫存」：清空 16–30 的生成角色（AppScene 確認後呼叫後端）。 */
+  onClearRoster?: () => void
   onFocus: (owner: PlayerSlotId, index: number) => void
   onNickname: (owner: PlayerSlotId, name: string) => void
   onProcessingDone?: () => void
@@ -538,6 +540,12 @@ export class P1SelectView {
       tag.add(scene.add.text(0, 0, titles[group], { ...hudLabel, fontSize: 16, color: colorHex(group === 'roster' ? 'textPrimary' : 'background0') }).setOrigin(0.5))
       root.add(tag)
     }
+    if (this.hooks.onClearRoster && model.slots.some((slot) => slot.entry?.generationId)) {
+      const { x, y, w, h } = layout.selectPanels.roster
+      const clear = new ActionButton(scene, '清除暫存', 120, h, colors.panel).setPosition(x + w - 60, y + h / 2)
+      clear.label.setFontFamily(uiTokens.fonts.zh).setFontSize(16)
+      clear.on('pointerup', () => this.hooks.onClearRoster?.()); root.add(clear)
+    }
     for (const key of Object.keys(layout.select) as (keyof typeof layout.select)[]) {
       if (key.startsWith('decoration-')) root.add(selectImage(scene, key))
     }
@@ -631,7 +639,7 @@ export class P1SelectView {
     } else if (model.phase === 'CUSTOMIZE') {
       // 第 2 頁：只拍照（UX v03 UC03-1）；無倒數，預設焦點在【拍照】。
       const band = new AngularPanel(scene, VIEWFINDER.width, 36, colors.resultGold, 1, { slant: 10 }).setPosition(VIEWFINDER.x, VIEWFINDER.y - VIEWFINDER.height / 2 + 18)
-      const bandText = label(scene, 0, 0, 'PROTOTYPE / CAMERA NOT CONNECTED · 原型 · 相機未連接', 'background0').setOrigin(0.5)
+      const bandText = label(scene, 0, 0, 'CAMERA NOT CONNECTED · 相機未連接', 'background0').setOrigin(0.5)
       band.add(bandText); root.add(band)
       const cameraNote = label(scene, VIEWFINDER.x, VIEWFINDER.y, 'CAMERA CONNECTING · 相機連線中（請允許使用相機）', 'systemBlue', type.body).setOrigin(0.5)
       root.add(cameraNote); this.startCamera(owner, cameraNote, bandText)
@@ -654,11 +662,6 @@ export class P1SelectView {
       root.add(label(scene, 960, 330, player.nickname.trim(), 'textPrimary', type.body).setOrigin(0.5))
       root.add(scene.add.text(960, 868, 'USE THIS PHOTO? · 使用這張照片？', typography.secondaryAction).setOrigin(0.5))
       this.setChoices([[button('RETAKE', `${id.back} · 重拍`, 790, colors.panelRaised, 'BACK'), 'BACK'], [button('CONFIRM', `${id.confirm} / START · 確認送出`, 1130, id.main, 'CONFIRM'), 'CONFIRM']])
-    } else if (model.phase === 'FAILED') {
-      root.add(label(scene, 960, 600, 'GENERATION FAILED', 'danger', type.h2).setOrigin(0.5))
-      root.add(label(scene, 960, 680, '本次生成已送出，不能重試；請返回選角', 'textPrimary', type.body).setOrigin(0.5))
-      button('CHOOSE ANOTHER', `${id.back} · 返回選角`, 790, colors.panelRaised, 'BACK')
-      button('USED', `${id.confirm} · 已送出`, 1130, id.main, 'CONFIRM').setEnabled(false)
     } else {
       this.buildProcessing(slot, player.nickname.trim())
     }

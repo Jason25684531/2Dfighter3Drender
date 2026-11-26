@@ -9,7 +9,7 @@ from PIL import Image
 REPO = Path(__file__).resolve().parents[1]
 CHARACTERS = REPO / 'public/assest/characters'
 metadata = {}
-for folder in ['S1AW', 'S2AM', 'S2LW', 'S3WW', 'GO', 'SE7EN', 'Joneey', 'YG', 'Tony', 'Chris', 'HW', 'HSI', 'JF', 'Grace', 'Jeansen']:
+for folder in ['S1AW', 'S2AM', 'S2LW', 'S3WW', 'GO', 'SE7EN', 'Joneey', 'YG', 'Tony', 'Chris', 'HW', 'HSI', 'JF', 'Grace', 'AK', 'Jeansen']:
     source = CHARACTERS / folder
     manifest = source / 'game_manifest.json'
     data = json.loads(manifest.read_text(encoding='utf-8')) if manifest.exists() else None

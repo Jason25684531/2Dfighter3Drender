@@ -93,6 +93,7 @@ export class CombatWorld {
   private hitTest?: HitTest
   private stancePush?: number
   private lunge?: Record<FighterId, Partial<Record<AttackAction, number>>>
+  private power?: Record<FighterId, number>
 
   constructor(config: CombatConfig = DEFAULT_COMBAT_CONFIG) {
     this.config = config
@@ -111,6 +112,8 @@ export class CombatWorld {
   setPushWidth(width?: number): void { this.stancePush = width }
   get contactWidth(): number | undefined { return this.stancePush }
   setLunge(lunge?: Record<FighterId, Partial<Record<AttackAction, number>>>): void { this.lunge = lunge }
+  /** 攻擊力倍率（呈現層依角色設定，見 hitTuning power）；未設定＝1。 */
+  setPower(power?: Record<FighterId, number>): void { this.power = power }
   private get pushWidth(): number { return this.stancePush ?? this.config.pushWidth ?? this.config.fighterWidth }
   /** AI 用：id 此刻出 attack，判定期打不打得到（依輪廓）；沒有輪廓判定回 undefined。 */
   reaches(id: FighterId, attack: AttackAction): boolean | undefined {
@@ -277,7 +280,7 @@ export class CombatWorld {
         this.emit({ type: 'BLOCK', attacker: attackerId, defender: defenderId, attackId: attacker.attackId }); continue
       }
       defender.pushTicks = move.knockbackTicks ?? 0; defender.pushVx = direction * (move.knockback ?? 0); this.freezeTicks = Math.max(this.freezeTicks, move.hitFreeze ?? 0)
-      const previousHP = defender.currentHP; defender.currentHP = Math.max(0, defender.currentHP - move.damage); defender.attackPhase = 'NONE'; defender.attackTicks = 0; defender.attackAdvance = 0
+      const previousHP = defender.currentHP; defender.currentHP = Math.max(0, defender.currentHP - Math.round(move.damage * (this.power?.[attackerId] ?? 1))); defender.attackPhase = 'NONE'; defender.attackTicks = 0; defender.attackAdvance = 0
       if (strikes.length === 1) {
         this.setCombo(attacker, attacker.comboWindowTicks > 0 ? attacker.combo + 1 : 1)
         attacker.comboWindowTicks = move.activeTicks - 1 + move.recoveryTicks + COMBO_GRACE_TICKS

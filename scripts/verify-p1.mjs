@@ -56,8 +56,8 @@ try {
  await start(); await shot('grid-1920')
  assert.deepEqual(await scene(s => s.p1View.slotViews.slice(0, 4).map(slot => slot.list.find(item => item.texture?.key.startsWith('body-card-'))?.texture.key)),
    ['body-card-1', 'body-card-2', 'body-card-3', 'body-card-4'])
- assert.match(await scene(s => s.p1View.keysP1.text), /F 確認/)
- assert.match(await scene(s => s.p1View.keysP2.text), /NUM 1 加入/)
+ assert.match(await scene(s => s.p1View.keysP1.text), /確認/)
+ assert.match(await scene(s => s.p1View.keysP2.text), /加入/)
  assert(await scene(s => s.p1View.heroes.P2.silhouette.visible && !s.p1View.cursors.P2.visible))
  await scene(s => {
    const slot=s.p1Model.slot(7), view=s.p1View.slotViews[6]

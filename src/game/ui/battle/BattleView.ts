@@ -10,9 +10,11 @@ import { createSpriteHitTest, drawContactRange, stancePushWidth } from '../anima
 import { outcomeFor, presentationSheetFor, resolvePresentation, spriteActionFor, type PresentationContext, type SpriteId } from '../animation/TemporarySpriteManifest'
 import { isSheetSprite, sheetAnimations, sheetUrl } from '../animation/SheetSpriteManifest'
 import { impactFlip, playImpactFx } from '../vfx/ImpactFx'
+import { FX_BODY, loadSignatureFx, playFx, signatureFx, type SignatureFx } from '../vfx/OverdriveFx'
+import { ATTACK_ACTIONS } from '../../input/ControlProfile'
 import { Announcer } from '../VisualComponents'
 import { BattleHud } from './BattleHud'
-import { HIT_TUNING, lungeFor, reachFor } from '../../config/hitTuning'
+import { HIT_TUNING, lungeFor, powerFor, reachFor } from '../../config/hitTuning'
 import { battleAnnouncement, battleViewModel } from '../ViewModels'
 import { ComboTag } from './ComboTag'
 import type { StageId } from '../assets/TestAssetManifest'
@@ -45,6 +47,8 @@ export class BattleView {
   private animationTick = 0
   private stanceKeys?: string
   private worldTick = 0
+  /** 正在播的招式特效（Jeansen 的踢＝ROG OVERDRIVE、重拳＝爆炸，見 OverdriveFx 的 JEANSEN_FX）。 */
+  private signature: Partial<Record<FighterId, { attackId: number; fx: SignatureFx; charge?: Phaser.GameObjects.Sprite; burst?: true }>> = {}
 
   constructor(private readonly scene: Phaser.Scene, root: Phaser.GameObjects.Container, private readonly world: Phaser.GameObjects.Container, private readonly options: BattleViewOptions) {
     const { playerSprite, enemySprite, floorY } = options
@@ -55,6 +59,7 @@ export class BattleView {
     options.combat?.setHitTest(createSpriteHitTest(scene, { PLAYER: this.player, ENEMY: this.enemy }, (id) => this.contexts[id], () => options.combat?.contactWidth))
     this.syncLunges()
     this.syncStance(0)
+    if ([playerSprite, enemySprite].some((sprite) => ATTACK_ACTIONS.some((attack) => signatureFx(sprite, attack)))) loadSignatureFx(scene)
     this.hud = new BattleHud(scene, { sprite: playerSprite, name: options.playerName }, { sprite: enemySprite, name: options.enemyName })
     root.add(this.hud)
     // 連擊標語顯示在連擊者所在的那一側（站在對手左邊 → 左側），色塊用陣營色。
@@ -78,6 +83,11 @@ export class BattleView {
     if (cues.some(cue => cue.id === 'ann-ko' || cue.id === 'ann-times-up' || cue.id === 'ann-double-kill')) this.options.audio?.play({ id: 'amb-claps' })
     this.previousAnnounce = snapshot.announce
     events.forEach(event => {
+      const started = event.type === 'ATTACK_STARTED' ? signatureFx(this.fighter(event.attacker).spriteId, event.attack) : undefined
+      if (event.type === 'ATTACK_STARTED' && started) {
+        const fighter = snapshot.world.fighters[event.attacker], left = fighter.facing === 'LEFT', at = this.strikePoint(event.attacker, started, fighter.x, fighter.y, left)
+        this.signature[event.attacker] = { attackId: event.attackId, fx: started, charge: started.size.energy_charge ? playFx(this.scene, this.world, started.pack, 'energy_charge', at.x, at.y, left, started.size.energy_charge) : undefined }
+      }
       if (event.type !== 'HIT') return
       if (this.firstHit?.round !== vm.round) this.firstHit = { round: vm.round, tick, byPlayer: event.attacker === 'PLAYER' }
       const blocked = events.some(other => other.type === 'BLOCK' && other.attackId === event.attackId && other.attacker === event.attacker)
@@ -89,7 +99,10 @@ export class BattleView {
       if (!blocked && event.attack.startsWith('HEAVY') && !reducedMotion) this.scene.cameras.main.shake(120, 0.003)
       const kind = blocked ? 'guard' : event.attack, facing = snapshot.world.fighters[blocked ? event.defender : event.attacker].facing
       playImpactFx(this.scene, this.world, kind, event.at.x, event.at.y, impactFlip(facing))
+      const signature = blocked ? undefined : signatureFx(this.fighter(event.attacker).spriteId, event.attack)
+      if (signature?.size.hit_impact) playFx(this.scene, this.world, signature.pack, 'hit_impact', event.at.x, event.at.y, facing === 'LEFT', signature.size.hit_impact)
     })
+    this.syncSignature(snapshot)
     shakeOnKnockdown(this.scene, events)
     const outcome = (id: FighterId) => outcomeFor(id, snapshot.matchState, round?.winner)
     const animationTick = this.animationTick++
@@ -129,6 +142,24 @@ export class BattleView {
     if (!this.scene.anims.paused) this.fighter(this.jitter.id).x += (Math.floor(this.scene.time.now / 30) % 2 ? 1 : -1) * this.jitter.amplitude
   }
   private fighter(id: FighterId): TemporarySpriteRenderer { return id === 'PLAYER' ? this.player : this.enemy }
+  /** 出招點（world，腳底為 y）：身前 200，高度照該招特效表的 height，蹲下減半。 */
+  private strikePoint(id: FighterId, fx: SignatureFx, x: number, y: number, left: boolean): { x: number; y: number } { return { x: x + (left ? -200 : 200), y: y - fx.height / (this.contexts[id]?.crouch ? 2 : 1) } }
+  /** 起手蓄能跟著出招點走；招式進入 ACTIVE 時噴發（有設定就加衝擊波），噴發播完在光束前端消散。 */
+  private syncSignature(snapshot: MatchSnapshot): void {
+    for (const id of ['PLAYER', 'ENEMY'] as const) {
+      const active = this.signature[id], fighter = snapshot.world.fighters[id]
+      if (!active) continue
+      if (fighter.attackId !== active.attackId || fighter.attackPhase === 'NONE') { delete this.signature[id]; continue }
+      const { fx } = active, { pack, size } = fx, left = fighter.facing === 'LEFT', at = this.strikePoint(id, fx, fighter.x, fighter.y, left)
+      if (active.charge?.active) active.charge.setPosition(at.x, at.y)
+      if (active.burst || fighter.attackPhase !== 'ACTIVE') continue
+      active.burst = true
+      const burst = size.energy_burst ? playFx(this.scene, this.world, pack, 'energy_burst', at.x, at.y, left, size.energy_burst) : undefined
+      if (size.shockwave) playFx(this.scene, this.world, pack, 'shockwave', at.x, at.y, left, size.shockwave)
+      const tip = at.x + (left ? -1 : 1) * 0.8 * (size.energy_burst ?? 0) * FX_BODY
+      if (size.energy_dissipation) burst?.once('animationcomplete', () => playFx(this.scene, this.world, pack, 'energy_dissipation', tip, at.y, left, size.energy_dissipation as number))
+    }
+  }
   setSprite(id: FighterId, sprite: SpriteId): void {
     this.fighter(id).spriteId = sprite
     this.hud.usePortrait(id === 'PLAYER' ? 'p1' : 'p2', sprite)
@@ -138,6 +169,7 @@ export class BattleView {
   private syncLunges(): void {
     const distances = (id?: SpriteId) => Object.fromEntries(Object.entries(lungeFor(id) ?? {}).map(([attack, lunge]) => [attack, lunge.advance]))
     this.options.combat?.setLunge({ PLAYER: distances(this.player.spriteId), ENEMY: distances(this.enemy.spriteId) })
+    this.options.combat?.setPower({ PLAYER: powerFor(this.player.spriteId), ENEMY: powerFor(this.enemy.spriteId) })
   }
 
   private syncStance(tick: number): void {
@@ -152,5 +184,5 @@ export class BattleView {
     this.worldTick = tick
   }
 
-  destroy(): void { this.options.combat?.setHitTest(undefined); this.options.combat?.setPushWidth(undefined); this.options.combat?.setLunge(undefined) }
+  destroy(): void { this.options.combat?.setHitTest(undefined); this.options.combat?.setPushWidth(undefined); this.options.combat?.setLunge(undefined); this.options.combat?.setPower(undefined) }
 }

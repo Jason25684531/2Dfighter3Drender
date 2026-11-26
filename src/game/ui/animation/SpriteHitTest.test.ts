@@ -57,7 +57,7 @@ describe('SpriteHitTest', () => {
     expect(silhouetteContact(at(0), at(16, -1), 8)).not.toBeNull()
   })
   it('adds the per-character reach to the edge, falling back to the default row', () => {
-    const edge = HIT_TUNING.edge.LIGHT_PUNCH + reachFor('s1aw', 'LIGHT_PUNCH')
+    const edge = HIT_TUNING.edge.LIGHT_PUNCH + reachFor('s2lw', 'LIGHT_PUNCH')
     expect(edge).toBe(50)
     expect(silhouetteContact(at(0), at(59, -1), edge)).not.toBeNull()
     expect(silhouetteContact(at(0), at(61, -1), edge)).toBeNull()

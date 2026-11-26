@@ -14,14 +14,14 @@ export const PINNED_SLOTS = 5
 
 export type Slot = { index: number; type: SlotType; status?: SlotStatus; entry?: CharacterEntry; pinned?: true }
 // NAME＝輸入暱稱頁；CUSTOMIZE＝拍照頁（UX v03 UC02-4／UC03-1：暱稱與拍照分兩屏）。
-export type P1Phase = 'GRID' | 'OPPONENT' | 'DIFFICULTY' | 'NAME' | 'CUSTOMIZE' | 'REVIEW' | 'PROCESSING' | 'FAILED' | 'ALL_READY'
-export type GenerationState = 'PHOTO_CONFIRMED' | 'REQUESTING' | 'PROCESSING' | 'API_READY' | 'DOWNLOADING' | 'DECODED' | 'RUNTIME_READY' | 'FAILED'
+// 生成失敗不在選角處理：送出後就離開 PROCESSING，失敗由 P3 的重試／略過接手。
+export type P1Phase = 'GRID' | 'OPPONENT' | 'DIFFICULTY' | 'NAME' | 'CUSTOMIZE' | 'REVIEW' | 'PROCESSING' | 'ALL_READY'
 export type PlayerStatus = 'JOIN' | 'SELECTING' | 'READY' | 'WAITING' | 'CUSTOMIZE' | 'OPPONENT' | 'DIFFICULTY' | 'CPU_READY'
 export type OpponentChoice = { characterId: string; difficulty: AiProfileId }
 export type SelectFeedback = 'REJECTED' | 'JOIN_HINT' | 'NAME_REQUIRED' | 'FACE_GENERATION_USED' | 'NAME_TAKEN'
 export type SelectionInputResult = SelectFeedback | 'CONFIRMED'
 // photo：本機擷取的 dataURL，只存在記憶體、不進 result()／API。
-type PlayerState = { joined: boolean; cursor: number; locked?: number; nickname: string; customized: boolean; faceGenUsed?: boolean; generation?: GenerationState; photo?: string }
+type PlayerState = { joined: boolean; cursor: number; locked?: number; nickname: string; customized: boolean; faceGenUsed?: boolean; photo?: string }
 export type P1SelectionSeed = { players?: Partial<Record<PlayerSlotId, PlayerSelection>>; faceGenUsed?: Partial<Record<PlayerSlotId, boolean>> }
 
 const players: readonly PlayerSlotId[] = ['P1', 'P2']
@@ -45,15 +45,17 @@ export const selectSectionTitles = (slots: readonly Slot[]) => {
   }
 }
 
-// 01–04 永遠是 Body Template；FEATURED 依序填 05–10；11–15 固定玩家（缺的留空位）；超過的 FEATURED 與已生成角色從 16 起。其餘為 EMPTY（不得補假角色）。
-// 已生成角色由舊到新傳入；超過名錄容量時只顯示最新的，剛生成的角色才不會被擠出畫面。有傳入隱藏角色時多一格 31。
+// 01–04 永遠是 Body Template；FEATURED 依序填 05–10；11–15 固定玩家（缺的留空位）；暫存區 16–30 其餘為 EMPTY（不得補假角色）。
+// 暫存區格號由後端 roster.json 決定（16–30 依序存、滿了回 16 覆蓋最舊的，格子不會移動）；沒有格號的（本局剛生成、超過的 FEATURED）依序補空格。有傳入隱藏角色時多一格 31。
 export const buildSlots = (entries: readonly CharacterEntry[] = characterEntries()): Slot[] => {
   const bodies = bodyTemplates.map((template) => entries.find((entry) => entry.type === 'BODY_TEMPLATE' && entry.bodyTemplateId === template.bodyTemplateId) ?? template)
   const officers = SECTIONS[1].to - SECTIONS[1].from + 1, pad = (n: number) => Array<undefined>(Math.max(0, n))
   const featured = entries.filter((entry) => entry.type === 'FEATURED'), pinned = entries.filter((entry) => entry.roster === 'PINNED').slice(0, PINNED_SLOTS)
   const generated = entries.filter((entry) => entry.type !== 'FEATURED' && entry.type !== 'BODY_TEMPLATE' && !entry.roster), hidden = entries.find((entry) => entry.roster === 'HIDDEN')
-  const room = SLOT_COUNT - SECTIONS[1].to - PINNED_SLOTS - featured.slice(officers).length
-  const placed: (CharacterEntry | undefined)[] = [...featured.slice(0, officers), ...pad(officers - featured.length), ...pinned, ...pad(PINNED_SLOTS - pinned.length), ...featured.slice(officers), ...generated.slice(Math.max(0, generated.length - room))]
+  const first = SECTIONS[1].to + PINNED_SLOTS + 1, roster = Array<CharacterEntry | undefined>(SLOT_COUNT - first + 1).fill(undefined)
+  generated.forEach((entry) => { if (entry.slot && entry.slot >= first && entry.slot <= SLOT_COUNT) roster[entry.slot - first] = entry })
+  for (const entry of [...featured.slice(officers), ...generated.filter((entry) => !entry.slot)]) { const empty = roster.indexOf(undefined); if (empty < 0) break; roster[empty] = entry }
+  const placed: (CharacterEntry | undefined)[] = [...featured.slice(0, officers), ...pad(officers - featured.length), ...pinned, ...pad(PINNED_SLOTS - pinned.length), ...roster]
   const slots = Array.from({ length: SLOT_COUNT }, (_, i): Slot => {
     const entry = i < 4 ? bodies[i] : placed[i - 4], pin = i >= SECTIONS[1].to && i < SECTIONS[1].to + PINNED_SLOTS ? { pinned: true as const } : {}
     return entry ? { index: i + 1, type: entry.type, status: entry.status, entry, ...pin } : { index: i + 1, type: i < 4 ? 'BODY_TEMPLATE' : 'EMPTY', ...pin }
@@ -125,11 +127,6 @@ export class P1SelectionModel {
   }
 
   input(id: PlayerSlotId, action: OwnedUiAction): SelectionInputResult | undefined {
-    if (this.phase === 'FAILED') {
-      if (id === this.owner && action === 'BACK') this.abortCustomize()
-      else if (id === this.owner && action === 'CONFIRM') return 'FACE_GENERATION_USED'
-      return undefined
-    }
     if (this.phase === 'PROCESSING') return undefined
     if (this.phase === 'NAME' || this.phase === 'CUSTOMIZE' || this.phase === 'REVIEW') {
       if (id !== this.owner) return undefined
@@ -143,7 +140,7 @@ export class P1SelectionModel {
       else if (this.phase === 'CUSTOMIZE' && action === 'BACK') this.phase = 'NAME'
       else if (this.phase === 'REVIEW' && action === 'CONFIRM') {
         if (this.state[id].faceGenUsed) return 'FACE_GENERATION_USED'
-        this.state[id].faceGenUsed = true; this.state[id].generation = 'PHOTO_CONFIRMED'; this.phase = 'PROCESSING'; return 'CONFIRMED'
+        this.state[id].faceGenUsed = true; this.phase = 'PROCESSING'; return 'CONFIRMED'
       }
       else if (this.phase === 'REVIEW' && action === 'BACK') this.phase = 'CUSTOMIZE'
       return undefined
@@ -165,26 +162,21 @@ export class P1SelectionModel {
     p.locked = p.cursor; this.advance(); return 'CONFIRMED'
   }
 
+  /** 原型頁的模擬生成完成：清掉照片並回到選角。 */
   completeProcessing(): void {
-    this.setGenerationState('RUNTIME_READY')
+    if (this.phase !== 'PROCESSING' || !this.owner) return
+    this.state[this.owner].customized = true; this.state[this.owner].photo = undefined; this.owner = undefined; this.phase = 'GRID'; this.advance()
   }
 
+  /** 正式流程：照片已送出算圖，不等生成完成就讓下一位選角。 */
   continueProcessing(): void {
     if (this.phase !== 'PROCESSING' || !this.owner) return
-    this.state[this.owner].customized = true; this.state[this.owner].generation = 'PROCESSING'
+    this.state[this.owner].customized = true
     this.owner = undefined; this.phase = 'GRID'; this.advance()
   }
 
   skipCustomize(): void {
     if (this.phase !== 'CUSTOMIZE' || !this.owner) return
-    this.state[this.owner].customized = true; this.state[this.owner].photo = undefined; this.owner = undefined; this.phase = 'GRID'; this.advance()
-  }
-
-  setGenerationState(state: GenerationState): void {
-    if (this.phase !== 'PROCESSING' || !this.owner) return
-    this.state[this.owner].generation = state
-    if (state === 'FAILED') { this.phase = 'FAILED'; return }
-    if (state !== 'RUNTIME_READY') return
     this.state[this.owner].customized = true; this.state[this.owner].photo = undefined; this.owner = undefined; this.phase = 'GRID'; this.advance()
   }
 
@@ -202,7 +194,7 @@ export class P1SelectionModel {
     }))
   }
 
-  private unlock(id: PlayerSlotId): void { if (id === 'P1') this.rival = undefined; this.state[id].locked = undefined; this.state[id].customized = false; this.state[id].generation = undefined; this.state[id].photo = undefined }
+  private unlock(id: PlayerSlotId): void { if (id === 'P1') this.rival = undefined; this.state[id].locked = undefined; this.state[id].customized = false; this.state[id].photo = undefined }
 
   private advance(): void {
     if (this.phase !== 'GRID' || players.some((id) => this.state[id].joined && this.state[id].locked === undefined)) return
